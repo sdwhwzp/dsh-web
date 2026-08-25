@@ -50,7 +50,7 @@ reverse_proxy 127.0.0.1:3080 {
 
 `header_up` with a value replaces any client-supplied value. Do not combine that line with a deletion of the same field: Caddy 2.6 applies grouped deletes after sets. If the Caddy systemd unit starts `caddy run --environ`, remove that flag or otherwise protect its output because it prints environment variables at startup.
 
-`web_settings_namespaces` in `settings.yaml` still decides which family namespaces the bridge serves; when absent, the built-in family list applies. Config changes require a DSH restart, while `web_settings_namespaces` is re-read for every bridge call.
+`web_settings_namespaces` in `settings.yaml` still decides which family namespaces the bridge serves; when absent, the built-in family list applies and includes the Workshop's `dsh-web-ui-market` namespace. The Workshop enable switch therefore remains writable when the official Host settings API does not expose third-party namespaces. Config changes require a DSH restart, while `web_settings_namespaces` is re-read for every bridge call.
 
 ## Security model
 

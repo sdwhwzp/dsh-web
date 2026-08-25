@@ -24,6 +24,7 @@ export const FAMILY_NAMESPACES = [
   'skin-background',
   'community-plugins',
   'desktop-launcher',
+  'dsh-web-ui-market',
 ] as const
 
 /**
@@ -55,6 +56,9 @@ const NAMESPACE_ALIASES: Readonly<Record<string, string | null>> = {
   'dsh-client-ui-aionui-panel': 'aionui-panel',
   'desktop-launcher': 'desktop-launcher',
   'dsh-desktop-launcher': 'desktop-launcher',
+  'dsh-market': 'dsh-web-ui-market',
+  'dsh-client-ui-market': 'dsh-web-ui-market',
+  'ui-market': 'dsh-web-ui-market',
   'dsh-git-graph': null,
   'dsh-client-ui-git-graph': null,
   'dsh-web': null,

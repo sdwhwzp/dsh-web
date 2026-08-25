@@ -150,13 +150,14 @@ describe('bridge describe', () => {
     const { seam } = fakeSettings({
       'task-board': { value: { enabled: true }, revision: 1 },
       pet: { value: { visible: true }, revision: 2 },
-      'web-search-deepseek': { value: { provider: 'exa' }, revision: 3 },
+      'dsh-web-ui-market': { value: { enabled: true }, revision: 3 },
+      'web-search-deepseek': { value: { provider: 'exa' }, revision: 4 },
     })
     const handlers = makeBridgeHandlers({ settings: seam as unknown as SettingsProvider, readSettingsYaml: () => '' })
     const result = await handlers.describe()
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.value.namespaces.map(view => view.ns)).toEqual(['pet', 'task-board'])
+    expect(result.value.namespaces.map(view => view.ns)).toEqual(['dsh-web-ui-market', 'pet', 'task-board'])
     expect(result.value.writable).toBe(true)
   })
 
