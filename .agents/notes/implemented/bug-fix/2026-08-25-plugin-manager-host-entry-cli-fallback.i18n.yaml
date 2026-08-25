@@ -1,0 +1,5 @@
+# Bilingual-pair consistency record (docs/i18n.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with git hash-object.
+2026-08-25-plugin-manager-host-entry-cli-fallback.md: c89fd49d4bbd13be228ad3fe96405b2f5a90b406
+2026-08-25-plugin-manager-host-entry-cli-fallback.zh.md: 7765c021805d745d18d9e18f0686de2a5677d1be
