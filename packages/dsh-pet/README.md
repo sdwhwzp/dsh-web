@@ -13,6 +13,7 @@ Re-implemented from the pet feature of the Codex desktop app, as an official DSH
 | Feature | Description |
 |---|---|
 | Multi-pet registry | The host scans built-in `assets/`, the hatch-pet custom pets directory, and composed config entries; each pet is a manifest plus an atlas |
+| Per-account companions | Direct access and every authenticated gateway account keep independent selection, name, position, visibility, switches, affinity, treats, and interaction counters; one account cannot change another account's pet |
 | Pet selection in settings | The plugin settings card lists every registered pet (built-in assets plus user directories — the installed set); switching persists and the sprite swaps immediately. The card sits in the first-level Pet settings section |
 | Per-pet naming | Rename from the hover panel; each pet keeps its own name (stored per pet id, migrated from the legacy flat name) |
 | State animation | Official session activity → manifest-defined sequences of 9-state tracks; each track finishes its full duration before the sequence advances and the complete sequence loops |
@@ -25,7 +26,7 @@ Re-implemented from the pet feature of the Codex desktop app, as an official DSH
 | Witty remarks | Built-in remark library (10 lines per event) plus per-pet custom lines; success lines rotate by persisted success counts and cooldown lines by persisted rejection counts |
 | Status bubbles | Only the most recently active top-level session speaks by default — when several sessions run at once, the rest collapse behind a +N badge on the main bubble instead of stacking a tall column; hover the bubble (or tap the badge, for touch) to fan every session's bubble out above it and click one to jump to its session; subagent sessions report through their spawning conversation and never occupy a bubble of their own; transient interaction feedback temporarily takes priority. Bubble copy comes from generous rotating pools per scene (waiting / thinking / writing / done / failed...), tool calls map onto per-family witty lines carrying the real argument hint (e.g. 跑跑 npm test), and a long-lived scene re-phrases itself every few seconds |
 | Inner whispers | 碎碎念: while the model streams, the pet occasionally speaks its inner voice through its own bubble — a fresh whisper takes over the display session's bubble and marks it with 「」 quotes — sharing the same DeepSeek-blue glass as every status bubble, so stacked bubbles never clash — instead of stacking a second bubble — keyword moods woken by the model output (errors, test greens, plans, victories...) plus ambient whispers earned by output volume; paced by a cooldown, the status copy returns after a few seconds |
-| Multi-session activity | The pet is host-global: the most recent meaningful event drives the sprite animation while every active top-level session reports its own state in a separate bubble; completed turns from every session (subagents included) contribute affinity and treats |
+| Multi-session activity | The direct desktop companion is host-global: the most recent meaningful event drives the sprite animation while every active top-level session reports its own state in a separate bubble; completed turns from every session (subagents included) contribute affinity and treats |
 | Voice packs and panel DIY | A per-pet voice.json plus the global $DSH_HOME/pets/.voice.json override replace every bubble word and the hover panel (button labels, stat formats, button visibility); merge precedence per-pet > global > built-in, broken packs warn and never reject a pet |
 
 ## Pet contract
@@ -218,13 +219,14 @@ dsh-pet/
 |   |-- remarks.ts           # witty-remark library: built-in pools + per-pet overrides + counted picker
 |   |-- affinity.ts          # affinity ledger (pure functions + cooldowns)
 |   |-- treats.ts            # dried-fish stock ledger
-|   |-- persist.ts           # persistence ($DSH_HOME/pet.json: selection + names + interaction counts)
+|   |-- persist.ts           # persistence ($DSH_HOME/pet.json + principal-scoped pet-accounts/ files)
 |   |-- routes.ts            # /api/pet/* JSON API + /pet/<id>/* asset routes
 |   `-- client/             # browser half
 |       |-- index.ts         # global mount (createRoot → body) + registry fetch + polling + wiring
 |       |-- PetDockEntry.tsx # global floating entry (document.body, always shown)
 |       |-- PetSprite.tsx    # definition-driven floating sprite (portal + rAF + dragging)
 |       |-- PetSettingsCard.tsx # settings card: pet selector + display layout
+|       |-- pet-settings-scope.ts # account-aware settings API adapter
 |       |-- sequences.ts     # full-track scene sequence timing
 |       |-- spritesheet.ts   # atlas geometry helpers + track trimming
 |       `-- pet.module.css
@@ -247,11 +249,11 @@ global React root (createRoot → document.body) <-- polling 2s -- pet-client (b
 
 - **Status source**: the host projects official `turn/start`, `step/start`, `assistant/chunk`, `assistant/message`, `tool/call`, `tool/result`, and `turn/end` events into waiting/thinking/tool/review/done/failed states. Optional legacy `activity/status` events remain a compatibility input.
 - **Registry**: the host normalizes every manifest into a full render definition (geometry, per-row frame counts, per-track durations) and serves it over `/api/pet/pets`; the browser half renders any entry from that definition and carries no per-pet code.
-- **Selection & naming**: `petId` lives in the settings namespace; per-pet names live in `pet.json` under `names`, edited through the hover-panel rename of the active pet. Legacy installs migrate their flat `name` onto the whale girl.
-- **Multi-session semantics**: the API and browser mount are host-global and expose no foreground-session identity. Concurrent sessions each keep their own projected state: the most recent meaningful event drives the sprite animation, while every active TOP-LEVEL session reports its stage in its own bubble (the state view's sessions list, capped at 12 most-recent). Subagent children are tracked for animation, rewards, and the single display bubble but render no bubble of their own, so N conversations never multiply into an N-plus-subagents stack. Every session's completed turns are still rewarded independently; disposing a session removes its bubble, and disposing the display session falls back to the most recent remaining one.
+- **Account persistence**: direct access at the Host port keeps the established `$DSH_HOME/pet.json`. A verified gateway principal `(source, immutable id)` maps to an opaque SHA-256 directory under `$DSH_HOME/pet-accounts/`; its `pet.json` stores that account's selection, names, display, switches, affinity, treats, and interaction counters. Renaming an account does not reset its pet.
+- **Multi-session semantics**: the direct desktop account consumes host-global session activity. Concurrent sessions each keep their own projected state: the most recent meaningful event drives the sprite animation, while every active TOP-LEVEL session reports its stage in its own bubble (the state view's sessions list, capped at 12 most-recent). Subagent children are tracked for animation, rewards, and the single display bubble but render no bubble of their own, so N conversations never multiply into an N-plus-subagents stack. Every session's completed turns are still rewarded independently; disposing a session removes its bubble, and disposing the display session falls back to the most recent remaining one. Principal-scoped gateway accounts never inherit this global activity or its bubbles.
 - **Mount point**: `document.body` (global React root, always shown: no session / new session / mid-session — the old mount point `conversation.composer.dock` only rendered in an active session, hiding the pet in new sessions); the component uses `createPortal` internally to render the global floating layer. The root follows the plugin fiber lifecycle: fiber disposal unmounts the React root, removes the container, and stops the poll loop and settings subscription; a hot-reloaded or re-injected bundle takes over the page-global slot, so the page always holds exactly one `[data-dsh-pet-root]` (issue #785).
 - **Rendering**: CSS sprite (background-position) per-frame animation; frame durations and optional scene sequences come from the served definition. The hover panel is anchored below the pet with a pointer bridge across the gap; when the viewport leaves no room below, it flips above the pet and is lifted clear of the status bubble stack so the two never overlap.
-- **Communication**: browser ↔ host over the same-origin `/api/pet/*` JSON endpoints (state/pets/interact/set-visible/set-config/set-name/set-pet); each pet's atlas loads from `/pet/<id>/<spritesheetPath>` — the plugin self-sufficiently provides its own API and assets (the same pattern as dsh-remote-web-ui's `/api/pair`).
+- **Communication**: browser ↔ host over the same-origin `/api/pet/*` JSON endpoints (state/pets/settings/settings/mutate/interact/set-visible/set-config/set-name/set-pet); each pet's atlas loads from `/pet/<id>/<spritesheetPath>`. When a trusted gateway supplies a verified request principal, every state and mutation endpoint selects that principal's account file; a direct request with no principal selects the desktop account.
 
 ## Install
 
@@ -289,10 +291,15 @@ The two built-in whale-girl atlases use the same 9-state × 8-column contract: `
 ## Security model
 
 - Every `/api/pet/*` and `/pet/<id>/*` route is loopback-only by default (the shared plugin-family fence: loopback socket + Host header + browser same-origin markers): unpaired LAN clients get `403 forbidden: loopback-only` before any pet state or atlas is served. When `dsh-remote-web-ui` is also loaded, a live paired-device cookie is an additional allow path (the same cookie `api/gate` already checks); unpaired and revoked devices stay 403. The pet does not depend on the remote plugin.
+- Account selection accepts only identities verified by the Host `requestPrincipal` service. Browser-supplied principal or signature headers are rejected when no verifier is installed or verification fails; storage paths use issuer plus immutable account id, never username or a browser path.
 - Asset serving resolves both the pet directory and the candidate file through `realpath`; symlink escapes are refused (403). Files are size-capped before being read into memory (manifest 64 KB, imagery 20 MB; over-cap answers 413).
 - Live2D models are served by closure: only the manifest, the declared primary assets, and the files the `.model3.json` references (each screened against traversal, absolute and URL forms).
 - The plugin never downloads executables and never bundles the Live2D Cubism Core.
 - Manifests are fail-closed on structure: unknown fields or renderers reject the entry with a diagnostic shown in settings.
+
+## Known limitations
+
+- Principal-scoped gateway companions currently render idle animation without session bubbles. The Host session event stream does not attribute activity to a verified principal, so sharing host-global activity would leak another account's status; selection, layout, naming, switches, affinity, treats, and direct interactions remain fully independent. Direct access on the Host port retains full session-reactive animation.
 
 ## Telemetry
 

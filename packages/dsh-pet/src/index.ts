@@ -23,8 +23,11 @@ import { mountOnce } from './mount-once.ts'
 
 export { PetService, MAX_SESSION_BUBBLES } from './service.ts'
 export type {
+  PetAccountScope,
+  PetAccountSettingsView,
   PetConfig,
   PetInteractResult,
+  PetSettingsPathOp,
   PetSettingsSection,
   PetSessionView,
   PetStateView,
@@ -82,7 +85,7 @@ export {
   petHomeDir,
   savePetPersist,
 } from './persist.ts'
-export type { PetDisplayConfig, PetPersist } from './persist.ts'
+export type { PetDisplayConfig, PetPersist, PetSettingField } from './persist.ts'
 export {
   DEFAULT_FRAME_COUNTS,
   DEFAULT_PET_CELL,
@@ -157,38 +160,22 @@ function applyImpl(ctx: Context, config: PetConfig = {}): void {
   // drag interactions mirror back into the settings document through the
   // service (see syncSettingsFromPet), keeping both views consistent.
   let current: () => PetSettingsSection = () => base
-  const base: PetSettingsSection = {
-    visible: service.display().visible,
-    size: service.display().size,
-    right: service.display().right,
-    bottom: service.display().bottom,
-    petId: service.selectedPetId(),
-    enabled: config.enabled ?? true,
-    decorationEnabled: config.decorationEnabled ?? true,
-  }
+  const base = service.accountSettings().value
   // The browser half talks to the pet through same-origin JSON endpoints and
   // loads each pet's atlas from the registry's own media route (RPC domains
   // are platform-registered, so the pet serves its own API — the same
   // pattern as dsh-remote-web-ui's /api/pair family). The routes are
-  // registered while the plugin is enabled; toggling the setting off makes
-  // the pet API disappear until it is re-enabled.
+  // registered for the full plugin lifetime. The API must remain reachable
+  // when one account hides its pet so that another authenticated account can
+  // still load and update its independently persisted companion.
   const routes = makePetRoutes({ service, ctx })
-  let disposeRoutes: (() => void) | undefined
-  const syncRoutes = (): void => {
-    const enabled = current().enabled ?? true
-    if (disposeRoutes === undefined && enabled) {
-      disposeRoutes = ctx.effect(
-        () => {
-          const disposers = routes.map((route) => ctx.webServer.register(route))
-          return () => { for (const dispose of disposers) dispose() }
-        },
-        'pet: routes',
-      )
-    } else if (disposeRoutes !== undefined && !enabled) {
-      disposeRoutes()
-      disposeRoutes = undefined
-    }
-  }
+  ctx.effect(
+    () => {
+      const disposers = routes.map((route) => ctx.webServer.register(route))
+      return () => { for (const dispose of disposers) dispose() }
+    },
+    'pet: routes',
+  )
   installSettingsSection(
     ctx,
     settingsNamespace(PET_SETTINGS_NAMESPACE),
@@ -199,10 +186,7 @@ function applyImpl(ctx: Context, config: PetConfig = {}): void {
       onChange: () => {
         const section = current()
         service.applySettingsSection(section)
-        service.setEnabled(section.enabled ?? true)
-        syncRoutes()
       },
     },
   )
-  syncRoutes()
 }

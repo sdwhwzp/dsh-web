@@ -13,6 +13,7 @@ import {
   emptyPersist,
   loadPetPersist,
   savePetPersist,
+  type PetPersist,
 } from './persist.ts'
 
 function tempDir(): string {
@@ -46,7 +47,10 @@ describe('loadPetPersist', () => {
   it('round-trips a saved persist file', () => {
     const dir = tempDir()
     try {
-      const data = {
+      const data: PetPersist = {
+        enabled: false,
+        decorationEnabled: false,
+        settingsOverrides: ['enabled', 'petId'],
         petId: 'otter',
         names: { otter: '泡泡', 'whale-girl': '鲸鱼娘' },
         affinity: { ...emptyAffinity(), points: 42, pets: 3, feeds: 1, turns: 10 },

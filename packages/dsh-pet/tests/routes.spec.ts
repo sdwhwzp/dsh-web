@@ -221,6 +221,92 @@ describe('pet routes', () => {
     await assetRoute!.handler({ ...lanRequest, url: '/pet/whale-girl/pet.json' } as never, asset.res as never)
     expect(asset.status()).toBe(200)
   })
+
+  it('rejects account identity headers when no trusted verifier is installed', async () => {
+    const response = await fetch(url('/api/pet/state'), {
+      headers: {
+        'x-dsh-principal': 'forged-account',
+        'x-dsh-principal-signature': 'forged-signature',
+      },
+    })
+    expect(response.status).toBe(403)
+    expect(await response.json()).toMatchObject({ error: 'unverified-account-identity' })
+  })
+
+  it('selects an independent pet account from the trusted gateway principal', async () => {
+    const accountService = new PetService(new Context(), {
+      persistDir: join(dir, 'account-home'),
+      registry: service.registrySnapshot(),
+    })
+    const accountCtx = {
+      get: (name: string) => name === 'requestPrincipal'
+        ? {
+            authenticate: (request: Request) => {
+              const id = request.headers.get('x-dsh-principal')
+              const signature = request.headers.get('x-dsh-principal-signature')
+              if (id === null && signature === null) return undefined
+              if (id === null || signature !== 'trusted') throw new Error('invalid identity')
+              return { source: 'dsh-passwords', id }
+            },
+          }
+        : undefined,
+    }
+    const accountRoutes = makePetRoutes({ service: accountService, ctx: accountCtx as never })
+    const accountServer = createServer((req, res) => {
+      const pathname = (req.url ?? '').split('?')[0]!
+      const route = accountRoutes.find(candidate => candidate.kind === 'exact' && candidate.path === pathname)
+      if (route === undefined) {
+        res.writeHead(404)
+        res.end()
+        return
+      }
+      void route.handler(req, res)
+    })
+    accountServer.listen(0, '127.0.0.1')
+    await once(accountServer, 'listening')
+    const accountPort = (accountServer.address() as AddressInfo).port
+    const accountUrl = (path: string): string => `http://127.0.0.1:${accountPort}${path}`
+    const principalHeaders = (id: string): Record<string, string> => ({
+      'content-type': 'application/json',
+      'x-dsh-principal': id,
+      'x-dsh-principal-signature': 'trusted',
+    })
+    try {
+      const changed = await fetch(accountUrl('/api/pet/settings/mutate'), {
+        method: 'POST',
+        headers: principalHeaders('2'),
+        body: JSON.stringify({
+          expectedRevision: 0,
+          ops: [
+            { op: 'set', path: ['petId'], value: 'otter' },
+            { op: 'set', path: ['enabled'], value: false },
+          ],
+        }),
+      })
+      expect(changed.status).toBe(200)
+
+      const alice = await fetch(accountUrl('/api/pet/settings'), {
+        headers: principalHeaders('2'),
+      }).then(response => response.json()) as { value: { enabled: boolean; petId: string } }
+      expect(alice.value).toMatchObject({ enabled: false, petId: 'otter' })
+
+      const bob = await fetch(accountUrl('/api/pet/settings'), {
+        headers: principalHeaders('3'),
+      }).then(response => response.json()) as { value: { enabled: boolean; petId: string } }
+      expect(bob.value).toMatchObject({ enabled: true, petId: 'whale-girl' })
+
+      const rejected = await fetch(accountUrl('/api/pet/state'), {
+        headers: {
+          'x-dsh-principal': '2',
+          'x-dsh-principal-signature': 'tampered',
+        },
+      })
+      expect(rejected.status).toBe(403)
+      expect(await rejected.json()).toMatchObject({ error: 'invalid-account-identity' })
+    } finally {
+      await new Promise<void>(resolve => accountServer.close(() => resolve()))
+    }
+  })
 })
 describe('decoration routes (pet-center M5, #567)', () => {
   it('serves the strip and descriptor from the declaration allow-list', async () => {

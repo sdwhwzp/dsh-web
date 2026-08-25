@@ -2,9 +2,9 @@
  * Pet host service — the `pet.*` RPC domain. A composition facade: it wires
  * the pure event projection (`event-projection`) onto the state machine,
  * delegates the affinity economy to the ledger (`ledger`), and routes
- * persistence through `persist`. The API gateway maps these methods onto
- * `pet.state` / `pet.pets` / `pet.interact` / `pet.setVisible` /
- * `pet.setConfig` / `pet.setName` / `pet.setPet` for browser consumers.
+ * persistence through `persist`. The HTTP routes map these methods onto the
+ * same-origin `/api/pet/*` surface and select an account from a verified
+ * request principal when one is present.
  *
  * Concurrent sessions each keep their own machine: the sprite animation
  * follows the most recent meaningful event (the display session) while the
@@ -14,6 +14,8 @@
 
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import { createHash } from 'node:crypto'
+import { join } from 'node:path'
 import type { AffinityConfig, PetAffinityView, PetInteraction } from './affinity.ts'
 import type { TreatConfig } from './treats.ts'
 import {
@@ -30,10 +32,12 @@ import {
   DISPLAY_SIZE_MAX,
   DISPLAY_SIZE_MIN,
   PET_NAME_MAX_LENGTH,
+  emptyPersist,
   loadPetPersist,
   petHomeDir,
   savePetPersist,
   type PetDisplayConfig,
+  type PetSettingField,
 } from './persist.ts'
 import {
   DEFAULT_DECORATION_ID,
@@ -67,7 +71,7 @@ export interface PetConfig {
   treats?: Partial<TreatConfig>
   /** Persistence directory override (defaults to $DSH_HOME). */
   persistDir?: string
-  /** Master switch for the plugin (browser half + host routes). */
+  /** Master switch for the direct desktop account's browser companion. */
   enabled?: boolean
   /** Status-decoration master switch (pet-center M5, #567); defaults to on. */
   decorationEnabled?: boolean
@@ -95,13 +99,40 @@ export interface PetSettingsSection {
   right: number
   /** Vertical inset from the viewport bottom edge, px. */
   bottom: number
-  /** Master switch for the plugin (browser half + host routes). */
+  /** Master switch for this account's browser companion. */
   enabled?: boolean
   /**
    * Status-decoration master switch (pet-center M5, #567). Defaults to on;
    * the settings surface mirrors this field and can turn it off.
    */
   decorationEnabled?: boolean
+}
+
+/** Stable authenticated account identity supplied by a trusted Host adapter. */
+export interface PetAccountScope {
+  /** Identity issuer, such as `dsh-passwords`. */
+  source: string
+  /** Issuer-local immutable account id. */
+  id: string
+}
+
+/** One account-settings path mutation accepted by the pet API. */
+export type PetSettingsPathOp =
+  | { op: 'set'; path: [keyof PetSettingsSection]; value: unknown }
+  | { op: 'unset'; path: [keyof PetSettingsSection] }
+
+/** Account-scoped settings view consumed by the browser settings card. */
+export interface PetAccountSettingsView {
+  /** Resolved values for this account. */
+  value: PetSettingsSection
+  /** Values restored by a field reset. */
+  base: PetSettingsSection
+  /** Explicit account layer; omitted fields inherit {@link base}. */
+  user: Partial<PetSettingsSection>
+  /** In-process optimistic-concurrency revision. */
+  revision: number
+  /** Account files are writable while the pet service is running. */
+  writable: true
 }
 
 /** Settings namespace of the pet capability. Spelled here rather than imported: the browser half spells the same value. */
@@ -202,6 +233,13 @@ interface SessionActivity {
   }
 }
 
+/** One independently persisted account companion. */
+interface PetAccountState {
+  ledger: PetLedger
+  persistDir: string
+  revision: number
+}
+
 /**
  * Cordis service exposing the pet RPC domain. Lazy: nothing is scanned or
  * written until an economic event or interaction arrives; event listeners
@@ -212,13 +250,14 @@ export class PetService extends Service {
   static inject: string[] = []
 
   private readonly machine: PetStateMachine
+  private readonly accountIdleSnapshot: PetStateSnapshot
   private readonly stateConfig: PetStateConfig
-  private readonly ledger: PetLedger
+  private readonly localAccount: PetAccountState
+  private readonly localSettingsBase: PetSettingsSection
+  private readonly accounts = new Map<string, PetAccountState>()
+  private readonly ledgerConfig: Omit<LedgerConfig, 'remarks'>
   private readonly registry: PetRegistry
   private readonly persistDir: string
-  private enabled: boolean
-  /** Status-decoration master switch (M5, #567); mirrored from settings. */
-  private decorationEnabled: boolean
   private disposeActivity: (() => void) | undefined
   /** Session whose most recent meaningful event currently drives the global pet. */
   private displaySession: Session | undefined
@@ -252,6 +291,10 @@ export class PetService extends Service {
     if (this.registry.entries.length === 0) {
       throw new Error('[dsh-pet] no valid pet manifests found; nothing to render')
     }
+    this.ledgerConfig = {
+      affinity: config.affinity,
+      treats: config.treats,
+    }
     let persist = loadPetPersist(this.persistDir)
     if (this.registry.byId(persist.petId) === undefined) {
       // The selected pet no longer exists (removed or a fresh install with a
@@ -259,18 +302,86 @@ export class PetService extends Service {
       persist = { ...persist, petId: this.registry.defaultEntry().id }
     }
     const selected = this.registry.byId(persist.petId) ?? this.registry.defaultEntry()
-    const ledgerConfig: LedgerConfig = {
-      affinity: config.affinity,
-      treats: config.treats,
-      remarks: selected.remarks,
+    persist = {
+      ...persist,
+      enabled: config.enabled ?? persist.enabled,
+      decorationEnabled: config.decorationEnabled ?? persist.decorationEnabled,
     }
-    this.ledger = new PetLedger(persist, ledgerConfig)
+    this.localAccount = {
+      ledger: new PetLedger(persist, { ...this.ledgerConfig, remarks: selected.remarks }),
+      persistDir: this.persistDir,
+      revision: 0,
+    }
+    this.localSettingsBase = this.accountSection(this.localAccount)
     this.stateConfig = { ...defaultPetStateConfig, ...(config.state ?? {}) }
     this.machine = new PetStateMachine(this.stateConfig)
-    this.enabled = config.enabled ?? true
-    this.decorationEnabled = config.decorationEnabled ?? true
-
+    this.accountIdleSnapshot = new PetStateMachine(this.stateConfig).render()
     this.syncActivity()
+  }
+
+  /** Map one authenticated issuer/id pair onto an opaque storage directory. */
+  private accountIdentity(scope: PetAccountScope): { key: string; dir: string } {
+    const key = `${scope.source}\u0000${scope.id}`
+    const digest = createHash('sha256').update(key, 'utf8').digest('hex')
+    return { key, dir: join(this.persistDir, 'pet-accounts', digest) }
+  }
+
+  /** Resolve or lazily load one account companion; direct Host access keeps the legacy root file. */
+  private account(scope?: PetAccountScope): PetAccountState {
+    if (scope === undefined) return this.localAccount
+    const identity = this.accountIdentity(scope)
+    const cached = this.accounts.get(identity.key)
+    if (cached !== undefined) return cached
+    let persist = loadPetPersist(identity.dir)
+    if (this.registry.byId(persist.petId) === undefined) {
+      persist = { ...persist, petId: this.registry.defaultEntry().id }
+    }
+    const selected = this.registry.byId(persist.petId) ?? this.registry.defaultEntry()
+    const account: PetAccountState = {
+      ledger: new PetLedger(persist, { ...this.ledgerConfig, remarks: selected.remarks }),
+      persistDir: identity.dir,
+      revision: 0,
+    }
+    this.accounts.set(identity.key, account)
+    return account
+  }
+
+  /** Default account values restored by settings-card resets. */
+  private accountBase(scope?: PetAccountScope): PetSettingsSection {
+    if (scope === undefined) return { ...this.localSettingsBase }
+    const defaults = emptyPersist()
+    return {
+      enabled: defaults.enabled,
+      decorationEnabled: defaults.decorationEnabled,
+      visible: defaults.display.visible,
+      size: defaults.display.size,
+      right: defaults.display.right,
+      bottom: defaults.display.bottom,
+      petId: this.registry.defaultEntry().id,
+    }
+  }
+
+  /** Project one account ledger onto the browser settings section. */
+  private accountSection(account: PetAccountState): PetSettingsSection {
+    const snapshot = account.ledger.snapshot
+    return {
+      enabled: snapshot.enabled,
+      decorationEnabled: snapshot.decorationEnabled,
+      visible: snapshot.display.visible,
+      size: snapshot.display.size,
+      right: snapshot.display.right,
+      bottom: snapshot.display.bottom,
+      petId: snapshot.petId,
+    }
+  }
+
+  /** Project only explicitly written fields as the settings user layer. */
+  private accountUser(account: PetAccountState, value: PetSettingsSection): Partial<PetSettingsSection> {
+    const user: Partial<PetSettingsSection> = {}
+    for (const field of account.ledger.snapshot.settingsOverrides) {
+      Object.assign(user, { [field]: value[field] })
+    }
+    return user
   }
 
   /**
@@ -292,17 +403,17 @@ export class PetService extends Service {
 
   /** Whether the pet service consumes session activity while enabled. */
   isEnabled(): boolean {
-    return this.enabled
+    return this.localAccount.ledger.snapshot.enabled
   }
 
   /** RPC: current pet state snapshot. */
-  async state(): Promise<PetStateView> {
-    return this.view()
+  async state(scope?: PetAccountScope): Promise<PetStateView> {
+    return this.view(scope)
   }
 
   /** Current persisted display config (read-only view). */
-  display(): PetDisplayConfig {
-    return { ...this.ledger.snapshot.display }
+  display(scope?: PetAccountScope): PetDisplayConfig {
+    return { ...this.account(scope).ledger.snapshot.display }
   }
 
   /** RPC: the registry entries the browser half renders and selects from. */
@@ -324,43 +435,52 @@ export class PetService extends Service {
    * The active status decoration view (M5, #567): the default 'whale' entry
    * (user directories override built-ins by id), gated by the master switch.
    */
-  private activeDecoration(): DecorationView | undefined {
-    if (!this.decorationEnabled) return undefined
+  private activeDecoration(scope?: PetAccountScope): DecorationView | undefined {
+    if (!this.account(scope).ledger.snapshot.decorationEnabled) return undefined
     const entry = this.registry.decorationById?.(DEFAULT_DECORATION_ID)
     return entry === undefined ? undefined : decorationView(entry)
   }
 
   /** The selected pet's registry entry. */
-  activeEntry(): NonNullable<PetRegistry['entries'][number]> {
-    return this.registry.byId(this.selectedPetId()) ?? this.registry.defaultEntry()
+  activeEntry(scope?: PetAccountScope): NonNullable<PetRegistry['entries'][number]> {
+    return this.registry.byId(this.selectedPetId(scope)) ?? this.registry.defaultEntry()
   }
 
   /** Currently selected pet id (persisted). */
-  selectedPetId(): string {
-    return this.ledger.snapshot.petId
+  selectedPetId(scope?: PetAccountScope): string {
+    return this.account(scope).ledger.snapshot.petId
   }
 
   /** The display name of one pet (user rename or manifest displayName). */
-  petName(petId: string = this.selectedPetId()): string {
-    const stored = this.ledger.snapshot.names[petId]
+  petName(petId?: string, scope?: PetAccountScope): string {
+    const account = this.account(scope)
+    const selectedPetId = petId ?? account.ledger.snapshot.petId
+    const stored = account.ledger.snapshot.names[selectedPetId]
     if (stored !== undefined && stored.trim() !== '') return stored
-    return this.registry.byId(petId)?.displayName ?? DEFAULT_PET_NAME
+    return this.registry.byId(selectedPetId)?.displayName ?? DEFAULT_PET_NAME
   }
 
   /** RPC: switch the selected pet (persisted, settings document mirrored). */
-  async setPetId(petId: string): Promise<{ ok: true; petId: string } | { ok: false; error: string }> {
+  async setPetId(petId: string, scope?: PetAccountScope): Promise<{ ok: true; petId: string } | { ok: false; error: string }> {
     const entry = this.registry.byId(petId)
     if (entry === undefined) return { ok: false, error: 'unknown-pet' }
-    this.ledger.setPetId(entry.id)
-    this.ledger.setRemarks(entry.remarks)
-    this.flush()
-    this.syncSettingsFromPet()
+    const account = this.account(scope)
+    account.ledger.setPetId(entry.id)
+    account.ledger.setRemarks(entry.remarks)
+    account.ledger.setSettingsOverrides([
+      ...new Set([...account.ledger.snapshot.settingsOverrides, 'petId' as PetSettingField]),
+    ])
+    account.revision += 1
+    this.flush(account)
+    if (scope === undefined) this.syncSettingsFromPet()
     return { ok: true, petId: entry.id }
   }
 
   /** Start or stop the session-activity listeners that drive the pet. */
   setEnabled(enabled: boolean): void {
-    this.enabled = enabled
+    this.localAccount.ledger.setEnabled(enabled)
+    this.localAccount.revision += 1
+    this.flush(this.localAccount)
     this.syncActivity()
     if (!enabled) this.resetActivity()
   }
@@ -370,7 +490,7 @@ export class PetService extends Service {
       this.disposeActivity()
       this.disposeActivity = undefined
     }
-    if (!this.enabled) return
+    if (!this.localAccount.ledger.snapshot.enabled) return
     this.disposeActivity = (() => {
       const disposers = [
         this.ctx.on('session/event', (session: Session, event: SessionEvent) => {
@@ -405,7 +525,7 @@ export class PetService extends Service {
           }
         }),
         this.ctx.on('session/disposed', (session: Session) => {
-          this.ledger.forgetSession(String(session.id))
+          this.localAccount.ledger.forgetSession(String(session.id))
           this.officialEventSessions.delete(session)
           this.sessionActivity.delete(session)
           if (session !== this.displaySession) return
@@ -476,40 +596,61 @@ export class PetService extends Service {
   }
 
   /** RPC: pet or feed the pet. */
-  async interact(kind: PetInteraction): Promise<PetInteractResult> {
+  async interact(kind: PetInteraction, scope?: PetAccountScope): Promise<PetInteractResult> {
     const nowMs = Date.now()
-    const result = this.ledger.interact(kind, nowMs)
-    if (this.ledger.takeDirty()) this.flush()
+    const account = this.account(scope)
+    const result = account.ledger.interact(kind, nowMs)
+    if (account.ledger.takeDirty()) this.flush(account)
     return result
   }
 
   /** RPC: show or hide the pet. */
-  async setVisible(visible: boolean): Promise<{ ok: true; display: PetDisplayConfig }> {
-    this.ledger.setDisplay({ ...this.ledger.snapshot.display, visible })
-    this.flush()
-    this.syncSettingsFromPet()
-    return { ok: true, display: this.ledger.snapshot.display }
+  async setVisible(visible: boolean, scope?: PetAccountScope): Promise<{ ok: true; display: PetDisplayConfig }> {
+    const account = this.account(scope)
+    account.ledger.setDisplay({ ...account.ledger.snapshot.display, visible })
+    account.ledger.setSettingsOverrides([
+      ...new Set([...account.ledger.snapshot.settingsOverrides, 'visible' as PetSettingField]),
+    ])
+    account.revision += 1
+    this.flush(account)
+    if (scope === undefined) this.syncSettingsFromPet()
+    return { ok: true, display: account.ledger.snapshot.display }
   }
 
   /** RPC: update display config (size / position). Values are clamped to whole pixels. */
-  async setConfig(patch: Partial<PetDisplayConfig>): Promise<{ ok: true; display: PetDisplayConfig }> {
-    const next = { ...this.ledger.snapshot.display, ...patch }
+  async setConfig(
+    patch: Partial<PetDisplayConfig>,
+    scope?: PetAccountScope,
+  ): Promise<{ ok: true; display: PetDisplayConfig }> {
+    const account = this.account(scope)
+    const next = { ...account.ledger.snapshot.display, ...patch }
     next.size = Math.round(Math.min(DISPLAY_SIZE_MAX, Math.max(DISPLAY_SIZE_MIN, next.size)))
     next.right = Math.round(Math.min(DISPLAY_INSET_MAX, Math.max(0, next.right)))
     next.bottom = Math.round(Math.min(DISPLAY_INSET_MAX, Math.max(0, next.bottom)))
-    this.ledger.setDisplay(next)
-    this.flush()
-    this.syncSettingsFromPet()
-    return { ok: true, display: this.ledger.snapshot.display }
+    account.ledger.setDisplay(next)
+    const overrides = new Set(account.ledger.snapshot.settingsOverrides)
+    if (patch.visible !== undefined) overrides.add('visible')
+    if (patch.size !== undefined) overrides.add('size')
+    if (patch.right !== undefined) overrides.add('right')
+    if (patch.bottom !== undefined) overrides.add('bottom')
+    account.ledger.setSettingsOverrides([...overrides])
+    account.revision += 1
+    this.flush(account)
+    if (scope === undefined) this.syncSettingsFromPet()
+    return { ok: true, display: account.ledger.snapshot.display }
   }
 
   /** RPC: rename the selected pet (trimmed, 1–20 chars, per-pet storage). */
-  async setName(name: string): Promise<{ ok: true; name: string } | { ok: false; error: string }> {
+  async setName(
+    name: string,
+    scope?: PetAccountScope,
+  ): Promise<{ ok: true; name: string } | { ok: false; error: string }> {
     const trimmed = name.trim()
     if (trimmed === '') return { ok: false, error: 'name-empty' }
     if (trimmed.length > PET_NAME_MAX_LENGTH) return { ok: false, error: 'name-too-long' }
-    this.ledger.setPetName(this.selectedPetId(), trimmed)
-    this.flush()
+    const account = this.account(scope)
+    account.ledger.setPetName(account.ledger.snapshot.petId, trimmed)
+    this.flush(account)
     return { ok: true, name: trimmed }
   }
 
@@ -520,31 +661,104 @@ export class PetService extends Service {
    * @param section - the resolved settings section.
    */
   applySettingsSection(section: PetSettingsSection): void {
-    this.decorationEnabled = section.decorationEnabled ?? true
+    const account = this.localAccount
+    account.ledger.setEnabled(section.enabled ?? true)
+    account.ledger.setDecorationEnabled(section.decorationEnabled ?? true)
     const selected = typeof section.petId === 'string' ? this.registry.byId(section.petId) : undefined
     if (selected !== undefined) {
-      this.ledger.setPetId(selected.id)
-      this.ledger.setRemarks(selected.remarks)
+      account.ledger.setPetId(selected.id)
+      account.ledger.setRemarks(selected.remarks)
     } else if (section.petId !== undefined) {
       // The stored selection names a pet the registry no longer has: keep the
       // current selection and repair the settings document.
       this.syncSettingsFromPet()
     }
-    const next = { ...this.ledger.snapshot.display }
-    next.visible = section.visible && (section.enabled ?? true)
+    const next = { ...account.ledger.snapshot.display }
+    next.visible = section.visible
     next.size = Math.round(Math.min(DISPLAY_SIZE_MAX, Math.max(DISPLAY_SIZE_MIN, section.size)))
     next.right = Math.round(Math.min(DISPLAY_INSET_MAX, Math.max(0, section.right)))
     next.bottom = Math.round(Math.min(DISPLAY_INSET_MAX, Math.max(0, section.bottom)))
-    this.ledger.setDisplay(next)
-    this.flush()
+    account.ledger.setDisplay(next)
+    this.flush(account)
+    account.revision += 1
+    this.syncActivity()
+    if (!(section.enabled ?? true)) this.resetActivity()
+  }
+
+  /** Read the account-specific settings section served to the browser card. */
+  accountSettings(scope?: PetAccountScope): PetAccountSettingsView {
+    const account = this.account(scope)
+    const value = this.accountSection(account)
+    return {
+      value,
+      base: this.accountBase(scope),
+      user: this.accountUser(account, value),
+      revision: account.revision,
+      writable: true,
+    }
+  }
+
+  /** Apply one revision-fenced settings mutation to exactly one account. */
+  mutateAccountSettings(
+    ops: readonly PetSettingsPathOp[],
+    expectedRevision: number | undefined,
+    scope?: PetAccountScope,
+  ): PetAccountSettingsView {
+    const account = this.account(scope)
+    if (expectedRevision !== undefined && expectedRevision !== account.revision) {
+      throw new Error('settings-conflict')
+    }
+    const next = this.accountSection(account)
+    const base = this.accountBase(scope)
+    const overrides = new Set(account.ledger.snapshot.settingsOverrides)
+    for (const op of ops) {
+      const field = op.path[0]
+      const value = op.op === 'unset' ? base[field] : op.value
+      if (op.op === 'unset') overrides.delete(field as PetSettingField)
+      else overrides.add(field as PetSettingField)
+      if (field === 'enabled' || field === 'decorationEnabled' || field === 'visible') {
+        if (typeof value !== 'boolean') throw new Error(`invalid-${field}`)
+        next[field] = value
+      } else if (field === 'size' || field === 'right' || field === 'bottom') {
+        if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error(`invalid-${field}`)
+        next[field] = value
+      } else if (field === 'petId') {
+        if (typeof value !== 'string' || this.registry.byId(value) === undefined) throw new Error('invalid-petId')
+        next.petId = value
+      } else {
+        throw new Error('invalid-settings-field')
+      }
+    }
+    const selected = this.registry.byId(next.petId ?? '') ?? this.registry.defaultEntry()
+    account.ledger.setEnabled(next.enabled ?? true)
+    account.ledger.setDecorationEnabled(next.decorationEnabled ?? true)
+    account.ledger.setPetId(selected.id)
+    account.ledger.setRemarks(selected.remarks)
+    account.ledger.setSettingsOverrides([...overrides])
+    account.ledger.setDisplay({
+      visible: next.visible,
+      size: Math.round(Math.min(DISPLAY_SIZE_MAX, Math.max(DISPLAY_SIZE_MIN, next.size))),
+      right: Math.round(Math.min(DISPLAY_INSET_MAX, Math.max(0, next.right))),
+      bottom: Math.round(Math.min(DISPLAY_INSET_MAX, Math.max(0, next.bottom))),
+    })
+    account.revision += 1
+    this.flush(account)
+    if (scope === undefined) {
+      this.syncSettingsFromPet()
+      this.syncActivity()
+      if (!(next.enabled ?? true)) this.resetActivity()
+    }
+    return this.accountSettings(scope)
   }
 
   /** Mirror the persisted display config into the settings document (best-effort). */
   private syncSettingsFromPet(): void {
     const settings = this.ctx.get('settings', false) as { update(ns: string, patch: object): Promise<void> } | undefined
     if (settings === undefined) return
-    const snapshot = this.ledger.snapshot
+    const snapshot = this.localAccount.ledger.snapshot
     void settings.update(PET_SETTINGS_NAMESPACE, {
+      enabled: snapshot.enabled,
+      decorationEnabled: snapshot.decorationEnabled,
       visible: snapshot.display.visible,
       size: snapshot.display.size,
       right: snapshot.display.right,
@@ -557,17 +771,18 @@ export class PetService extends Service {
 
   /** Award the turn reward once per completed turn (idempotent per session + turn). */
   private rewardTurn(sessionId: string, turn: number): void {
-    if (this.ledger.rewardTurn(sessionId, turn, Date.now())) this.flush()
+    if (this.localAccount.ledger.rewardTurn(sessionId, turn, Date.now())) this.flush(this.localAccount)
   }
 
   /** Preserve turn rewards for installations that only emit legacy activity. */
   private rewardLegacyTurn(): void {
-    if (this.ledger.rewardLegacyTurn(Date.now())) this.flush()
+    if (this.localAccount.ledger.rewardLegacyTurn(Date.now())) this.flush(this.localAccount)
   }
 
-  private view(): PetStateView {
-    const snapshot = this.machine.render()
-    const entry = this.activeEntry()
+  private view(scope?: PetAccountScope): PetStateView {
+    const account = this.account(scope)
+    const snapshot = scope === undefined ? this.machine.render() : this.accountIdleSnapshot
+    const entry = this.activeEntry(scope)
     // One bubble per concurrently active TOP-LEVEL session, most recent
     // first. Subagent children render no bubble of their own (their activity
     // already shows through the spawning conversation's bubble/display, and
@@ -575,7 +790,7 @@ export class PetService extends Service {
     // Sessions whose own machine has settled (no bubble copy) drop out, so a
     // finished turn does not leave a stale bubble behind.
     const sessions: PetSessionView[] = []
-    for (const [session, activity] of [...this.sessionActivity.entries()].reverse()) {
+    for (const [session, activity] of (scope === undefined ? [...this.sessionActivity.entries()].reverse() : [])) {
       if (sessions.length >= MAX_SESSION_BUBBLES) break
       if (session.header?.origin === 'subagent') continue
       const perSession = activity.machine.render()
@@ -589,14 +804,14 @@ export class PetService extends Service {
     }
     // The display session's inner whisper rides the global view while fresh;
     // an expired whisper simply stops appearing (the client's 2s poll drops it).
-    const displayActivity = this.displaySession === undefined
+    const displayActivity = scope !== undefined || this.displaySession === undefined
       ? undefined
       : this.sessionActivity.get(this.displaySession)
     const whisper = displayActivity?.whisper
     const freshWhisper = whisper !== undefined && Date.now() - whisper.at < WHISPER_TTL_MS
       ? whisper.text
       : undefined
-    const decoration = this.activeDecoration()
+    const decoration = this.activeDecoration(scope)
     // Read-only: the ledger settles on economic events only, never on a read,
     // so polling the state cannot trigger pet.json writes.
     return {
@@ -607,24 +822,24 @@ export class PetService extends Service {
       sessions,
       ...(freshWhisper === undefined ? {} : { whisper: freshWhisper }),
       ...(decoration === undefined ? {} : { decoration }),
-      affinity: this.ledger.affinityView(Date.now()),
-      display: { ...this.ledger.snapshot.display },
+      affinity: account.ledger.affinityView(Date.now()),
+      display: { ...account.ledger.snapshot.display },
       pet: {
         id: entry.id,
         displayName: entry.displayName,
         description: entry.description,
       },
-      name: this.petName(),
+      name: this.petName(undefined, scope),
       treats: {
-        stocked: this.ledger.snapshot.treats.treats,
-        max: this.ledger.treatMax,
+        stocked: account.ledger.snapshot.treats.treats,
+        max: account.ledger.treatMax,
       },
     }
   }
 
-  private flush(): void {
+  private flush(account: PetAccountState): void {
     try {
-      savePetPersist(this.ledger.snapshot, this.persistDir)
+      savePetPersist(account.ledger.snapshot, account.persistDir)
     } catch {
       // Persistence is best-effort; the in-memory ledger keeps working.
     }

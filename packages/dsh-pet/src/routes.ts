@@ -18,7 +18,12 @@ import { join, sep } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
-import type { PetService } from './service.ts'
+import type {
+  PetAccountScope,
+  PetService,
+  PetSettingsPathOp,
+  PetSettingsSection,
+} from './service.ts'
 import type { PetInteraction } from './affinity.ts'
 import { DECORATION_ASSET_PREFIX, petEntryView, petPackageRoot, type PetEntry, type PetRegistry } from './registry.ts'
 import { isPetAllowed } from './access.ts'
@@ -112,15 +117,59 @@ function guard(ctx: Context, req: IncomingMessage, res: ServerResponse): boolean
   return false
 }
 
+/** Optional trusted identity adapter supplied by dsh-passwords. */
+interface RequestPrincipalAdapter {
+  authenticate(request: Request): { source: string; id: string } | undefined
+}
+
+/** A successfully authorized API request and its optional account identity. */
+interface PetApiAccess {
+  scope?: PetAccountScope
+}
+
+/** Resolve a signed account assertion without trusting browser-supplied identity fields. */
+function apiAccess(ctx: Context, req: IncomingMessage, res: ServerResponse): PetApiAccess | undefined {
+  if (!guard(ctx, req, res)) return undefined
+  const principalHeader = req.headers['x-dsh-principal']
+  const signatureHeader = req.headers['x-dsh-principal-signature']
+  const hasAssertion = principalHeader !== undefined || signatureHeader !== undefined
+  const candidate = ctx.get('requestPrincipal', false) as Partial<RequestPrincipalAdapter> | undefined
+  const adapter = typeof candidate?.authenticate === 'function'
+    ? candidate as RequestPrincipalAdapter
+    : undefined
+  if (adapter === undefined) {
+    if (hasAssertion) {
+      writeJson(res, 403, { ok: false, error: 'unverified-account-identity' })
+      return undefined
+    }
+    return {}
+  }
+  const headers = new Headers()
+  for (const [name, value] of Object.entries(req.headers)) {
+    if (typeof value === 'string') headers.set(name, value)
+    else if (Array.isArray(value)) {
+      for (const item of value) headers.append(name, item)
+    }
+  }
+  try {
+    const principal = adapter.authenticate(new Request('http://pet.local/', { headers }))
+    return principal === undefined ? {} : { scope: { source: principal.source, id: principal.id } }
+  } catch {
+    writeJson(res, 403, { ok: false, error: 'invalid-account-identity' })
+    return undefined
+  }
+}
+
 /** Wrap one async service call as a GET JSON route. */
-function getRoute(ctx: Context, path: string, run: () => Promise<unknown>): WebRoute {
+function getRoute(ctx: Context, path: string, run: (scope?: PetAccountScope) => Promise<unknown>): WebRoute {
   return {
     kind: 'exact',
     path,
     handler: (req: IncomingMessage, res: ServerResponse): void => {
-      if (!guard(ctx, req, res)) return
+      const access = apiAccess(ctx, req, res)
+      if (access === undefined) return
       if (!requireMethod(req, res, 'GET')) return
-      run().then((value) => writeJson(res, 200, value), (error) => {
+      run(access.scope).then((value) => writeJson(res, 200, value), (error) => {
         writeJson(res, 500, { ok: false, error: error instanceof Error ? error.message : String(error) })
       })
     },
@@ -128,12 +177,17 @@ function getRoute(ctx: Context, path: string, run: () => Promise<unknown>): WebR
 }
 
 /** Wrap one async service call as a POST JSON route (body passed through). */
-function postRoute(ctx: Context, path: string, run: (body: Record<string, unknown>) => Promise<unknown>): WebRoute {
+function postRoute(
+  ctx: Context,
+  path: string,
+  run: (body: Record<string, unknown>, scope?: PetAccountScope) => Promise<unknown>,
+): WebRoute {
   return {
     kind: 'exact',
     path,
     handler: (req: IncomingMessage, res: ServerResponse): Promise<void> => {
-      if (!guard(ctx, req, res)) return Promise.resolve()
+      const access = apiAccess(ctx, req, res)
+      if (access === undefined) return Promise.resolve()
       if (!requireMethod(req, res, 'POST')) return Promise.resolve()
       // Shared lenient reader (64 KiB cap): an empty body yields null and is
       // restored to {} at the call site (legacy empty-body semantics); invalid
@@ -142,7 +196,7 @@ function postRoute(ctx: Context, path: string, run: (body: Record<string, unknow
       return readJsonBody(req, { maxBytes: 64 * 1024 }).then((parsed) => {
         const payload = parsed ?? {}
         const record = (typeof payload === 'object' && payload !== null) ? payload as Record<string, unknown> : {}
-        return run(record).then(
+        return run(record, access.scope).then(
           (value) => writeJson(res, 200, value),
           (error) => {
             writeJson(res, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
@@ -153,6 +207,44 @@ function postRoute(ctx: Context, path: string, run: (body: Record<string, unknow
       })
     },
   }
+}
+
+const PET_SETTINGS_FIELDS = new Set<keyof PetSettingsSection>([
+  'enabled',
+  'decorationEnabled',
+  'visible',
+  'size',
+  'right',
+  'bottom',
+  'petId',
+])
+
+/** Parse the account settings endpoint's one-level path operations. */
+function settingsOps(body: Record<string, unknown>): PetSettingsPathOp[] {
+  if (!Array.isArray(body.ops) || body.ops.length === 0 || body.ops.length > PET_SETTINGS_FIELDS.size) {
+    throw new Error('invalid-settings-ops')
+  }
+  const ops: PetSettingsPathOp[] = []
+  const fields = new Set<keyof PetSettingsSection>()
+  for (const value of body.ops) {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid-settings-op')
+    const row = value as Record<string, unknown>
+    if (!Array.isArray(row.path) || row.path.length !== 1 || typeof row.path[0] !== 'string') {
+      throw new Error('invalid-settings-path')
+    }
+    const field = row.path[0] as keyof PetSettingsSection
+    if (!PET_SETTINGS_FIELDS.has(field)) throw new Error('invalid-settings-field')
+    if (fields.has(field)) throw new Error('duplicate-settings-field')
+    fields.add(field)
+    if (row.op === 'unset') {
+      ops.push({ op: 'unset', path: [field] })
+    } else if (row.op === 'set') {
+      ops.push({ op: 'set', path: [field], value: row.value })
+    } else {
+      throw new Error('invalid-settings-op')
+    }
+  }
+  return ops
 }
 
 /** Legacy URL aliases: each entry's directory basename (e.g. 'whale'). */
@@ -525,34 +617,50 @@ function decorationHandler(ctx: Context, registry: PetRegistry, caps: PetAssetCa
 export function makePetRoutes(deps: { service: PetService; ctx: Context; assetCaps?: PetAssetCaps } & PetRuntimeRoots): WebRoute[] {
   const { service, ctx } = deps
   const apiRoutes: WebRoute[] = [
-    getRoute(ctx, PET_API_PREFIX + '/state', () => service.state()),
+    getRoute(ctx, PET_API_PREFIX + '/state', (scope) => service.state(scope)),
     getRoute(ctx, PET_API_PREFIX + '/pets', () => service.pets()),
     getRoute(ctx, PET_API_PREFIX + '/diagnostics', () => service.diagnostics()),
-    postRoute(ctx, PET_API_PREFIX + '/interact', (body) => {
+    getRoute(ctx, PET_API_PREFIX + '/settings', (scope) => Promise.resolve(service.accountSettings(scope))),
+    postRoute(ctx, PET_API_PREFIX + '/settings/mutate', (body, scope) => {
+      const expectedRevision = body.expectedRevision
+      if (!Number.isSafeInteger(expectedRevision) || (expectedRevision as number) < 0) {
+        return Promise.reject(new Error('invalid-settings-revision'))
+      }
+      try {
+        return Promise.resolve(service.mutateAccountSettings(
+          settingsOps(body),
+          expectedRevision as number,
+          scope,
+        ))
+      } catch (error) {
+        return Promise.reject(error)
+      }
+    }),
+    postRoute(ctx, PET_API_PREFIX + '/interact', (body, scope) => {
       const kind = body.kind as PetInteraction | undefined
       if (kind !== 'pet' && kind !== 'feed') return Promise.reject(new Error('invalid-kind'))
-      return service.interact(kind)
+      return service.interact(kind, scope)
     }),
-    postRoute(ctx, PET_API_PREFIX + '/set-visible', (body) => {
+    postRoute(ctx, PET_API_PREFIX + '/set-visible', (body, scope) => {
       const visible = body.visible
       if (typeof visible !== 'boolean') return Promise.reject(new Error('invalid-visible'))
-      return service.setVisible(visible)
+      return service.setVisible(visible, scope)
     }),
-    postRoute(ctx, PET_API_PREFIX + '/set-config', (body) => service.setConfig({
+    postRoute(ctx, PET_API_PREFIX + '/set-config', (body, scope) => service.setConfig({
       ...(typeof body.size === 'number' ? { size: body.size } : {}),
       ...(typeof body.right === 'number' ? { right: body.right } : {}),
       ...(typeof body.bottom === 'number' ? { bottom: body.bottom } : {}),
       ...(typeof body.visible === 'boolean' ? { visible: body.visible } : {}),
-    })),
-    postRoute(ctx, PET_API_PREFIX + '/set-name', (body) => {
+    }, scope)),
+    postRoute(ctx, PET_API_PREFIX + '/set-name', (body, scope) => {
       const name = body.name
       if (typeof name !== 'string') return Promise.reject(new Error('invalid-name'))
-      return service.setName(name)
+      return service.setName(name, scope)
     }),
-    postRoute(ctx, PET_API_PREFIX + '/set-pet', (body) => {
+    postRoute(ctx, PET_API_PREFIX + '/set-pet', (body, scope) => {
       const petId = body.petId
       if (typeof petId !== 'string') return Promise.reject(new Error('invalid-pet'))
-      return service.setPetId(petId)
+      return service.setPetId(petId, scope)
     }),
   ]
 

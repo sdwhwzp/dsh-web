@@ -1,10 +1,10 @@
 /**
  * The pet settings card: pet selection plus display layout, bound to the
- * 'pet' settings namespace the host plugin registers. Rendered as an
- * always-open first-level settings page; the section wrapper below mounts it
- * as the content of the top-level 'settings.section' nav entry. The petId
- * choices come from the registry endpoint ('/api/pet/pets') — the same list
- * the sprite renders from — so the card carries no per-pet knowledge.
+ * account-aware settings endpoint. Rendered as an always-open first-level
+ * settings page; the section wrapper below mounts it as the content of the
+ * top-level 'settings.section' nav entry. The petId choices come from the
+ * registry endpoint ('/api/pet/pets') — the same list the sprite renders
+ * from — so the card carries no per-pet knowledge.
  */
 
 import type { ReactNode } from 'react'
