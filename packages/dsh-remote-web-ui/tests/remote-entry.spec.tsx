@@ -317,7 +317,7 @@ describe('RemoteEntry', () => {
 })
 
 describe('apply registration', () => {
-  it('registers the sidebar entry and the plugin settings card', async () => {
+  it('registers the plugin settings card without sidebar footer actions', async () => {
     const { apply } = await import('../src/client/index.ts')
     const injected: string[] = []
     const ctx = {
@@ -341,10 +341,10 @@ describe('apply registration', () => {
       },
     }
     apply(ctx as never)
-    expect(injected).toEqual(['sidebar.remote', 'sidebar.footer.action', 'web-ui.plugin.item'])
+    expect(injected).toEqual(['web-ui.plugin.item'])
   })
 
-  it('waits for the settings snapshot before mounting the sidebar entry and runtime', async () => {
+  it('keeps sidebar footer actions absent across settings transitions', async () => {
     const { apply } = await import('../src/client/index.ts')
     const injected: string[] = []
     const registered: string[] = []
@@ -387,6 +387,6 @@ describe('apply registration', () => {
 
     snapshot = { status: 'ready' as const, writable: true, value: { enabled: true } }
     notify()
-    expect(registered).toEqual(['web-ui.plugin.item', 'sidebar.remote', 'sidebar.footer.action'])
+    expect(registered).toEqual(['web-ui.plugin.item'])
   })
 })

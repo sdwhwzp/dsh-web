@@ -1,8 +1,7 @@
 /**
- * Mobile remote control — browser half. Registers the `remote` dictionaries,
- * the sidebar-foot entry (phone trigger + pairing panel) into the
- * ui-sidebar-declared `sidebar.remote` seat, and runs the phone-side boot
- * flow (pair accept + workspace deep-link + presence heartbeats) plus the
+ * Mobile remote control — browser half. Registers the `remote` dictionaries
+ * and settings card, then runs the phone-side boot flow (pair accept +
+ * workspace deep-link + presence heartbeats), remote desktop channel, and
  * one-time failed-pair notice. Export discipline: packages/client/AGENTS.md
  * — the /client surface carries only what cordis loading needs plus types.
  */
@@ -10,15 +9,13 @@ import { createElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import type { ClientContext, SettingsScope, SettingsScopeSpec } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale) and the
-// ui-sidebar SlotMap merge (the 'sidebar.remote' hole).
+// ui-sidebar SlotMap merge used by the exported RemoteEntry prop type.
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: pulls the settings-surface SlotMap merge (the 'settings.section'
 // entry) and the ctx.settingsScope Context merge.
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
-import { FooterRemoteEntry } from './FooterRemoteEntry.tsx'
-import { RemoteEntry } from './RemoteEntry.tsx'
 import { PairFailedNotice } from './PairFailedNotice.tsx'
 import { RemoteSettingsCard, RemoteSettingsCardController, type RemoteSettings } from './RemoteSettingsCard.tsx'
 import { en, zh, type RemoteKey } from './locales.ts'
@@ -128,59 +125,6 @@ export function apply(ctx: ClientContext): void {
       ? snapshot.value?.enabled ?? true
       : snapshot.status === 'unavailable'
   }
-
-  // Sidebar foot entry: the shell declares 'sidebar.remote' in unconstrained
-  // order, so registration is declaration-aware — slots.inject waits on the
-  // declaration, removes the contribution when it collapses, and re-runs
-  // after a redeclaration. The entry follows the plugin's enabled setting:
-  // toggling it off removes the trigger, toggling it back on re-registers it.
-  ctx.slots.inject('sidebar.remote', () => {
-    let disposeEntry: (() => void) | undefined
-    const syncEntry = (): void => {
-      if (enabled() && disposeEntry === undefined) {
-        try {
-          disposeEntry = ctx.slots.register({ name: 'sidebar.remote', locale: NS }, RemoteEntry)
-        } catch {
-          // ignore registration collision
-        }
-      } else if (!enabled() && disposeEntry !== undefined) {
-        disposeEntry()
-        disposeEntry = undefined
-      }
-    }
-    const unsubscribe = settingsScope.subscribe(syncEntry)
-    syncEntry()
-    return () => {
-      unsubscribe()
-      disposeEntry?.()
-    }
-  })
-
-  // Current shells declare `sidebar.footer.action` instead of the legacy
-  // `sidebar.remote` seat; this fallback registers the same entry there when
-  // the legacy seat never arrives (declaration-aware: only one of the two
-  // injects ever fires, so the trigger can never render twice).
-  ctx.slots.inject('sidebar.footer.action', () => {
-    let disposeEntry: (() => void) | undefined
-    const syncEntry = (): void => {
-      if (enabled() && disposeEntry === undefined) {
-        try {
-          disposeEntry = ctx.slots.register({ name: 'sidebar.footer.action', id: 'remote-web-ui', locale: NS }, FooterRemoteEntry)
-        } catch {
-          // ignore registration collision
-        }
-      } else if (!enabled() && disposeEntry !== undefined) {
-        disposeEntry()
-        disposeEntry = undefined
-      }
-    }
-    const unsubscribe = settingsScope.subscribe(syncEntry)
-    syncEntry()
-    return () => {
-      unsubscribe()
-      disposeEntry?.()
-    }
-  })
 
   // Plugin configuration card: one staged form over the `remote-web-ui`
   // settings namespace, contributed to the Web UI plugin group.

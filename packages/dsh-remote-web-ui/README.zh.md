@@ -2,22 +2,22 @@
 
 [English](README.md) | 中文
 
-> 手机与电脑远程访问 + 一键远程更新：扫码配对后用手机远程使用当前 dsh web 工作区，同一枚令牌也可配对电脑浏览器、在其他设备上运行完整 Web GUI；侧边栏加载后静默检查 dsh-web 全家桶新版本，发现时标记更新按钮；点击按钮后自动更新全家桶。
+> 为手机与电脑提供基于配对的远程访问，并保留仅限 loopback 的更新与配对控制 API。桌面侧边栏不显示“检查更新”和“远程访问”入口。
 
-本仓库是 DeepSeek Harness（DSH）的外部插件包：为 dsh web GUI 提供基于配对的手机与电脑远程访问，外加 dsh-web 全家桶的一键自更新。它是单一双半区包——host 半区持有配对令牌、设备会话、`/api/pair` 路由族、门控的 `/remote` 桌面通道与 `/api/update` 面板；浏览器半区渲染侧边栏底部入口（下载触发按钮与设置按钮旁的手机图标入口）、带二维码的配对面板、实时设备状态、已授权设备列表，以及停止/刷新/复制操作，还渲染探测并执行更新的更新面板。
+本仓库是 DeepSeek Harness（DSH）的外部插件包：为 dsh web GUI 提供基于配对的手机与电脑远程访问，以及 dsh-web 全家桶的更新接口。它是单一双半区包——host 半区持有配对令牌、设备会话、`/api/pair` 路由族、门控的 `/remote` 桌面通道与 `/api/update` 接口；浏览器半区接受配对链接、运行已配对远程通道与移动端在线流程，并渲染插件设置卡片。它不会向桌面侧边栏底部的任何座位注册控件。
 
 ## 功能
 
-- **入口**：设置按钮旁始终显示手机图标；悬停时显示“远程访问”提示。
-- **面板**：「远程访问」标题、「通过手机或另一台电脑配对，远程访问当前工作区」副标题、「设备配对」卡片（含状态区「等待设备连接」+ 状态徽标）、大号二维码、各带复制按钮的手机链接（`/m/?pair=...`）与电脑链接（`/?pair=...`）、停止 / 刷新二维码操作，以及已授权设备列表（根据 User-Agent 推断的设备名称、在线/离线、最近活动时间、单台取消配对）。界面不渲染作为会话凭据的设备 id 或原始 User-Agent。两条链接共用一枚一次性令牌，任意设备配对成功后另一条立即失效。
+- **桌面侧边栏**：不注册 `sidebar.remote` 或 `sidebar.footer.action` 贡献，因此左下角既没有更新入口，也没有远程访问入口。配对路由、现有已配对设备会话、远程通道和更新路由保持运行。
+- **配对控制 API**：仅限 loopback 的 `/api/pair` 端点签发手机链接（`/m/?pair=...`）和电脑链接（`/?pair=...`）、报告实时设备状态、撤销单台设备并停止全部远程访问。未配对调用方看不到作为会话凭据的设备 id 或原始 User-Agent。两条链接共用一枚一次性令牌，任意设备配对成功后另一条立即失效。
 - **手机侧**：扫码将手机与一次性、限时令牌绑定，并落地到 **`/m/` 独立移动端界面**——一款专为小屏设计的轻客户端（见[截图](#截图)），而不是把桌面 UI 塞进手机。该页面可安装为 PWA；每个已安装应用使用自己的已配对设备 cookie，存储隔离的移动端 Web App 需要在该上下文打开新的二维码链接，或粘贴桌面端新复制的链接完成配对。链接携带 `workspace` 参数，手机落地到桌面正在查看的同一工作区。
 - **PC 侧（远程桌面配对）**：同一份二维码链接和配对令牌也能配对 PC 浏览器——把手机侧配对流扩展到桌面 Web GUI。从面板复制链接，在另一台电脑的浏览器打开（局域网 URL 或隧道 URL 均可）；接受往返后，完整 Web GUI 在那台设备上运行——工作区、会话、聊天、切模型——受围栏保护的同源流量走门控的 `/remote` 通道，而不是直接调用仅 loopback 的 host 路由。手机进 `/m/`，PC 进桌面 UI：一枚令牌、一套配对流、两种界面。未配对的 PC 只看到不渲染底层数据的完整阻断页，其中提供电脑配对步骤与「重新检测」操作。
 - **安全**：一个有效的一次性令牌（刷新会使旧链接失效；已接受的令牌不可复用；令牌会过期）。停止会撤销每一台已配对设备与当前令牌——已配对设备在下一次请求时被切断。配对是本插件对自己远程通道的访问控制：手机走 `/m/api`，非 loopback origin 打开的桌面浏览器走 `/remote`。未配对调用方在 `requirePairingForLan` 开启（默认）时会在读取请求体之前就被 `/remote` 拒绝。loopback（127.0.0.1）继续直接使用 `/api`。默认的远程桌面路径不使用 `--trusted-host`：连接插件的 `/api` 围栏对公网和局域网主机保持关闭，已配对 PC 改走 `/remote`。`--trusted-host` 是 SDK 的另一种用法，会让该主机被信任访问 `/api` 本身——配对不门控 `/api`（任何插件都无法做到；围栏是 SDK 自己的接缝）。当 `/api` 无需配对即可到达时，下方姿态探测会报告该姿态。
 - **已配对模型目录**：已认证的已配对设备可使用 `GET /api/pair/model-catalog`、`POST /api/pair/model-catalog/discover` 和 `POST /api/pair/model-catalog/upsert`，仅查看并采纳一个现有、活跃的 `llm-pi-ai` provider 的模型。该能力在内部固定 provider 的 settings 地址，不能创建 provider，也不能读取或修改凭据、通用 settings、端点、header 或任意配置。这三条精确路由在 connection 插件的 `/api` 前缀之前匹配，已配对的局域网或隧道客户端可直接调用，并套用与 `/api/pair` 兄弟端点相同的 Host/Origin 信任围栏：仅接受 loopback、广告的局域网字面量或配置的公网 base URL。经 `/remote` 桌面通道访问时，所有 `/api/pair/*` 路径仍保持仅 loopback。当 provider 的实时模型目录不可用或未知时，采纳会被拒绝。解析后的 `models` 列表缺失或为空时，provider 会继续继承已安装目录；只有加入未知的自定义模型时才会实体化完整目录，现有模型 override 会保留并转换到对应条目。格式错误或相互冲突的模型配置会被拒绝，不会被破坏性重写。停止或撤销设备会立即禁用它；通用 `settings.*`、`credentials.*` 和 `llm.discoverModels` RPC 方法仍然仅限 loopback。
 - **远程桌面通道**：`requirePairingForLan` 开启（默认）时，经局域网 URL 或隧道打开的桌面 Web GUI 透明地改走 `/remote`——同一套 UI，同一枚配对 cookie 门控。改写补丁在解析期即生效：宿主把一段内联 classic script 注入到 `<head>` 开标签之后（`webserver/index-inject`），使 fetch/WebSocket/EventSource 与资源 `src` 改写在任何启动条目执行前就绪（连接插件最先打开事件流）；浏览器半边随后接管已安装的 seat 而非重复打补丁。loopback 来源完全跳过该补丁。浏览器中 `/api`、`/sidebar`、`/git`、`/pet` 下的请求，以及已知的事件、终端与 SSH WebSocket，会在不转发远程 Origin 或配对 cookie 的前提下重新发给本机 Web Server；认证反代会为兄弟路由围栏提供自己生成的同源浏览器标记。SDK 的 loopback 专属特权方法（原生对话框、settings 与 credentials 面）对已配对远程桌面保持不可达；`/api/pair/*`（包括三条模型目录路由）、`/api/update/*`、`/api/plugin-manager/*`、`/api/dsh-desktop-launcher/*` 与 `/api/dsh-web-ui-settings/*` 控制端点保持仅 loopback。未配对的桌面浏览器看到持久的全页阻断界面而不是数据（阻断页按错误码 `unpaired` 触发，不是任意 403）。阻断页在任一门控调用成功后，或通道本身被拆除时退出——把 `requirePairingForLan` 关掉（或关闭插件）也会清掉通道短暂激活期间弹出的提示。
 - **姿态探测**：插件用伪造 Host 头（公网 base 与每个 LAN base）探测 SDK 的 `/api` 围栏。403 是默认姿态（围栏关闭，远程访问走配对）。任何非 403 结果——`--trusted-host`，或 `--host 0.0.0.0` 下 SDK 的局域网自动信任——都会以 CRITICAL 日志与配对面板红色横幅呈现，因此 SDK 的 `/api` 信任姿态是被看见的，而不是被假设的。探测失败会丢掉进行中的目标缓存，相同 origin 会在下次触发时重试。
-- **实时状态**：桌面面板经 SSE 流实时镜像配对状态（等待 → 已连接 → 已断开），并展示已授权设备名单。
-- **远程更新**：侧边栏加载后，底部的下载触发按钮（手机图标左侧）会静默探测 npm registry 上已安装的 `@linxin666/dsh-*` 全家桶版本；发现可自动更新的新版本时，按钮显示圆点并提供“发现新版本，检查更新”提示。点击按钮打开更新面板；未安装聚合包时，检查和更新覆盖 profile 中 registry 管理的全部 `@linxin666/*` 直接依赖，本地 link / file 开发依赖会被跳过。当存在较新版本时，面板优先展示 GitHub Release 说明的「新增功能 / 修复 / 其他改动」分组，并把组件版本对比折叠起来，等待确认——点击「开始更新」后执行更新（在所属 dsh profile 内 `pnpm update --latest`；pnpm 缺失时依次回退 `corepack pnpm`、`npx --yes pnpm`，Windows 上经 `cmd.exe` 执行以解析 npm 安装的 `.cmd` shim；由仅 loopback 的 `/api/update/status` + `/api/update/run` 端点驱动）并请求重启 dsh web 以生效。pnpm 绿色退出后还会对照 registry 复核已装版本：绿色退出但版本纹丝不动（例如 pnpm 的 `minimumReleaseAge` 门禁静默跳过同日发布的新版本）会报告为「未更新成功」并附配置指引，而不是误报成功。锚点自身是本地 link 安装（开发模式）时，只报告 npm 状态而不更新。
+- **实时状态**：仅限 loopback 的配对事件流报告配对状态（等待 → 已连接 → 已断开）和已授权设备名单。
+- **远程更新**：仅限 loopback 的 `/api/update/status` 与 `/api/update/run` 端点探测 npm registry 上已安装的 `@linxin666/dsh-*` 全家桶版本并执行更新。未安装聚合包时，检查和更新覆盖 profile 中 registry 管理的全部 `@linxin666/*` 直接依赖，本地 link / file 开发依赖会被跳过。存在较新版本时，接口使用 GitHub Release 说明的「新增功能 / 修复 / 其他改动」分组和组件版本对比；执行更新时在所属 dsh profile 内运行 `pnpm update --latest`，pnpm 缺失时依次回退 `corepack pnpm`、`npx --yes pnpm`，Windows 上经 `cmd.exe` 执行以解析 npm 安装的 `.cmd` shim。绿色退出后还会对照 registry 复核已装版本：绿色退出但版本纹丝不动（例如 pnpm 的 `minimumReleaseAge` 门禁静默跳过同日发布的新版本）会报告为未更新成功并附配置指引，而不是误报成功。锚点自身是本地 link 安装（开发模式）时，只报告 npm 状态而不更新。
 
 ## 截图
 
@@ -31,7 +31,7 @@
 ## 需求
 
 - 其 `dsh` CLI 支持 profile（`dsh --profile`、`dsh plugin`）的 DSH 安装——本包所依托的 profile/bundle 机制。
-- 局域网使用必须手机可到达服务器：用 `dsh web --host 0.0.0.0` 启动。默认 `127.0.0.1` 绑定时，面板会显示明确说明而不是死二维码——除非配置了公网 base URL（见下文「通过互联网远程访问」），那会让二维码在无需重新绑定即可从任意位置访问。面板的 mint/stop 端点设计上仅限 loopback：在局域网 URL 打开的桌面浏览器只会看到「配对面板仅限本机使用」横幅——请在 `http://127.0.0.1` 打开面板，让手机使用配对链接。
+- 局域网使用必须手机可到达服务器：用 `dsh web --host 0.0.0.0` 启动。默认 `127.0.0.1` 绑定时，签发配对链接会返回明确的局域网不可达响应——除非配置了公网 base URL（见下文「通过互联网远程访问」）。配对链接签发与撤销端点设计上仅限 loopback；通过 `http://127.0.0.1` 调用，再在远程设备打开返回的链接。
 - 一键公网隧道（`autoTunnel`）需要 `cloudflared` 平台二进制随包分发（其 postinstall 会下载它；运行时下载覆盖跳过 postinstall 脚本的安装器）。无需用户侧工具、账号或域名——Cloudflare quick tunnel 免费且匿名。
 - 把 `/m/` 安装为 PWA 需要安全上下文：`localhost` 和 `127.0.0.1` 可用于本机，手机安装需要 HTTPS。普通局域网 HTTP 仍可在线使用移动端远程控制，但无法注册其 Service Worker。
 
@@ -51,15 +51,15 @@ dsh plugin --profile web add link:$(pwd)/packages/dsh-remote-web-ui
 
 ```
 
-重启 profile（`dsh web`），然后打开侧边栏底部的手机图标。插件的 `cordis.patch.yml` 插入装载两个半区的单条插件行。
+重启 profile（`dsh web`）。插件的 `cordis.patch.yml` 插入装载两个半区的单条插件行，不添加桌面侧边栏底部入口。
 
 > `github:<org>/<repo>` 安装适用于包位于仓库根部的独立仓库（`prepare` 脚本在安装时构建 `lib/`；pnpm ≥10 会阻断它，直到你把打印的 key 复制进 profile 的 `pnpm-workspace.yaml` `allowBuilds` 并重跑）。monorepo 子包使用上面的 `link:` 形式。
 
 ## 使用
 
 1. `dsh web --host 0.0.0.0`（打印的局域网 URL 确认可达性）。
-2. 点击手机图标 → 面板铸一枚新的二维码。
-3. 用手机扫码（或打开复制的链接）：手机绑定并落到 **`/m/` 独立移动端界面**——不在小屏显示桌面 UI。该界面刻意精简：
+2. 在主电脑通过仅限 loopback 的控制端点签发一枚新的配对链接：`curl -X POST http://127.0.0.1:3080/api/pair/issue -H 'content-type: application/json' -d '{}'`。
+3. 在手机打开返回的 `url`：手机绑定并落到 **`/m/` 独立移动端界面**——不在小屏显示桌面 UI。该界面刻意精简：
    - 直接进入工作区（每个工作区的会话列表在 新建会话 前提供 Agent 模式选择器：默认选择可用的默认预设，否则选择第一个可用预设，并把该清单 id 与工作区 id 一起传给 host 的 `session.create`；清单为空或不可用时保留 host 默认创建流程），
    - 一个工作区的会话**增量**加载（每页 20 行，"加载更多会话"继续；绝不同时加载整份列表），
    - 打开会话**按需**抓取聊天内容（历史分页，"加载更早的消息"继续往回翻），
@@ -67,10 +67,9 @@ dsh plugin --profile web add link:$(pwd)/packages/dsh-remote-web-ui
    - **亮色优先主题**：界面默认亮色调色板；每个页头内的日/月切换翻到暗色调色板，选择跨访问持久（localStorage），
    - 消息按桌面折叠纪律渲染：推理隐藏在被折叠的 深度思考 揭示下面，工具调用隐藏在被折叠的 工具 行下面（点击查看每个调用的参数），超长回答藏在显式 展开全文 切换下面，每行带时间，并且 assistant 回复按 GFM Markdown 渲染（标题 / 加粗 / 斜体 / 行内码 / 代码块 / 列表 / 表格 / 引用 / 链接 / 图片；零依赖自写渲染器，先转义再白名单协议，移动端 bundle 体积几乎不变；KaTeX 公式暂不支持，后续单独评估），用户消息保持纯文本，
    - 输入栏工具条带 **模型** 选择器（provider 分组目录 + 每模型 思考强度 effort 区）与 **权限** 选择器（权限预设；完全权限 需要显式确认步骤）。两者都走 host 自己的 `session.models` / `session.selectModel` RPC 与 `/permission` 命令——手机改的与桌面改的是同一个会话设置——外加 **显示** 弹层（含 工具调用 与 系统提示词 两个持久开关）和一个 上下文 用量 chip（显示最近一次助手回答的上下文占用百分比）。
- 4. 在安全 origin 上从浏览器安装 `/m/` 页面。已安装应用保留相同的移动端远程控制能力；其浏览器上下文没有已配对设备 cookie 时，把桌面端新复制的配对链接粘贴进配对页面。
- 5. **改为配对 PC**：复制同一份链接，在另一台电脑的浏览器打开——用桌面 URL 形态（`/?pair=<token>`，不是 `/m/`）。接受往返后，完整 Web GUI 在那台设备上经门控的 `/remote/api` 通道运行；未配对的 PC 只看到带操作指引的阻断页且无数据。一枚有效令牌配对一台设备；给下一台设备配对请刷新出新的二维码。
- 6. 桌面徽标实时翻到 已连接；手机离开时回落到离线/断开。
- 7. 刷新二维码 使旧链接失效并铸一枚新的。停止 撤销移动端访问：已配对设备下一次请求 403，包括其实时流。
+ 4. 在安全 origin 上从浏览器安装 `/m/` 页面。已安装应用保留相同的移动端远程控制能力；其浏览器上下文没有已配对设备 cookie 时，把管理员新签发的配对链接粘贴进配对页面。
+ 5. **改为配对 PC**：使用返回的 token 与相同 origin，在另一台电脑浏览器打开桌面 URL 形态（`/?pair=<token>`，不是 `/m/`）。接受往返后，完整 Web GUI 在那台设备上经门控的 `/remote/api` 通道运行；未配对的 PC 只看到带操作指引的阻断页且无数据。一枚有效令牌配对一台设备；给下一台设备配对请重新签发链接。
+ 6. 再次签发链接会使上一枚 token 失效。向仅限 loopback 的 `/api/pair/stop` 端点发送 POST 会撤销全部已配对设备；它们下一次请求（包括实时流）会收到 403。
 
 该移动端界面完全自包含在本插件内：`/m/` 页面及其数据通道（`/m/api`）由插件自己的路由伺服，**无需任何 harness 源码改动**——手机的 RPC 调用走插件的 `/m/api` 代理（它委托给 host 的 ApiProxy 服务并自己分页 `session.list`），因此被隧道化的 Host 永远不必进入连接插件的信任围栏。手机受其已配对设备 cookie 与 `/m/api` 显式方法白名单门控（白名单只约束 `/m/api` 代理本身：该 cookie 同时通过全局 api/gate，对宿主 `/api` 面是全量控制凭证——settings/credentials/host-action 域仅因 SDK 把这些特权方法钉为仅 loopback 才不可达。配对即对设备的完全信任；`/m/api` 代理的模型读写限制于建议性的 `session.models` / `session.selectModel` 对；另外，精确的已配对模型目录路由可为一个现有、合格的 `llm-pi-ai` provider 采纳模型，但不能创建 provider，也不能访问凭据或通用 settings；Agent 预设访问限制于只读 `agentPreset.list`，创建限制于 `session.create`（工作区 id 加清单中的可选 id——手机绝不自命名工作目录），权限选择器只通过已放行的 `session.prompt` 发送模式无关的 `/permission` 命令；会话控制只放行 `session.cancel`——停止当前回合并保留 pending 队列工作，手机端不做队列管理）；实时流在 `/m/api/events.mux` 上经 Server-Sent Events 送达。规范的 `/m/` 页面拥有同 scope 的 manifest 与 Service Worker；其缓存仅包含静态壳和离线页，绝不包含移动端 API 响应、会话数据或命令。
 
@@ -116,7 +115,7 @@ cloudflared tunnel --url http://127.0.0.1:3080
 dsh web
 ```
 
-然后在 profile patch（或插件设置卡片——它会热重载）里设 `publicBaseUrl: https://xxxx-xxxx-xxxx.trycloudflare.com`。在 `http://127.0.0.1` 打开手机图标，从任意处扫码：手机绑定、重载进移动端界面，心跳保持其在线。在同一隧道 URL 打开的桌面浏览器以同样方式配对，随后完整 Web GUI 经门控的 `/remote/api` 通道运行。
+然后在 profile patch（或插件设置卡片——它会热重载）里设 `publicBaseUrl: https://xxxx-xxxx-xxxx.trycloudflare.com`。通过 loopback 端点签发配对链接并从任意位置打开：手机绑定、重载进移动端界面，心跳保持其在线。在同一隧道 URL 打开的桌面浏览器以同样方式配对，随后完整 Web GUI 经门控的 `/remote/api` 通道运行。
 
 说明：
 
@@ -153,7 +152,7 @@ pnpm run build
 本插件依托三个在较老 checkout 里可能不存在的 harness seam：
 
 - **`api/gate` 瀑布**（packages/client/connection）：/api 路由与事件 WebSocket 升级被*设计*为在信任围栏后发出该事件，插件可据此实施应用层访问控制。当前已发布的 SDK 线**并不**发出它（监听器为将来具备该 seam 的部署保持挂载）。因此手机与 PC 的配对都落在本插件自己的路由上（`/m/api`、`/remote/api`）；姿态探测报告 SDK 的 `/api` 围栏姿态，而不是假设它。
-- **`sidebar.remote` 底部座位**（packages/client/ui-sidebar）：侧边栏声明并渲染手机入口占据的座位。
+- **侧边栏座位类型**（packages/client/ui-sidebar）：仅为导出的控制组件 props 类型保留；本包不注册底部贡献。
 - **局域网运行时连接修复**（host-apiproxy 为不安全上下文 origin 的 `mintRpcId` 回退；20260808 分支在 mux 流之后打开 host 流的连接循环）：没有它们，浏览器 runtime 根本无法在纯 HTTP 局域网页上运行（本特性的移动端侧）。
 
 围栏辅助（`isTrustedApiRequest` / `isLoopbackHostname`）在 `src/gate.ts` / `src/routes.ts` 本地重实现：20260810 upstream 把信任围栏移进连接插件并停止导出它们，因此配对路由携带自己限定到二维码链接广告的字面量的副本。见 harness checkout 的 Agent Notes `api-gate-and-sidebar-remote-seat` 与 `lan-runtime-connection-fixes`。
@@ -163,12 +162,12 @@ pnpm run build
 单元/组件 spec 覆盖路由族、门与面板，但配对循环涉及非 loopback origin 上的真实浏览器。任何 wire 契约或连接循环改动后重复：
 
 1. 用测试工作区根在所有接口上启动服务器：`dsh web --host 0.0.0.0 --port 3190 --workspace-root /tmp/remote-e2e`。
-2. 在浏览器打开 **loopback** URL（`http://127.0.0.1:3190`）：手机图标在侧边栏底部；面板立即铸一枚二维码。
+2. 从主机向仅限 loopback 的 `http://127.0.0.1:3190/api/pair/issue` 端点 POST `{}`，复制返回的 token。
 3. 在第二个 tab（或手机）打开带配对令牌的 **局域网** URL（如 `http://192.168.1.7:3190/?pair=<token>`）：页面接受、设置 HttpOnly `dsh_pair` cookie、重载并启动完整 UI——无 console 错误，并且完成一次 generation 往返。
-4. 桌面徽标实时翻到 已连接；局域网 origin 的桌面页则显示 配对面板仅限本机使用 横幅且不打开状态流。
-5. 桌面 停止 切断手机：其下一个 `/api` 请求 403（重连循环重试直到新二维码重新配对）。
+4. 确认 loopback 状态流把设备报告为已连接；局域网 origin 的桌面页不打开特权配对状态流。
+5. 向仅限 loopback 的 `/api/pair/stop` 端点 POST，确认手机下一次 `/api` 请求收到 403（重连循环重试直到用新 token 重新配对）。
 
-公网路径是经隧道的同一往返（见「通过互联网远程访问」）：loopback mint → 手机或 PC 打开公网二维码 URL → accept → UI。只有 `publicBaseUrl`（插件配置）命名隧道主机；`--trusted-host` 不属于这条配对流。桌面面板仍在 `http://127.0.0.1` 打开。
+公网路径是经隧道的同一往返（见「通过互联网远程访问」）：loopback 签发 → 手机或 PC 打开公网配对 URL → accept → UI。只有 `publicBaseUrl`（插件配置）命名隧道主机；`--trusted-host` 不属于这条配对流。token 签发与远程撤销保持仅限 loopback。
 
 ## 安全模型
 
