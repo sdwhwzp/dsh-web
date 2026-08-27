@@ -149,7 +149,7 @@ describe('Doctor legacy aggregate migration', () => {
     const result = await migrateLegacyAggregate(home, 'web', '/fake/dsh', {
       env: {},
       run: async args => { calls.push(args); return { code: 0, output: '' } },
-      exists: () => false,
+      fetch: async () => ({ ok: false, json: async () => ({}) }),
       targetVersion: '0.3.3',
     })
     expect(result.kind).toBe('noop')
