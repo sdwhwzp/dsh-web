@@ -23,7 +23,7 @@ import {
   type TreatConfig,
 } from './treats.ts'
 import { RemarkPicker, type PetRemarks } from './remarks.ts'
-import type { PetDisplayConfig, PetPersist } from './persist.ts'
+import type { PetDisplayConfig, PetPersist, PetSettingField } from './persist.ts'
 import type { PetGameplayState } from './gameplay.ts'
 
 /** Tuning overrides for the affinity economy. */
@@ -100,6 +100,26 @@ export class PetLedger {
   /** Replace the display block (clamping stays a caller concern). */
   setDisplay(display: PetDisplayConfig): void {
     this.current = { ...this.current, display }
+    this.dirty = true
+  }
+
+  /** Replace this account's pet master switch. */
+  setEnabled(enabled: boolean): void {
+    if (this.current.enabled === enabled) return
+    this.current = { ...this.current, enabled }
+    this.dirty = true
+  }
+
+  /** Replace this account's status-decoration switch. */
+  setDecorationEnabled(enabled: boolean): void {
+    if (this.current.decorationEnabled === enabled) return
+    this.current = { ...this.current, decorationEnabled: enabled }
+    this.dirty = true
+  }
+
+  /** Replace the explicit per-account setting-field markers. */
+  setSettingsOverrides(fields: readonly PetSettingField[]): void {
+    this.current = { ...this.current, settingsOverrides: [...fields] }
     this.dirty = true
   }
 

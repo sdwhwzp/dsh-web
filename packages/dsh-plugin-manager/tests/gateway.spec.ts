@@ -47,6 +47,16 @@ describe('findDshBinary', () => {
     expect(findDshBinary({ PATH: '/nothing' }, 'darwin', exists(['/opt/homebrew/bin/dsh']))).toBe('/opt/homebrew/bin/dsh')
   })
 
+  it('falls back to the running DSH source entry when no shim is installed', () => {
+    const entry = '/opt/dsh/apps/cli/src/bin.ts'
+    expect(findDshBinary({ PATH: '/nothing' }, 'darwin', exists([entry]), entry)).toBe(entry)
+  })
+
+  it('does not execute an unrelated host entry as the dsh CLI', () => {
+    const entry = '/opt/other/src/bin.ts'
+    expect(findDshBinary({ PATH: '/nothing' }, 'linux', exists([entry]), entry)).toBeNull()
+  })
+
   it('returns null when nothing matches', () => {
     expect(findDshBinary({ PATH: '/definitely/absent' }, 'linux', exists([]))).toBeNull()
   })
@@ -66,6 +76,20 @@ describe('sourceKindOf', () => {
 describe('dshSpawnCommand', () => {
   it('keeps the binary as-is off Windows', () => {
     expect(dshSpawnCommand('/usr/local/bin/dsh', 'darwin')).toEqual({ command: '/usr/local/bin/dsh', argsPrefix: [] })
+  })
+
+  it('runs a source host entry through the current Node loader flags', () => {
+    expect(dshSpawnCommand(
+      '/opt/dsh/apps/cli/src/bin.ts',
+      'darwin',
+      () => false,
+      () => false,
+      '/opt/node/bin/node',
+      ['--import', 'tsx/esm'],
+    )).toEqual({
+      command: '/opt/node/bin/node',
+      argsPrefix: ['--import', 'tsx/esm', '/opt/dsh/apps/cli/src/bin.ts'],
+    })
   })
 
   it('resolves the wrapper into node + bin.js on Windows, preferring a local node', () => {

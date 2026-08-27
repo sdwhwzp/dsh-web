@@ -30,6 +30,12 @@ const MAX_OUTPUT_CHARS = 32_000
 /** Ring cap on finished jobs: the newest 100 settled jobs stay queryable; the oldest finished job is evicted beyond the cap so the job table cannot grow without bound. In-progress jobs are never evicted. */
 const MAX_FINISHED_JOBS = 100
 
+/** Explanation shared by direct and rollback CLI discovery failures. */
+const DSH_CLI_UNAVAILABLE_REASON = 'dsh CLI unavailable from PATH, installation roots, and current host entry'
+
+/** User-facing failure when no official CLI executable or reusable host entry exists. */
+export const DSH_CLI_UNAVAILABLE = `plugin-manager: ${DSH_CLI_UNAVAILABLE_REASON}`
+
 /**
  * Shell command-chaining metacharacters that must never reach a spawned CLI
  * argument. The gateway spawns shell-free, but the official CLI forwards to
@@ -114,10 +120,21 @@ export function findDshBinary(
   if (platform === 'darwin') {
     candidates.push('/opt/homebrew/bin/dsh', '/usr/local/bin/dsh')
   }
+  // A source checkout can launch the host entry directly through Node
+  // (`node --import tsx/esm apps/cli/src/bin.ts`) without installing a dsh
+  // shim. Reuse only a recognized official CLI entry after every external
+  // binary location has been exhausted.
+  if (hostEntryPath !== undefined && isDshHostEntry(hostEntryPath)) candidates.push(hostEntryPath)
   for (const candidate of candidates) {
     if (exists(candidate)) return candidate
   }
   return null
+}
+
+/** Whether a running Node entry is an official DSH CLI source or built entry. */
+function isDshHostEntry(path: string): boolean {
+  const normalized = path.replaceAll('\\', '/')
+  return /\/(?:apps\/cli\/(?:src|lib)|node_modules\/@deepseek-ai\/dsh\/lib)\/bin\.(?:[cm]?js|ts)$/.test(normalized)
 }
 
 /** Append bounded CLI output (stdout + stderr interleaved is not preserved; tail wins). */
@@ -134,6 +151,8 @@ function capture(chunk: Buffer, buffer: { value: string }): void {
  * @param platform - process platform (test seam).
  * @param localNodeExists - existence probe (test seam).
  * @param binJsExists - existence probe for the resolved bin script (test seam).
+ * @param nodeExecutable - current Node-compatible executable (test seam).
+ * @param nodeArguments - flags required to launch the current host entry (test seam).
  * @returns the executable and the argument prefix to run the dsh bin script.
  */
 export function dshSpawnCommand(
@@ -141,7 +160,12 @@ export function dshSpawnCommand(
   platform: string = process.platform,
   localNodeExists: (path: string) => boolean = existsSync,
   binJsExists: (path: string) => boolean = existsSync,
+  nodeExecutable: string = process.execPath,
+  nodeArguments: readonly string[] = process.execArgv,
 ): { command: string; argsPrefix: string[] } {
+  if (/\.(?:[cm]?js|ts)$/.test(binary)) {
+    return { command: nodeExecutable, argsPrefix: [...nodeArguments, binary] }
+  }
   if (platform !== 'win32') return { command: binary, argsPrefix: [] }
   // Windows paths must be parsed with win32 semantics even when the probing
   // host is POSIX (unit tests, and any future cross-platform probing).
@@ -157,7 +181,7 @@ export function dshSpawnCommand(
   ]
   const binJs = binJsCandidates.find((candidate) => binJsExists(candidate))
   if (binJs === undefined) return { command: binary, argsPrefix: [] }
-  return { command: localNodeExists(localNode) ? localNode : process.execPath, argsPrefix: [binJs] }
+  return { command: localNodeExists(localNode) ? localNode : nodeExecutable, argsPrefix: [binJs] }
 }
 
 /** Build the exact cmd.exe command line required to execute a trusted .cmd shim. */
@@ -308,7 +332,7 @@ export class CliGateway {
     const binary = this.binary()
     if (binary === null) {
       job.phase = 'error'
-      job.error = 'plugin-manager: dsh CLI not found on PATH'
+      job.error = DSH_CLI_UNAVAILABLE
       return
     }
     const sourceId = job.sourceId
@@ -430,7 +454,7 @@ export class CliGateway {
     const binary = this.binary()
     if (binary === null) {
       job.phase = 'error'
-      job.error = 'plugin-manager: 迁移失败且无法回滚：dsh CLI not found on PATH'
+      job.error = `plugin-manager: 迁移失败且无法回滚：${DSH_CLI_UNAVAILABLE_REASON}`
       return
     }
     const current = await this.capture()
@@ -633,7 +657,7 @@ export class CliGateway {
     const binary = this.binary()
     if (binary === null) {
       job.phase = 'error'
-      job.error = 'plugin-manager: dsh CLI not found on PATH'
+      job.error = DSH_CLI_UNAVAILABLE
       return
     }
     const before = await this.capture()

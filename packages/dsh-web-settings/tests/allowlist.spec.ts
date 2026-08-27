@@ -70,12 +70,14 @@ describe('resolveNamespaceEntry', () => {
     expect(resolveNamespaceEntry('dsh-client-ui-task-board')).toBe('task-board')
     expect(resolveNamespaceEntry('dsh-skins')).toBe('skin-background')
     expect(resolveNamespaceEntry('dsh-ssh')).toBe('dsh-ssh')
+    expect(resolveNamespaceEntry('dsh-client-ui-market')).toBe('dsh-web-ui-market')
   })
 
   it('passes bare family namespaces through', () => {
     expect(resolveNamespaceEntry('pet')).toBe('pet')
     expect(resolveNamespaceEntry('remote-web-ui')).toBe('remote-web-ui')
     expect(resolveNamespaceEntry('community-plugins')).toBe('community-plugins')
+    expect(resolveNamespaceEntry('dsh-web-ui-market')).toBe('dsh-web-ui-market')
   })
 
   it('maps the aionui-panel package names onto the panel settings namespace', () => {
@@ -129,7 +131,15 @@ describe('composeAllowlist', () => {
   })
 
   it('honors user entries, deduplicates, and ignores unknown names', () => {
-    expect(composeAllowlist(['dsh-client-ui-task-board', 'dsh-skins', 'dsh-ssh', 'dsh-market', 'nope'], registered))
+    expect(composeAllowlist([
+      'dsh-client-ui-task-board',
+      'dsh-skins',
+      'dsh-ssh',
+      'dsh-market',
+      'dsh-client-ui-market',
+      'ui-market',
+      'nope',
+    ], registered))
       .toEqual(['dsh-ssh', 'dsh-web-ui-market', 'skin-background', 'task-board'])
   })
 

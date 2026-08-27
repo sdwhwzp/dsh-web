@@ -50,7 +50,7 @@ reverse_proxy 127.0.0.1:3080 {
 
 带值的 `header_up` 会覆盖客户端提供的同名请求头。不要再同时删除同一字段：Caddy 2.6 会在分组操作中先设置、后删除。如果 Caddy 的 systemd 单元以 `caddy run --environ` 启动，请去掉该参数或严格保护其输出，因为该参数会在启动时打印环境变量。
 
-`settings.yaml` 中的 `web_settings_namespaces` 继续决定桥接开放哪些全家桶命名空间；未配置时使用内置全家桶列表。修改插件配置需要重启 DSH，`web_settings_namespaces` 则在每次桥接调用时重新读取。
+`settings.yaml` 中的 `web_settings_namespaces` 继续决定桥接开放哪些全家桶命名空间；未配置时使用内置全家桶列表，其中包含创意工坊的 `dsh-web-ui-market` 命名空间。因此，即使宿主官方设置 API 不开放第三方命名空间，创意工坊启用开关仍可写入。修改插件配置需要重启 DSH，`web_settings_namespaces` 则在每次桥接调用时重新读取。
 
 ## 安全模型
 

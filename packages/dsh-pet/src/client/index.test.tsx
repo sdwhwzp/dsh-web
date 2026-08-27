@@ -5,7 +5,7 @@
  * data-dsh-plugin="pet" so skins can target the pet subtree. The same
  * tests pin the fiber-lifecycle contract (issue #785): a hot-reloaded or
  * re-injected bundle instance must never leave the previous React root,
- * container, or settings subscription behind, so the page always holds
+ * or container behind, so the page always holds
  * exactly one [data-dsh-pet-root].
  */
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
@@ -59,8 +59,6 @@ beforeAll(() => {
 interface FakeClientLifecycle {
   ctx: ClientContext
   dispose(): void
-  settingsListenerCount(): number
-  emitSettings(): void
 }
 
 const activeLifecycles: FakeClientLifecycle[] = []
@@ -72,22 +70,6 @@ afterEach(() => {
 
 function fakeContext(): FakeClientLifecycle {
   const disposers: (() => void)[] = []
-  const settingsListeners = new Set<() => void>()
-  const scope = {
-    getSnapshot: () => ({
-      status: 'ready',
-      writable: true,
-      value: undefined,
-      base: undefined,
-      user: {},
-      revision: 1,
-      mode: 'host',
-    }),
-    subscribe: (listener: () => void) => {
-      settingsListeners.add(listener)
-      return () => { settingsListeners.delete(listener) }
-    },
-  }
   const ctx = {
     effect: (fn: () => unknown, _label?: string) => {
       const dispose = fn()
@@ -98,7 +80,6 @@ function fakeContext(): FakeClientLifecycle {
     },
     locale: { register: () => () => {} },
     get: () => undefined,
-    settingsScope: { bind: () => scope },
     slots: {
       // Cordis runs the factory when the slot mounts and its returned
       // disposer when the fiber disposes; mirror that so slot content
@@ -129,10 +110,6 @@ function fakeContext(): FakeClientLifecycle {
       disposed = true
       for (const dispose of disposers.splice(0).reverse()) dispose()
     },
-    settingsListenerCount: () => settingsListeners.size,
-    emitSettings: () => {
-      for (const listener of settingsListeners) listener()
-    },
   }
   activeLifecycles.push(lifecycle)
   return lifecycle
@@ -161,27 +138,18 @@ describe('pet client apply', () => {
     expect(roots[0]).not.toBe(firstContainer)
     expect(firstContainer!.isConnected).toBe(false)
 
-    // The first instance must not resurrect its own root.
-    first.emitSettings()
-    expect(document.body.querySelectorAll('[data-dsh-pet-root]')).toHaveLength(1)
-
     // The first fiber draining later stays a no-op.
     first.dispose()
     expect(document.body.querySelectorAll('[data-dsh-pet-root]')).toHaveLength(1)
   })
 
-  it('tears down root, container, and settings subscription on fiber disposal (#785)', () => {
+  it('tears down root and container on fiber disposal (#785)', () => {
     const lifecycle = fakeContext()
     apply(lifecycle.ctx)
     expect(document.body.querySelectorAll('[data-dsh-pet-root]')).toHaveLength(1)
-    // The settings card controller subscribes to the same scope as the UI
-    // sync, so at least the sync listener is present while the fiber lives.
-    expect(lifecycle.settingsListenerCount()).toBeGreaterThan(0)
-
     lifecycle.dispose()
 
     expect(document.body.querySelectorAll('[data-dsh-pet-root]')).toHaveLength(0)
-    expect(lifecycle.settingsListenerCount()).toBe(0)
   })
 
   it('re-applies cleanly after disposal so a hot reload keeps one pet (#785)', () => {

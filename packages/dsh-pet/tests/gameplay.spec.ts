@@ -232,6 +232,32 @@ describe('gameplay routes', () => {
     expect(persisted.treats?.treats).toBe(20)
   })
 
+  it('keeps gameplay state independent for authenticated accounts', async () => {
+    const registry = loadPetRegistry({ packageRoot: dir, petsDir: '', dshPetsDir: '' })
+    const accountHome = join(dir, 'account-gameplay-home')
+    const alice = { source: 'dsh-passwords', id: '2' }
+    const bob = { source: 'dsh-passwords', id: '3' }
+    const scoped = new PetService(new Context(), { persistDir: accountHome, registry })
+
+    expect((await scoped.gameplaySetMode('work', alice)).view?.mode).toBe('work')
+    expect((await scoped.gameplayTouch('head', alice)).view?.stats.affection).toBe(105)
+    expect((await scoped.state(alice)).gameplay).toMatchObject({
+      mode: 'work',
+      stats: { affection: 105 },
+    })
+    expect((await scoped.state(bob)).gameplay).toMatchObject({
+      mode: null,
+      stats: { affection: 100 },
+    })
+
+    const reloaded = new PetService(new Context(), { persistDir: accountHome, registry })
+    expect((await reloaded.state(alice)).gameplay).toMatchObject({
+      mode: 'work',
+      stats: { affection: 105 },
+    })
+    expect((await reloaded.state(bob)).gameplay?.mode).toBeNull()
+  })
+
   it('rejects gameplay verbs for a pet without a gameplay block', async () => {
     // Switch to a plain sprite2d pet, then every verb reports no-gameplay.
     await post('/api/pet/set-pet', { petId: 'miku' }) // ensure known starting point

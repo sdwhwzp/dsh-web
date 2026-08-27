@@ -64,6 +64,7 @@ const NAMESPACE_ALIASES: Readonly<Record<string, string | null>> = {
   'dsh-client-ui-market': 'dsh-web-ui-market',
   'dsh-web-ui-market': 'dsh-web-ui-market',
   market: 'dsh-web-ui-market',
+  'ui-market': 'dsh-web-ui-market',
   'dsh-git-graph': null,
   'dsh-client-ui-git-graph': null,
   'dsh-web': null,

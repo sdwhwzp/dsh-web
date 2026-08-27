@@ -11,7 +11,7 @@
  * @module @linxin666/dsh-pet/client
  */
 
-import type { ClientContext, ISessions, SessionId, SettingsScope, SettingsScopeSpec } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext, ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: pulls the settings-surface Context merge (ctx.settingsScope).
@@ -30,7 +30,8 @@ import { defaultPetRendererRegistry } from './renderers/registry.ts'
 import { live2dRenderer } from './renderers/live2d.ts'
 import { frames2dRenderer } from './renderers/frames2d.ts'
 import { registerPetUiTeardown, takeoverPetUiTeardown } from './ui-teardown.ts'
-import { PetSettingsSection, PetSettingsCardController, type PetSettings } from './PetSettingsCard.tsx'
+import { PetSettingsSection, PetSettingsCardController } from './PetSettingsCard.tsx'
+import { PetAccountSettingsScope } from './pet-settings-scope.ts'
 import { NS, en, zh, t } from './locales.ts'
 import { reportDailyHeartbeat } from './telemetry.ts'
 
@@ -84,11 +85,8 @@ const petApi: PetHttpApi = {
 /** Poll interval for the host snapshot. */
 const POLL_MS = 2000
 
-/** Settings namespace the pet settings card edits (the Host plugin registers it). */
-const PET_SETTINGS_NS = 'pet'
-
 /** Required services (sessions powers bubble-to-session navigation). */
-export const inject = ['slots', 'locale', 'connection', 'settingsScope', 'remote', 'sessions']
+export const inject = ['slots', 'locale', 'connection', 'remote', 'sessions']
 
 /** Re-exported for consumers that type against the injected face. */
 export type { PetInjected, PetDockEntryProps } from './PetDockEntry.tsx'
@@ -97,17 +95,6 @@ export type { PetUiState, PetFeedback } from './pet-store.ts'
 export type { PetSettingsCardFace, PetSettingsCardState } from './PetSettingsCard.tsx'
 export type { PetSettingsSectionProps } from './PetSettingsCard.tsx'
 export type { PetDefinition } from '../registry.ts'
-
-declare module '@deepseek-ai/cordis' {
-  interface Context {
-    /**
-     * Optional rc.6 compatibility binder provided by dsh-web-settings;
-     * absent when that group plugin is not installed, so callers fall back to
-     * the official settings scope.
-     */
-    webUiSettings?: { bind<S>(spec: SettingsScopeSpec<S>): SettingsScope<S> }
-  }
-}
 
 /**
  * Client plugin body: register dictionaries, mount the global pet entry and
@@ -133,17 +120,14 @@ export function apply(ctx: ClientContext): void {
   defaultPetRendererRegistry.register(live2dRenderer)
   defaultPetRendererRegistry.register(frames2dRenderer)
 
-  const binder = ctx.get('webUiSettings') ?? ctx.settingsScope
-  const settingsScope = binder.bind<PetSettings>({ namespace: PET_SETTINGS_NS })
+  const settingsScope = new PetAccountSettingsScope()
   const enabled = (): boolean => {
     const snapshot = settingsScope.getSnapshot()
-    return snapshot.status === 'ready'
-      ? snapshot.value?.enabled ?? true
-      : snapshot.status === 'unavailable'
+    return snapshot.status !== 'ready' || (snapshot.value?.enabled ?? true)
   }
 
-  // First-level settings section: one staged form over the 'pet' settings
-  // namespace, registered as a top-level settings page. The controller loads
+  // First-level settings section: one staged form over this request's pet
+  // account, registered as a top-level settings page. The controller loads
   // the petId choices from the registry endpoint itself — the registry lists
   // the available pets (built-in assets plus user dirs), so the section only
   // ever shows installed pets. Installing new pets happens in the Workshop
@@ -321,6 +305,7 @@ export function apply(ctx: ClientContext): void {
         },
         hide: () => {
           petApi.setVisible(false).then(() => {
+            void settingsScope.refresh()
             pollNow()
           }, () => {
             // Ignore; next poll resyncs.
@@ -328,6 +313,7 @@ export function apply(ctx: ClientContext): void {
         },
         summon: () => {
           petApi.setVisible(true).then(() => {
+            void settingsScope.refresh()
             pollNow()
           }, () => {
             // Ignore; next poll resyncs.
@@ -335,6 +321,7 @@ export function apply(ctx: ClientContext): void {
         },
         dragEnd: (right, bottom) => {
           petApi.setConfig({ right, bottom }).then(() => {
+            void settingsScope.refresh()
             pollNow()
           }, () => {
             // Ignore; next poll resyncs.
@@ -414,6 +401,7 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(
     () => () => {
       unsubscribeSettings()
+      settingsScope.dispose()
       killUi()
     },
     'pet: client lifecycle',

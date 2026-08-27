@@ -12,7 +12,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { readJsonBody, writeJson } from './http.ts'
 import { isLoopbackRequest } from './loopback.ts'
-import { detectOfficialChannels, findDshBinary, spawnDsh, unsafeSpecReason, type CliGateway } from './gateway.ts'
+import { detectOfficialChannels, DSH_CLI_UNAVAILABLE, findDshBinary, spawnDsh, unsafeSpecReason, type CliGateway } from './gateway.ts'
 import { dshRequirementOf, meetsMinimumDsh, parseDshVersion } from '../core/version.ts'
 import { readPatchText, readProfileManifest, type ProfileFacts } from './profile.ts'
 import { legacyMigrationFor, targetSpecForLegacy } from './legacy-migration.ts'
@@ -225,7 +225,7 @@ export function makeGatewayRoutes(deps: GatewayRouteDeps): WebRoute[] {
       return
     }
     if (!deps.cliAvailable()) {
-      writeJson(res, 500, { error: 'plugin-manager: dsh CLI not found on PATH' })
+      writeJson(res, 500, { error: DSH_CLI_UNAVAILABLE })
       return
     }
     writeJson(res, 200, gateway.install(spec.trim()))
@@ -245,7 +245,7 @@ export function makeGatewayRoutes(deps: GatewayRouteDeps): WebRoute[] {
       return
     }
     if (!deps.cliAvailable()) {
-      writeJson(res, 500, { error: 'plugin-manager: dsh CLI not found on PATH' })
+      writeJson(res, 500, { error: DSH_CLI_UNAVAILABLE })
       return
     }
     const outcome = await gateway.withMutationLock(async () => {
@@ -322,7 +322,7 @@ export function makeGatewayRoutes(deps: GatewayRouteDeps): WebRoute[] {
       return
     }
     if (!deps.cliAvailable()) {
-      writeJson(res, 500, { error: 'plugin-manager: dsh CLI not found on PATH' })
+      writeJson(res, 500, { error: DSH_CLI_UNAVAILABLE })
       return
     }
     writeJson(res, 200, gateway.remove(id.trim()))

@@ -27,6 +27,27 @@ export interface PetDisplayConfig {
   bottom: number
 }
 
+/** Pet settings fields that may carry an explicit per-account override. */
+export type PetSettingField =
+  | 'enabled'
+  | 'decorationEnabled'
+  | 'visible'
+  | 'size'
+  | 'right'
+  | 'bottom'
+  | 'petId'
+
+/** Closed setting-field set used to sanitize persisted override markers. */
+export const PET_SETTING_FIELDS: ReadonlySet<PetSettingField> = new Set([
+  'enabled',
+  'decorationEnabled',
+  'visible',
+  'size',
+  'right',
+  'bottom',
+  'petId',
+])
+
 export const defaultDisplayConfig: PetDisplayConfig = {
   visible: true,
   size: 160,
@@ -41,6 +62,12 @@ export const DISPLAY_INSET_MAX = 10_000
 
 /** Everything persisted for the pet. */
 export interface PetPersist {
+  /** Whether this account renders and updates its pet. */
+  enabled: boolean
+  /** Whether this account renders status decorations. */
+  decorationEnabled: boolean
+  /** Fields explicitly written for this account; omitted fields inherit defaults. */
+  settingsOverrides: PetSettingField[]
   /** Selected pet id (a registry entry; clamped at service startup). */
   petId: string
   /**
@@ -61,6 +88,9 @@ export const PET_NAME_MAX_LENGTH = 20
 
 export function emptyPersist(): PetPersist {
   return {
+    enabled: true,
+    decorationEnabled: true,
+    settingsOverrides: [],
     petId: DEFAULT_PET_ID,
     names: {},
     affinity: emptyAffinity(),
@@ -183,6 +213,13 @@ export function loadPetPersist(dir: string = petHomeDir()): PetPersist {
       names[petId] = parsed.name.trim().slice(0, PET_NAME_MAX_LENGTH)
     }
     return {
+      enabled: typeof parsed.enabled === 'boolean' ? parsed.enabled : true,
+      decorationEnabled: typeof parsed.decorationEnabled === 'boolean' ? parsed.decorationEnabled : true,
+      settingsOverrides: Array.isArray(parsed.settingsOverrides)
+        ? [...new Set(parsed.settingsOverrides.filter(
+            (field): field is PetSettingField => typeof field === 'string' && PET_SETTING_FIELDS.has(field as PetSettingField),
+          ))]
+        : [],
       petId,
       names,
       affinity,
