@@ -17,20 +17,21 @@ test('header/strip round-trips every file kind', () => {
   }
 })
 
-test('copies cover the settings trio for eight consumers plus host and http helpers', () => {
+test('copies cover the settings trio for all consumers plus host and http helpers', () => {
   // Normalize separators: node:path join yields backslashes on Windows, and
   // the copy-count buckets below match on forward slashes.
   const entries = copyEntries().map(entry => ({ ...entry, target: entry.target.replaceAll('\\', '/') }))
-  assert.equal(entries.length, 96)
+  assert.equal(entries.length, 102)
   const clientTrio = entries.filter(entry => entry.target.includes('/src/client/'))
-  assert.equal(clientTrio.length, 43)
+  assert.equal(clientTrio.length, 39)
   const hostCopies = entries.filter(entry => entry.target.includes('/src/host/')
     || entry.target.includes('/src/dsh-home.ts')
     || entry.target.includes('/src/mount-once.ts')
     || entry.target.includes('/src/loopback.ts')
+    || entry.target.includes('/src/pair-access.ts')
     || entry.target.includes('/src/agent/')
     || entry.target.endsWith('/packages/dsh-task-board/src/http.ts'))
-  assert.equal(hostCopies.length, 44)
+  assert.equal(hostCopies.length, 51)
 })
 
 test('checkSync detects drift and applySync repairs it', async () => {
@@ -50,6 +51,8 @@ test('checkSync detects drift and applySync repairs it', async () => {
     await writeFile(join(hostDir, 'poll-guard.ts'), 'export const guard = 1' + String.fromCharCode(10))
     await writeFile(join(hostDir, 'dsh-home.ts'), 'export const home = 1' + String.fromCharCode(10))
     await writeFile(join(hostDir, 'loopback.ts'), 'export const loop = 1' + String.fromCharCode(10))
+    await writeFile(join(hostDir, 'pair-access.ts'), 'export const fence = 1' + String.fromCharCode(10))
+    await writeFile(join(root, 'shared', 'vitest.setup.ts'), 'export {}' + String.fromCharCode(10))
     await writeFile(join(hostDir, 'git-runner.ts'), 'export const runner = 1' + String.fromCharCode(10))
     await writeFile(join(hostDir, 'mount-once.ts'), 'export const once = 1' + String.fromCharCode(10))
     await writeFile(join(hostDir, 'http.ts'), 'export const http = 1' + String.fromCharCode(10))

@@ -85,6 +85,11 @@ export const zh = {
   'terminal.ready': '终端已连接（{alias}）',
   'terminal.exited': '终端已退出（{alias}）',
   'terminal.error': '终端错误：{error}',
+  'terminal.auth.title': '二次身份验证 (2FA / 交互式认证)',
+  'terminal.auth.submit': '提交验证码',
+  'terminal.auth.cancel': '取消',
+  'terminal.auth.placeholder': '请输入验证码或口令',
+  'terminal.auth.hint': '服务器请求进行交互式二次验证（输入仅本次生效，不落盘）：',
   // transfer
   'transfer.selectHost': '选择主机',
   'transfer.remotePath': '远程路径',
@@ -149,6 +154,7 @@ export const zh = {
   'common.error': '出错：{error}',
   'common.refresh': '刷新',
   'common.confirm': '确定',
+  'error.disabled': 'SSH 插件在宿主端未启用。请前往「设置 → Web 插件 → SSH」打开 enabled 开关。',
 } as const
 
 export const en: Record<keyof typeof zh, string> = {
@@ -231,6 +237,11 @@ export const en: Record<keyof typeof zh, string> = {
   'terminal.ready': 'Terminal connected ({alias})',
   'terminal.exited': 'Terminal exited ({alias})',
   'terminal.error': 'Terminal error: {error}',
+  'terminal.auth.title': 'Two-Factor Authentication (2FA)',
+  'terminal.auth.submit': 'Submit Code',
+  'terminal.auth.cancel': 'Cancel',
+  'terminal.auth.placeholder': 'Enter code or passphrase',
+  'terminal.auth.hint': 'The server requested interactive 2FA (session only, never saved):',
   'transfer.selectHost': 'Select host',
   'transfer.remotePath': 'Remote path',
   'transfer.remotePathHint': 'e.g. /tmp/ or /home/user/app.tar.gz',
@@ -291,6 +302,7 @@ export const en: Record<keyof typeof zh, string> = {
   'common.error': 'Error: {error}',
   'common.refresh': 'Refresh',
   'common.confirm': 'Confirm',
+  'error.disabled': 'The SSH plugin is disabled on the host. Please enable it in Settings → Web Plugins → SSH.',
 }
 
 /** Locale key union. */

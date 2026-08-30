@@ -25,13 +25,16 @@ export default {
     },
     '/api/stats': {
       get: {
-        summary: 'Vote counts per kind and asset id',
-        responses: { 200: { description: 'Vote counts' } },
+        summary: 'Vote counts per kind and asset id; edge-cached one minute and served from the last good counts under storage failures',
+        responses: {
+          200: { description: 'Vote counts and install counts' },
+          503: { description: 'Storage unavailable (D1 overloaded) and no cached copy; cards fall back to their zero state' },
+        },
       },
     },
     '/api/install': {
       post: {
-        summary: 'Record one successful Workshop install (skins, pets or community plugins); one event per install, Turnstile-gated when configured',
+        summary: 'Record one successful Workshop install (skins, pets or community plugins); one event per install, Turnstile-gated',
         requestBody: {
           required: true,
           content: {
@@ -52,14 +55,15 @@ export default {
         },
         responses: {
           200: { description: 'Install recorded; returns the refreshed cumulative install count' },
-          400: { description: 'Invalid parameters or JSON' },
+          400: { description: 'Invalid parameters or JSON, or asset_id not in the published manifests (unknown-asset)' },
           403: { description: 'Turnstile challenge missing or invalid' },
+          413: { description: 'Body exceeds the 4 KiB write cap (payload-too-large)' },
         },
       },
     },
     '/api/like': {
       post: {
-        summary: 'Like or unlike an asset (one vote per device, Turnstile-gated when configured)',
+        summary: 'Like or unlike an asset (one vote per device, Turnstile-gated)',
         requestBody: {
           required: true,
           content: {
@@ -80,8 +84,9 @@ export default {
         },
         responses: {
           200: { description: 'Like recorded; returns ok, liked and votes' },
-          400: { description: 'Invalid parameters or JSON' },
+          400: { description: 'Invalid parameters or JSON, or asset_id not in the published manifests (unknown-asset)' },
           403: { description: 'Turnstile verification failed' },
+          413: { description: 'Body exceeds the 4 KiB write cap (payload-too-large)' },
         },
       },
     },
@@ -126,6 +131,8 @@ export default {
         responses: {
           200: { description: 'Event accepted (duplicates collapse per day)' },
           400: { description: 'Invalid parameters or JSON' },
+          413: { description: 'Body exceeds the 16 KiB telemetry cap (payload-too-large)' },
+          503: { description: 'Storage unavailable (D1 overloaded); retry on a later mount' },
         },
       },
     },
@@ -133,6 +140,7 @@ export default {
       get: {
         summary: 'Aggregate UV/PV summary; counts only, never raw events',
         parameters: [
+          { name: 'x-telemetry-key', in: 'header', required: false, schema: { type: 'string' }, description: 'Required when TELEMETRY_READ_KEY is configured; the key is never accepted as a URL query parameter' },
           { name: 'days', in: 'query', required: false, schema: { type: 'integer', minimum: 1, maximum: 365 } },
           { name: 'paths_limit', in: 'query', required: false, schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 }, description: 'Hot-path page size' },
           { name: 'paths_offset', in: 'query', required: false, schema: { type: 'integer', minimum: 0, default: 0 }, description: 'Hot-path page offset; the full count is site.paths_total' },
@@ -142,6 +150,7 @@ export default {
         responses: {
           200: { description: 'Per-day and per-item aggregates for site pageviews and plugin heartbeats; hot paths and items are paginated, totals included' },
           403: { description: 'TELEMETRY_READ_KEY configured and not presented' },
+          503: { description: 'Storage unavailable (D1 overloaded); retry later' },
         },
       },
     },
@@ -174,7 +183,7 @@ export default {
     },
     '/api/telemetry/badge/users': {
       get: {
-        summary: 'Shields endpoint badge: all-time distinct heartbeat visitors (anonymous install count); aggregate only, no key required',
+        summary: 'Shields endpoint badge: all-time distinct heartbeat visitors (anonymous install count); aggregate only, no key required; served from a cron-precomputed D1 row plus a 30 min edge cache, falling back to the last good count under storage failures',
         responses: { 200: { description: 'Shields endpoint schema (schemaVersion 1)' } },
       },
     },

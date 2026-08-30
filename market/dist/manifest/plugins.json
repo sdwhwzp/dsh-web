@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-26",
+  "generated": "2026-08-29",
   "items": [
     {
       "id": "dsh-data-agent",
@@ -136,6 +136,7 @@
       "description": "给模型输出配交互式 UI：助手回复内联渲染 dsh-ui 围栏（布局、图表、表格、表单、Mermaid、3D、原生音视频），双通道渲染兼容原版 DSH 与新构建，支持流式渲染、面板停靠与组件交互回传模型。",
       "descriptionEn": "Interactive UI inside assistant replies via the dsh-ui fence: layouts, charts, tables, forms, quizzes, Mermaid, 3D and native audio/video. Dual-channel rendering covers stock DSH and newer builds, with streaming render, panel docking and component actions that loop back to the model.",
       "repo": "https://github.com/omdsh-dev/dsh-genui",
+      "npm": "@omdsh-dev/dsh-genui",
       "category": "ui",
       "subcategory": "render"
     },
@@ -148,6 +149,7 @@
       "description": "选中助手文字即可批注，回车随消息发送；自己的气泡只显示问题与「批注 ×N」标签，模型按 Annotation N 逐条对照回复（悬浮芯片）；UI 与批注块跟随 DSH 语言切换 zh/en，Cmd/Ctrl+Enter 可直发纯批注，斜杠命令原样放行。",
       "descriptionEn": "Select text in an assistant reply to annotate it; annotations ride along with your next message, hidden in your own bubble behind an Annotations xN chip, and the model replies per Annotation N with hoverable chips. UI and annotation block follow the DSH locale (zh/en); Cmd/Ctrl+Enter sends annotations alone; slash commands pass through.",
       "repo": "https://github.com/omdsh-dev/dsh-annotation",
+      "npm": "@omdsh-dev/dsh-annotation",
       "category": "ui",
       "subcategory": "chat"
     },
@@ -361,8 +363,8 @@
       "rank": 29,
       "nameEn": "Logic Probe",
       "author": "AmethystLuna",
-      "description": "AI 智能体声明核查技能：枚举设计文档与重构计划中的每个可验证声明，对照代码库事实逐条核验；行为类声明升级为逻辑原语验证（7 项结构检查 + 7 项对抗探针），重构前后模型对比做回归检测，输出 file:line 证据。",
-      "descriptionEn": "Claim verification for AI coding agents: enumerate every verifiable claim in design docs and refactoring plans, verify against codebase facts, then escalate behavioral claims to logic-primitive verification (7 structural checks + 7 adversarial probes), with before/after model comparison for refactoring regression detection.",
+      "description": "AI 智能体声明核查技能：枚举设计文档与重构计划中的每个可验证声明，对照代码库事实逐条核验；行为类声明升级为状态机/数据模型逻辑原语验证，支持前后回归、领域约束与并发风险挖掘，输出 file:line 证据。",
+      "descriptionEn": "Claim verification for AI coding agents: enumerate every verifiable claim in design docs and refactoring plans, verify against codebase facts, then escalate behavioral claims to state-machine/data-model logic-primitive verification with before/after regression, domain constraints, and concurrency risk mining.",
       "repo": "https://github.com/AmethystLuna/logicprobe",
       "category": "tools",
       "subcategory": "dev"
@@ -494,6 +496,70 @@
       "npm": "@wingsky-1/dsh-provider-usage",
       "category": "tools",
       "subcategory": "model"
+    },
+    {
+      "id": "dsh-milestone",
+      "name": "会话里程碑导航条",
+      "rank": 40,
+      "nameEn": "dsh-milestone",
+      "author": "SnowCrescenter-tech",
+      "description": "DSH Web UI 右侧的圆点时间轴：每条提问一个圆点，悬停查看内容与元信息（时间、轮次、耗时、TTFT、token），点击即跳转；附带全会话消息列表、站内与跨会话搜索、书签深链接（#msg=）和键盘导航。",
+      "descriptionEn": "Git-style dot timeline on the right edge of the DSH web UI: one dot per user message, hover for content and metadata (time, turn, duration, TTFT, tokens), click to jump; full-session list, in-session and cross-session search, #msg= deep-link bookmarks, keyboard navigation.",
+      "repo": "https://github.com/SnowCrescenter-tech/dsh-milestone",
+      "npm": "dsh-milestone",
+      "category": "ui",
+      "subcategory": "chat"
+    },
+    {
+      "id": "dsh-delete-message",
+      "name": "消息删除",
+      "rank": 41,
+      "nameEn": "Delete Message",
+      "author": "viplocco",
+      "description": "每条消息操作区的垃圾桶按钮：确认后经官方 surface-replace 契约将消息从模型上下文移除并从转录隐藏，原始日志不动、随时可恢复；覆盖用户/助手/注入行/工具调用/Think 卡，失败回合整窗清理与步骤级删除，删除前预检置灰、过渡动画，中英双语界面。",
+      "descriptionEn": "A trash icon in every message action bar: confirmed deletes remove the message from model context via the official surface-replace contract and hide it from the transcript, while raw logs stay intact and recoverable. Covers user/assistant/injected rows, tool calls and Think cards; whole-window cleanup of failed turns, step-level deletion, preflight graying, transition animations, bilingual zh/en UI.",
+      "repo": "https://github.com/viplocco/dsh-delete-message",
+      "npm": "dsh-delete-message",
+      "category": "ui",
+      "subcategory": "chat"
+    },
+    {
+      "id": "dsh-notion-skill",
+      "name": "Notion 集成",
+      "rank": 42,
+      "nameEn": "Notion Skill",
+      "author": "Zhiyi-Zhao",
+      "description": "DSH Notion 技能：通过官方 REST API 读写 Notion 工作区——搜索/读取页面（转 markdown）、创建/更新页面、查询/新增/更新数据库条目；纯 Python 标准库、零依赖、Windows / macOS / Linux 通用。",
+      "descriptionEn": "A DSH Notion skill: read and write your Notion workspace via the official REST API - search/read pages as markdown, create/update pages, query/add/update database entries; pure Python stdlib, zero dependencies, cross-platform.",
+      "repo": "https://github.com/Zhiyi-Zhao/dsh-notion-skill",
+      "category": "integration",
+      "subcategory": "sync"
+    },
+    {
+      "id": "dsh-passwords",
+      "name": "远程访问网关",
+      "rank": 43,
+      "nameEn": "Access Gateway",
+      "author": "slywalker2006",
+      "description": "为 DSH Web 公网部署增加登录与多租户控制的网关插件：自动 HTTPS、多账号权限/配额/沙箱、会话级访问控制、登录限流与审计日志、SQLite 静态加密（内置于 dsh web 前端，中英双语 UI）。",
+      "descriptionEn": "Server-grade gateway that turns DeepSeek Harness into a multi-tenant platform: remote access + automatic HTTPS, per-subuser permissions and quotas, sandbox enforcement, first-run setup, SQLite auth with at-rest encryption, rate-limit and audit log (bilingual UI).",
+      "repo": "https://github.com/slywalker2006/dsh-passwords",
+      "npm": "dsh-passwords",
+      "category": "security",
+      "subcategory": "access"
+    },
+    {
+      "id": "dsh-free-search",
+      "name": "免费搜索",
+      "rank": 44,
+      "nameEn": "Free Search",
+      "author": "DDDMUC",
+      "description": "无需 API key 的多引擎网络搜索：10 个引擎自动回退（Bing/DDG/AnySearch/SearXNG/Exa/Tavily/Keenable/Perplexity/DeepSeek 等——其中付费引擎需各自配置 API key）+ 时间过滤 + 8 个平台搜索 + Web 设置面板。安装时会接管宿主默认 web 搜索 provider（searchProvider=ddg 指向本插件），卸载时由 bundle patch 的 rollbackPatch 恢复原默认值。",
+      "descriptionEn": "Multi-engine web search without API keys: 10 engines with auto-fallback (Bing/DDG/AnySearch/SearXNG/Exa/Tavily/Keenable/Perplexity/DeepSeek — paid engines need their own API key) + time filtering + 8 platform searches + a web settings panel. Installing takes over the host default web search provider (searchProvider=ddg points at this plugin); uninstalling restores the previous default via the bundle patch rollbackPatch.",
+      "repo": "https://github.com/DDDMUC/dsh-free-search",
+      "npm": "dsh-free-search",
+      "category": "tools",
+      "subcategory": "dev"
     }
   ]
 }

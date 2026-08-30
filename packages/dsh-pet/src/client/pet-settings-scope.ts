@@ -4,13 +4,13 @@
  * API so a trusted gateway principal selects an independent account file.
  */
 
-import type { SettingsScope, SettingsScopeSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SettingsScope, SettingsScopeSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { SettingsPathOpView } from '@deepseek-ai/dsh-api-remotes/client'
 import type {
   PetAccountSettingsView,
   PetSettingsPathOp,
   PetSettingsSection,
 } from '../service.ts'
-import type { BatchResult, BatchedWrite } from './settings-form.ts'
 import type { PetSettings } from './PetSettingsCard.tsx'
 
 const SETTINGS_URL = '/api/pet/settings'
@@ -101,23 +101,16 @@ export class PetAccountSettingsScope implements SettingsScope<PetSettings> {
     await this.write([{ op: 'unset', path: [field as keyof PetSettingsSection] }])
   }
 
-  /** Batched surface consumed by the shared staged settings form. */
-  async mutate(writes: BatchedWrite[]): Promise<BatchResult> {
-    const ops: PetSettingsPathOp[] = writes.map(write => write.op === 'set'
-      ? { op: 'set', path: [write.field as keyof PetSettingsSection], value: write.value }
-      : { op: 'unset', path: [write.field as keyof PetSettingsSection] })
-    const ok = await this.write(ops)
-    if (!ok) return { ok: false, fields: [], message: 'pet settings write failed' }
-    const user = this.snapshot.user as Record<string, unknown> | undefined
-    return {
-      ok: true,
-      fields: writes.map(write => ({
-        field: write.field,
-        landed: write.op === 'unset'
-          ? user === undefined || !Object.hasOwn(user, write.field)
-          : user?.[write.field] === write.value,
-      })),
-    }
+  /** Apply one atomic alpha.1 settings-scope mutation through the account endpoint. */
+  async mutate(ops: readonly SettingsPathOpView[], expectedRevision?: number): Promise<void> {
+    const accountOps: PetSettingsPathOp[] = ops.map((op) => {
+      if (op.path.length !== 1) throw new Error('invalid pet settings path')
+      const field = op.path[0] as keyof PetSettingsSection
+      return op.op === 'set'
+        ? { op: 'set', path: [field], value: op.value }
+        : { op: 'unset', path: [field] }
+    })
+    await this.write(accountOps, expectedRevision)
   }
 
   /** Stop publishing after the plugin fiber is disposed. */
@@ -127,30 +120,27 @@ export class PetAccountSettingsScope implements SettingsScope<PetSettings> {
     this.listeners.clear()
   }
 
-  private async write(ops: PetSettingsPathOp[]): Promise<boolean> {
-    let landed = false
+  private async write(ops: PetSettingsPathOp[], expectedRevision?: number): Promise<void> {
     const run = async (): Promise<void> => {
-      const expectedRevision = this.snapshot.revision
+      const revision = expectedRevision ?? this.snapshot.revision
       try {
         const view = await fetchView(SETTINGS_MUTATE_URL, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
             ops,
-            ...(expectedRevision === undefined ? {} : { expectedRevision }),
+            ...(revision === undefined ? {} : { expectedRevision: revision }),
           }),
         })
         if (this.disposed) return
         this.generation += 1
         this.publish(scopeSnapshot(view))
-        landed = true
       } catch {
         await this.refresh()
       }
     }
     this.queue = this.queue.then(run, run)
     await this.queue
-    return landed
   }
 
   private publish(snapshot: SettingsScopeSnapshot<PetSettings>): void {

@@ -1,20 +1,24 @@
 /**
- * Mobile remote control — browser half. Registers the `remote` dictionaries
- * and settings card, then runs the phone-side boot flow (pair accept +
- * workspace deep-link + presence heartbeats), remote desktop channel, and
- * one-time failed-pair notice. Export discipline: packages/client/AGENTS.md
- * — the /client surface carries only what cordis loading needs plus types.
+ * Remote control — browser half. Registers the `remote` dictionaries and
+ * settings card without desktop sidebar footer actions, then runs the pair
+ * boot flow (accept + presence heartbeats) plus the one-time failed-pair
+ * notice. The portrait-touch adaptation of the official UI
+ * starts at module scope (startMobileAdapt) so its focus guard is installed
+ * before the app boots. Export discipline: packages/client/AGENTS.md — the
+ * /client surface carries only what cordis loading needs plus types.
  */
 import { createElement } from 'react'
 import { createRoot } from 'react-dom/client'
-import type { ClientContext, SettingsScope, SettingsScopeSpec } from '@deepseek-ai/dsh-client-runtime/client'
-// Type-only: pulls the locale plugin's Context merge (ctx.locale) and the
-// ui-sidebar SlotMap merge used by the exported RemoteEntry prop type.
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import type { SettingsScope, SettingsScopeSpec } from '@deepseek-ai/dsh-client-ui-settings/client'
+// Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: pulls the settings-surface SlotMap merge (the 'settings.section'
 // entry) and the ctx.settingsScope Context merge.
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
+// Type-only: pulls the ctx.slots merge (the renderer owns the slot registry since 0.1.2).
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import { PairFailedNotice } from './PairFailedNotice.tsx'
 import { RemoteSettingsCard, RemoteSettingsCardController, type RemoteSettings } from './RemoteSettingsCard.tsx'
@@ -31,6 +35,13 @@ import {
 } from './remote-channel.ts'
 import { FenceNotice } from './FenceNotice.tsx'
 import { reportDailyHeartbeat } from './telemetry.ts'
+import { startMobileAdapt, type RemoteAdaptGlobal } from './mobile-adapt.ts'
+
+// Portrait-touch adaptation of the official UI: installed at module scope so
+// the composer focus guard exists before any app entry mounts React. The
+// layer self-evaluates and reverts with the viewport; the plugin apply below
+// wires its toggleSidebar onto the official layout service.
+startMobileAdapt()
 
 export type { RemoteEntryProps } from './RemoteEntry.tsx'
 export type { PanelState, RemotePanelProps } from './RemotePanel.tsx'
@@ -47,12 +58,6 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 
   interface SlotMap {
-    /**
-     * The sidebar foot seat beside the settings trigger, declared by the
-     * sidebar shell on deployments that carry the feature seat; the shell
-     * passes only its column display state.
-     */
-    'sidebar.remote': { kind: 'single'; scope: 'root'; owner: SidebarRemoteOwnerProps }
     /**
      * The child slot the Web UI plugin group declares; this card registers
      * into the group instead of the top-level `settings.plugin.item` list.
@@ -116,6 +121,32 @@ export function apply(ctx: ClientContext): void {
     }
   }, 'remote-web-ui: dictionaries')
 
+  // The mobile adapt's whale button expands the collapsed sidebar and the
+  // activation closes the details panel — both through the official layout
+  // service (ctx.layout.toggleSidebar / closeDetails flip the panel state;
+  // the narrow-viewport semantics open the drawer).
+  const layout = ctx.get('layout') as { toggleSidebar?: () => void; closeDetails?: () => void } | undefined
+  const adapt = (window as unknown as { __dshRemoteAdapt?: RemoteAdaptGlobal }).__dshRemoteAdapt
+  if (layout !== undefined && adapt !== undefined) {
+    if (typeof layout.toggleSidebar === 'function') {
+      adapt.toggleSidebar = () => {
+        layout.toggleSidebar?.()
+      }
+    }
+    if (typeof layout.closeDetails === 'function') {
+      adapt.closeDetails = () => {
+        layout.closeDetails?.()
+      }
+    }
+  }
+  if (adapt !== undefined && adapt.toggleSidebar === null) {
+    // Layout face unavailable (older composition): fall back to clicking the
+    // official rail toggle when it exists.
+    adapt.toggleSidebar = () => {
+      (document.querySelector('[class$="_railFish"] button, [class$="_logoRow"] [class*="_iconButton"]') as HTMLElement | null)?.click()
+    }
+  }
+
   const t = ctx.locale.bind(NS)
   const binder = ctx.get('webUiSettings') ?? ctx.settingsScope
   const settingsScope = binder.bind<RemoteSettings>({ namespace: REMOTE_WEB_UI_NS })
@@ -125,6 +156,19 @@ export function apply(ctx: ClientContext): void {
       ? snapshot.value?.enabled ?? true
       : snapshot.status === 'unavailable'
   }
+
+  // Master switch for the adaptation layer: the module-scope install runs
+  // before any config is readable, so flip it once the settings snapshot is
+  // bound and on every later change (disabled plugin = no injected surface).
+  // Also replay the pending closeDetails: the first portrait apply ran
+  // before the layout face was wired, so its closeDetails was a no-op and a
+  // restored details panel would otherwise sit hidden until landscape.
+  const syncAdaptEnabled = (): void => {
+    ;(window as unknown as { __dshRemoteAdapt?: RemoteAdaptGlobal }).__dshRemoteAdapt?.setEnabled?.(enabled())
+  }
+  settingsScope.subscribe(syncAdaptEnabled)
+  syncAdaptEnabled()
+  adapt?.flushCloseDetails?.()
 
   // Plugin configuration card: one staged form over the `remote-web-ui`
   // settings namespace, contributed to the Web UI plugin group.

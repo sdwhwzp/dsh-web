@@ -17,6 +17,7 @@ import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import type { AffinityConfig, PetAffinityView, PetInteraction } from './affinity.ts'
+import { announcementFresh, parseAnnouncement, type PetAnnouncement } from './announce.ts'
 import type { TreatConfig } from './treats.ts'
 import {
   emptyProjectionRuntime,
@@ -222,6 +223,12 @@ export interface PetStateView {
    * settles the view in memory but never writes pet.json.
    */
   gameplay?: PetGameplayStateView
+  /**
+   * The freshest plugin-authored announcement (dsh-usage linkage), within
+   * its TTL; absent when none is fresh. Rendered as a dedicated styled
+   * bubble above the session stack.
+   */
+  announcement?: PetAnnouncement
 }
 
 /** Result of `pet.interact`. */
@@ -255,7 +262,6 @@ declare module '@deepseek-ai/cordis' {
     pet: PetService
   }
 }
-
 /** Per-session pet activity: projection runtime plus the session's own machine. */
 interface SessionActivity {
   runtime: ProjectionRuntime
@@ -296,6 +302,8 @@ export class PetService extends Service {
   private readonly ledgerConfig: Omit<LedgerConfig, 'remarks'>
   private readonly registry: PetRegistry
   private readonly persistDir: string
+  /** The freshest plugin-authored announcement (dsh-usage linkage). */
+  private announcement: PetAnnouncement | undefined
   private disposeActivity: (() => void) | undefined
   /** Session whose most recent meaningful event currently drives the global pet. */
   private displaySession: Session | undefined
@@ -340,13 +348,14 @@ export class PetService extends Service {
       persist = { ...persist, petId: this.registry.defaultEntry().id }
     }
     const selected = this.registry.byId(persist.petId) ?? this.registry.defaultEntry()
+    const voiceRemarks = mergeVoicePacks(this.registry.globalVoice, selected.voice)?.remarks
     persist = {
       ...persist,
       enabled: config.enabled ?? persist.enabled,
       decorationEnabled: config.decorationEnabled ?? persist.decorationEnabled,
     }
     this.localAccount = {
-      ledger: new PetLedger(persist, { ...this.ledgerConfig, remarks: selected.remarks }),
+      ledger: new PetLedger(persist, { ...this.ledgerConfig, remarks: selected.remarks, voiceRemarks }),
       persistDir: this.persistDir,
       revision: 0,
     }
@@ -375,8 +384,9 @@ export class PetService extends Service {
       persist = { ...persist, petId: this.registry.defaultEntry().id }
     }
     const selected = this.registry.byId(persist.petId) ?? this.registry.defaultEntry()
+    const voiceRemarks = mergeVoicePacks(this.registry.globalVoice, selected.voice)?.remarks
     const account: PetAccountState = {
-      ledger: new PetLedger(persist, { ...this.ledgerConfig, remarks: selected.remarks }),
+      ledger: new PetLedger(persist, { ...this.ledgerConfig, remarks: selected.remarks, voiceRemarks }),
       persistDir: identity.dir,
       revision: 0,
     }
@@ -460,6 +470,19 @@ export class PetService extends Service {
     return this.view(currentSessionId, accountScope)
   }
 
+  /**
+   * RPC: one plugin-authored announcement bubble (dsh-usage linkage). The
+   * payload is validated into a bounded PetAnnouncement; a malformed one is
+   * dropped silently — a sibling plugin's bug must never surface as pet
+   * breakage. The announcement is in-memory only.
+   */
+  announce(input: unknown): { ok: boolean } {
+    const parsed = parseAnnouncement(input, Date.now())
+    if (parsed === undefined) return { ok: false }
+    this.announcement = parsed
+    return { ok: true }
+  }
+
   /** Current persisted display config (read-only view). */
   display(scope?: PetAccountScope): PetDisplayConfig {
     return { ...this.account(scope).ledger.snapshot.display }
@@ -515,7 +538,8 @@ export class PetService extends Service {
     if (entry === undefined) return { ok: false, error: 'unknown-pet' }
     const account = this.account(scope)
     account.ledger.setPetId(entry.id)
-    account.ledger.setRemarks(entry.remarks)
+    const voiceRemarks = mergeVoicePacks(this.registry.globalVoice, entry.voice)?.remarks
+    account.ledger.setRemarks(entry.remarks, voiceRemarks)
     account.ledger.setSettingsOverrides([
       ...new Set([...account.ledger.snapshot.settingsOverrides, 'petId' as PetSettingField]),
     ])
@@ -882,7 +906,8 @@ export class PetService extends Service {
     const selected = typeof section.petId === 'string' ? this.registry.byId(section.petId) : undefined
     if (selected !== undefined) {
       account.ledger.setPetId(selected.id)
-      account.ledger.setRemarks(selected.remarks)
+      const voiceRemarks = mergeVoicePacks(this.registry.globalVoice, selected.voice)?.remarks
+      account.ledger.setRemarks(selected.remarks, voiceRemarks)
     } else if (section.petId !== undefined) {
       // The stored selection names a pet the registry no longer has: keep the
       // current selection and repair the settings document.
@@ -948,7 +973,8 @@ export class PetService extends Service {
     account.ledger.setEnabled(next.enabled ?? true)
     account.ledger.setDecorationEnabled(next.decorationEnabled ?? true)
     account.ledger.setPetId(selected.id)
-    account.ledger.setRemarks(selected.remarks)
+    const voiceRemarks = mergeVoicePacks(this.registry.globalVoice, selected.voice)?.remarks
+    account.ledger.setRemarks(selected.remarks, voiceRemarks)
     account.ledger.setSettingsOverrides([...overrides])
     account.ledger.setDisplay({
       visible: next.visible,
@@ -1046,6 +1072,11 @@ export class PetService extends Service {
     }
     // Read-only: the ledger settles on economic events only, never on a read,
     // so polling the state cannot trigger pet.json writes.
+    // An expired announcement simply stops appearing (the client's 2 s poll
+    // drops it); no timer owns its removal.
+    const announcement = this.announcement !== undefined && announcementFresh(this.announcement, Date.now())
+      ? this.announcement
+      : undefined
     return {
       animation: snapshot.animation,
       ...(snapshot.bubble === undefined ? {} : { bubble: snapshot.bubble }),
@@ -1053,6 +1084,7 @@ export class PetService extends Service {
       sessionActive: snapshot.sessionActive,
       sessions,
       ...(decoration === undefined ? {} : { decoration }),
+      ...(announcement === undefined ? {} : { announcement }),
       affinity: account.ledger.affinityView(Date.now()),
       display: { ...account.ledger.snapshot.display },
       pet: {
