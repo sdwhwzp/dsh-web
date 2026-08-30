@@ -517,17 +517,24 @@ function resolveEntries(pkgDir, entries, section, errors) {
 
 /**
  * Rebuild the aggregate package.json so every manifest deps entry becomes a
- * "workspace:*" dependency; other fields are preserved, and any leftover
- * peerDependencies field is removed. The loader resolves patch rows from the
- * profile root, and pnpm installs these children as normal dependencies
- * (hoisting them to the top level in the default layout).
+ * "workspace:*" dependency and every external row keeps its declared npm
+ * version. Dependencies not represented by either section are removed. The
+ * loader resolves patch rows from the profile root, and pnpm installs these
+ * children as normal dependencies (hoisting them to the top level in the
+ * default layout).
  */
-function renderPackageJson(pkgPath, resolvedDeps) {
+function renderPackageJson(pkgPath, resolvedDeps, externalRows, errors, rel) {
   const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))
   const next = {}
   for (const { name } of resolvedDeps) next[name] = 'workspace:*'
-  for (const key of Object.keys(pkg.dependencies ?? {}).filter((k) => !(k in next)).sort()) {
-    next[key] = pkg.dependencies[key]
+  const current = pkg.dependencies ?? {}
+  for (const name of [...new Set(externalRows.map((row) => row.name))].sort()) {
+    if (typeof name !== 'string' || !name) continue
+    if (typeof current[name] !== 'string') {
+      errors.push(`${rel}: external row ${name} has no version in package.json dependencies`)
+      continue
+    }
+    next[name] = current[name]
   }
   if (Object.keys(next).length) pkg.dependencies = next
   else delete pkg.dependencies
@@ -579,7 +586,7 @@ for (const { pkgDir, ymlPath } of aggregates) {
   }
   const patch = renderPatch(blocks, manifest.rows, manifest.patches ?? [], errors, rel, pkgDir)
   const resolvedDeps = resolveEntries(pkgDir, manifest.deps, 'deps', errors)
-  const pkgJson = renderPackageJson(join(pkgDir, 'package.json'), resolvedDeps)
+  const pkgJson = renderPackageJson(join(pkgDir, 'package.json'), resolvedDeps, manifest.rows, errors, rel)
   results.push({ rel, blocks, patch, resolvedDeps, pkgJson })
 }
 

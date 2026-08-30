@@ -100,13 +100,11 @@ test('web-ui-all mounts dsh-better-sidebar as an external row', () => {
   assert.match(lines[idx + 1] ?? '', /^ {6}name: 'dsh-better-sidebar'$/)
 })
 
-test('web-ui-all mounts @mlgbnb/dsh-archive-manager as an external row', () => {
+test('web-ui-all leaves archive management to the Harness native implementation', () => {
   const patch = readFileSync(join(ROOT, 'packages/dsh-web-all/cordis.patch.yml'), 'utf8')
-  const lines = patch.split(/\r?\n/)
-  const idx = lines.findIndex((line) => /^ {4}- id: web-ui-archive-manager$/.test(line))
-  assert.ok(idx >= 0, 'web-ui-archive-manager row is missing from the aggregate patch')
-  // The paired name line resolves the scoped npm package from the profile root.
-  assert.match(lines[idx + 1] ?? '', /^ {6}name: '@mlgbnb\/dsh-archive-manager'$/)
+  const manifest = JSON.parse(readFileSync(join(ROOT, 'packages/dsh-web-all/package.json'), 'utf8'))
+  assert.doesNotMatch(patch, /web-ui-archive-manager|@mlgbnb\/dsh-archive-manager/)
+  assert.equal(Object.hasOwn(manifest.dependencies ?? {}, '@mlgbnb/dsh-archive-manager'), false)
 })
 
 test('web-ui-all expands @morlay/better-session into importable but inactive bundle rows', () => {
