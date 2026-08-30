@@ -5,9 +5,11 @@
 import { useEffect, useState } from 'react'
 import type { BoardController } from '../../core/controller.ts'
 import { isValidCron, nextRunAtMs } from '../../core/schedule.ts'
+import { parseFreezeRequest } from '../../core/freeze-snapshot.ts'
 import { TASK_PERMISSIONS, type TaskPermission } from '../../core/tasks.ts'
 import { t, type TaskBoardKey } from '../locales.ts'
 import { SCHEDULE_PRESETS } from '../schedule-presets.ts'
+import { ModalShell, TaskContentFields } from './TaskForm.tsx'
 import css from '../board.module.css'
 
 /** New-task form overlay. */
@@ -21,6 +23,9 @@ export function NewTaskModal({ controller, onClose }: { controller: BoardControl
   const [scheduleEnabled, setScheduleEnabled] = useState(false)
   const [scheduleCron, setScheduleCron] = useState('')
   const [scheduleError, setScheduleError] = useState<string | undefined>(undefined)
+  const [freezeText, setFreezeText] = useState('')
+  const [freezeError, setFreezeError] = useState<string | undefined>(undefined)
+  const [handoverText, setHandoverText] = useState('')
   const [error, setError] = useState<string | undefined>(undefined)
   const [pending, setPending] = useState(false)
   const [options, setOptions] = useState(controller.getSnapshot().executionOptions)
@@ -40,11 +45,34 @@ export function NewTaskModal({ controller, onClose }: { controller: BoardControl
         return
       }
     }
+    // Optional continuation-card snapshot: parse the freeze block through the
+    // T2 gate (structure + redaction + taint + size); a malformed block stops
+    // submission with the parser's error instead of creating a plain task.
+    let freeze: Parameters<typeof controller.createTaskConfirmed>[0]['freeze'] = undefined
+    if (freezeText.trim() !== '') {
+      const parsed = parseFreezeRequest(freezeText)
+      if (!parsed.ok) {
+        setFreezeError(parsed.error.message)
+        return
+      }
+      freeze = { ...parsed.snapshot, ...(parsed.warnings.includes('redacted') ? { redacted: true } : {}) }
+    }
+    // Optional handover bundle: non-empty reference lines attach the picked
+    // triplet (workspace/mode/permission above) plus the references.
+    const references = handoverText.split('\n').map(line => line.trim()).filter(line => line !== '')
+    const handover = references.length === 0 ? undefined : {
+      references,
+      workspaceId: workspaceId === '' ? undefined : workspaceId,
+      mode: mode === '' ? undefined : mode,
+      permission: permission === '' ? undefined : permission as TaskPermission,
+    }
     setPending(true)
     const task = await controller.createTaskConfirmed({
       title,
       description,
       prompt,
+      freeze,
+      handover,
       workspaceId: workspaceId === '' ? undefined : workspaceId,
       mode: mode === '' ? undefined : mode,
       permission: permission === '' ? undefined : permission as TaskPermission,
@@ -64,45 +92,46 @@ export function NewTaskModal({ controller, onClose }: { controller: BoardControl
     : undefined
 
   return (
-    <div className={css.modalBackdrop} onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}>
-      <form
-        className={css.modal}
-        role="dialog"
-        aria-label={t('board.new')}
-        onSubmit={event => { event.preventDefault(); void submit() }}
-      >
-        <h2 className={css.modalTitle}>{t('board.new')}</h2>
+    <ModalShell
+      ariaLabel={t('board.new')}
+      title={t('board.new')}
+      error={error}
+      pending={pending}
+      submitLabel={t('new.submit')}
+      onSubmit={() => { void submit() }}
+      onClose={onClose}
+    >
+      <TaskContentFields
+        title={title}
+        description={description}
+        prompt={prompt}
+        onTitleChange={value => { setTitle(value); setError(undefined) }}
+        onDescriptionChange={setDescription}
+        onPromptChange={setPrompt}
+      />
 
         <label className={css.field}>
-          <span className={css.fieldLabel}>{t('new.title')}</span>
-          <input
-            className={css.input}
-            value={title}
-            autoFocus
-            placeholder={t('new.titlePlaceholder')}
-            onChange={event => { setTitle(event.target.value); setError(undefined) }}
-          />
-        </label>
-
-        <label className={css.field}>
-          <span className={css.fieldLabel}>{t('new.description')}</span>
-          <textarea
-            className={css.input}
-            rows={3}
-            value={description}
-            placeholder={t('new.descriptionPlaceholder')}
-            onChange={event => { setDescription(event.target.value) }}
-          />
-        </label>
-
-        <label className={css.field}>
-          <span className={css.fieldLabel}>{t('new.prompt')}</span>
+          <span className={css.fieldLabel}>{t('new.freeze')}</span>
           <textarea
             className={css.input}
             rows={4}
-            value={prompt}
-            placeholder={t('new.promptPlaceholder')}
-            onChange={event => { setPrompt(event.target.value) }}
+            value={freezeText}
+            placeholder={t('new.freezePlaceholder')}
+            spellCheck={false}
+            onChange={event => { setFreezeText(event.target.value); setFreezeError(undefined) }}
+          />
+        </label>
+        {freezeError !== undefined && <p className={css.formError}>{freezeError}</p>}
+
+        <label className={css.field}>
+          <span className={css.fieldLabel}>{t('new.handover')}</span>
+          <textarea
+            className={css.input}
+            rows={3}
+            value={handoverText}
+            placeholder={t('new.handoverPlaceholder')}
+            spellCheck={false}
+            onChange={event => { setHandoverText(event.target.value) }}
           />
         </label>
 
@@ -201,18 +230,6 @@ export function NewTaskModal({ controller, onClose }: { controller: BoardControl
             </>
           )}
         </section>
-
-        {error !== undefined && <p className={css.formError}>{error}</p>}
-
-        <footer className={css.modalFooter}>
-          <button type="button" className={css.ghostButton} onClick={onClose}>
-            {t('new.cancel')}
-          </button>
-          <button type="submit" className={css.primaryButton} disabled={pending}>
-            {t('new.submit')}
-          </button>
-        </footer>
-      </form>
-    </div>
+    </ModalShell>
   )
 }

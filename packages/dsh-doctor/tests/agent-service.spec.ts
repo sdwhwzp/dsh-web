@@ -32,11 +32,26 @@ describe('service adapters', () => {
   })
 
   it('renders a per-user Windows scheduled task', () => {
-    const plan = servicePlan({ ...base, platform: 'win32' }, { LOCALAPPDATA: 'C:\\Users\\u\\AppData\\Local' })
-    expect(plan.files[0]!.path).toContain('DSH Doctor')
+    const plan = servicePlan({ ...base, executable: 'C:\\Program Files\\nodejs\\node.exe', platform: 'win32' }, { LOCALAPPDATA: 'C:\\Users\\u\\AppData\\Local' })
+    expect(plan.files[0]!.path).toBe('C:\\Users\\u\\AppData\\Local\\DSH Doctor\\supervisor.cmd')
     expect(plan.files[0]!.content).toContain('@echo off')
-    expect(plan.install[0]).toBe('schtasks')
-    expect(plan.install[1]).toBe('/Create')
+    expect(plan.files[0]!.content).toContain('"C:\\Program Files\\nodejs\\node.exe"')
+    expect(plan.files[1]!.path).toBe('C:\\Users\\u\\AppData\\Local\\DSH Doctor\\supervisor.vbs')
+    expect(plan.files[1]!.content).toContain('WScript.Shell')
+    expect(plan.files[1]!.content).toContain('supervisor.cmd')
+    expect(plan.install).toEqual([
+      'schtasks',
+      '/Create',
+      '/F',
+      '/SC',
+      'ONLOGON',
+      '/TN',
+      'DSH Doctor Supervisor',
+      '/TR',
+      'wscript.exe "C:\\Users\\u\\AppData\\Local\\DSH Doctor\\supervisor.vbs"',
+    ])
+    expect(plan.uninstall).toEqual(['schtasks', '/Delete', '/F', '/TN', 'DSH Doctor Supervisor'])
+    expect(plan.restart).toEqual(['schtasks', '/Run', '/TN', 'DSH Doctor Supervisor'])
   })
 
   it('rejects unknown platforms', () => {

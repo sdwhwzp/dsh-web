@@ -1,11 +1,14 @@
 /**
  * dsh-market — edge API for the DSH marketplace.
- * Anonymous likes are Turnstile-gated when configured and stored in D1.
+ * Anonymous likes are Turnstile-gated (fail closed without the secret) and stored in D1.
+ * Write bodies are size-capped and asset ids are checked against the served manifests.
  * The API surface is advertised via /.well-known/api-catalog (RFC 9727),
  * described by /openapi.json and documented at /api-docs.html.
  */
 
-import { handleTelemetryPost, handleTelemetrySummary, handleTelemetryUsersBadge } from './telemetry.js'
+import { handleTelemetryPost, handleTelemetrySummary, handleTelemetryUsersBadge, pruneOldEvents, refreshBadgeCache } from './telemetry.js'
+import { readJsonCapped } from './body.js'
+import { isKnownAsset } from './asset-allowlist.js'
 import { handleNpmBadge, handleNpmDownloads } from './npm-badge.js'
 import API_CATALOG from './api-catalog.js'
 import OPENAPI_SPEC from './openapi.js'
@@ -16,6 +19,8 @@ const INSTALL_ACTIONS = new Set(['market-like', 'market-install'])
 const HOMEPAGE_PATHS = new Set(['/', '/index.html'])
 const HOME_LINK = '</.well-known/api-catalog>; rel="api-catalog", </openapi.json>; rel="service-desc", </api-docs.html>; rel="service-doc", </api-docs.html>; rel="describedby"'
 const ASSET_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
+/** Anonymous write bodies are tiny; cap them to bound parse cost and abuse. */
+const WRITE_BODY_MAX_BYTES = 4 * 1024
 const MARKDOWN_TTL_MS = 5 * 60 * 1000
 
 /** True when the Accept header prefers text/markdown with q > 0. */
@@ -129,9 +134,15 @@ function json(data, status = 200, extra = {}) {
 
 function preflight(request) {
   const headers = new Headers({
+    // ACAO * is intentional: the legitimate writers are MarketCards embedded
+    // in arbitrary per-user DSH GUI origins (loopback, LAN, custom domains),
+    // which cannot be enumerated. The abuse boundary is Turnstile + the
+    // manifest allowlist, not CORS. Allow-headers stays a static list instead
+    // of reflecting access-control-request-headers so the header surface
+    // cannot creep as new custom headers appear.
     'access-control-allow-origin': '*',
     'access-control-allow-methods': 'GET, POST, OPTIONS',
-    'access-control-allow-headers': request.headers.get('access-control-request-headers') || 'content-type',
+    'access-control-allow-headers': 'content-type',
     'access-control-max-age': '86400',
   })
   return new Response(null, { status: 204, headers })
@@ -153,7 +164,9 @@ async function readStats(env) {
 }
 
 async function verifyTurnstile(request, env, token) {
-  if (!env.TURNSTILE_SECRET) return true
+  // Fail closed: without the secret binding no challenge can be verified,
+  // so writes are rejected instead of passing anonymously.
+  if (!env.TURNSTILE_SECRET) return false
   if (!token) return false
   const form = new URLSearchParams()
   form.set('secret', env.TURNSTILE_SECRET)
@@ -242,6 +255,17 @@ async function mutateLike(env, kind, assetId, hash, unlike) {
 }
 
 export default {
+  /** Cron trigger: recompute the public badge counts and prune expired
+   * telemetry events (wrangler.jsonc triggers.crons). */
+  async scheduled(controller, env) {
+    try {
+      await refreshBadgeCache(env)
+    } catch { /* best-effort; the badge serves the last computed row */ }
+    try {
+      await pruneOldEvents(env)
+    } catch { /* best-effort; pruning retries on the next tick */ }
+  },
+
   async fetch(request, env) {
     const url = new URL(request.url)
     const path = url.pathname
@@ -252,17 +276,52 @@ export default {
     if (path === '/api/npm-badge/version' && request.method === 'GET') return handleNpmBadge('version', json)
     if (path === '/api/npm-badge/total' && request.method === 'GET') return handleNpmBadge('total', json)
     if (path === '/api/npm-downloads' && request.method === 'GET') return handleNpmDownloads(env, json)
-    if (path === '/api/telemetry/badge/users' && request.method === 'GET') return handleTelemetryUsersBadge(env, json)
+    if (path === '/api/telemetry/badge/users' && request.method === 'GET') return handleTelemetryUsersBadge(request, env, json)
     if (path === '/api/turnstile/challenge' && request.method === 'GET') return challengePage()
 
     if (path === '/api/stats' && request.method === 'GET') {
-      const [votes, installs] = await Promise.all([readStats(env), readInstalls(env)])
-      return json({ ...votes, installs }, 200, { 'cache-control': 'no-store' })
+      // Worker-level cache for one minute with a one-hour stale copy:
+      // workshop cards fetch this on every GUI start, and under D1 overload
+      // the card UI must render last-known counts instead of an error. The
+      // client response stays no-store so the zone cache rules and browsers
+      // keep the pre-existing freshness semantics; only the worker-internal
+      // copies are cacheable.
+      const statsUrl = new URL(request.url)
+      statsUrl.search = ''
+      const statsCache = caches.default
+      const statsKey = new Request(statsUrl.href, { method: 'GET' })
+      const freshStats = await statsCache.match(statsKey)
+      if (freshStats) {
+        // Stored copies carry a max-age for the worker-cache TTL; strip it on
+        // the way out so every client-visible response stays no-store and the
+        // zone cache rules never pin stats for hours.
+        const headers = new Headers(freshStats.headers)
+        headers.set('cache-control', 'no-store')
+        return new Response(freshStats.body, { status: freshStats.status, headers })
+      }
+      try {
+        const [votes, installs] = await Promise.all([readStats(env), readInstalls(env)])
+        const body = { ...votes, installs }
+        try {
+          await statsCache.put(statsKey, json(body, 200, { 'cache-control': 'public, max-age=60' }))
+          await statsCache.put(new Request(statsUrl.href + '?stale=1', { method: 'GET' }), json(body, 200, { 'cache-control': 'public, max-age=3600' }))
+        } catch { /* caching is best-effort; serve the computed response */ }
+        return json(body, 200, { 'cache-control': 'no-store' })
+      } catch {
+        const staleStats = await statsCache.match(new Request(statsUrl.href + '?stale=1', { method: 'GET' }))
+        if (staleStats) {
+          const headers = new Headers(staleStats.headers)
+          headers.set('cache-control', 'no-store')
+          return new Response(staleStats.body, { status: staleStats.status, headers })
+        }
+        return json({ ok: false, error: 'storage-unavailable' }, 503)
+      }
     }
 
     if (path === '/api/install' && request.method === 'POST') {
-      let body
-      try { body = await request.json() } catch { return json({ ok: false, error: 'invalid-json' }, 400) }
+      const read = await readJsonCapped(request, WRITE_BODY_MAX_BYTES)
+      if (!read.ok) return json({ ok: false, error: read.error }, read.error === 'payload-too-large' ? 413 : 400)
+      const body = read.value
       const kind = typeof body.kind === 'string' ? body.kind : ''
       const assetId = typeof body.asset_id === 'string' ? body.asset_id : ''
       const fp = typeof body.device_fp === 'string' ? body.device_fp : ''
@@ -270,6 +329,7 @@ export default {
       if (!KINDS.has(kind) || !ASSET_RE.test(assetId) || !FP_RE.test(fp) || !/^[A-Za-z0-9_-]{16,64}$/.test(installId)) {
         return json({ ok: false, error: 'invalid-params' }, 400)
       }
+      if (!(await isKnownAsset(env, kind, assetId))) return json({ ok: false, error: 'unknown-asset' }, 400)
       const hash = await sha256(fp)
       const token = typeof body.turnstile_token === 'string' ? body.turnstile_token : ''
       if (!(await verifyTurnstile(request, env, token))) {
@@ -288,8 +348,9 @@ export default {
     }
 
     if (path === '/api/like' && request.method === 'POST') {
-      let body
-      try { body = await request.json() } catch { return json({ ok: false, error: 'invalid-json' }, 400) }
+      const read = await readJsonCapped(request, WRITE_BODY_MAX_BYTES)
+      if (!read.ok) return json({ ok: false, error: read.error }, read.error === 'payload-too-large' ? 413 : 400)
+      const body = read.value
       const kind = typeof body.kind === 'string' ? body.kind : ''
       const assetId = typeof body.asset_id === 'string' ? body.asset_id : ''
       const fp = typeof body.device_fp === 'string' ? body.device_fp : ''
@@ -297,6 +358,7 @@ export default {
       if (!KINDS.has(kind) || !ASSET_RE.test(assetId) || !FP_RE.test(fp)) {
         return json({ ok: false, error: 'invalid-params' }, 400)
       }
+      if (!(await isKnownAsset(env, kind, assetId))) return json({ ok: false, error: 'unknown-asset' }, 400)
       const hash = await sha256(fp)
       const token = typeof body.turnstile_token === 'string' ? body.turnstile_token : ''
       if (!(await verifyTurnstile(request, env, token))) {
@@ -344,6 +406,7 @@ export default {
               'content-type': 'text/markdown; charset=utf-8',
               'cache-control': 'public, max-age=300',
               'access-control-allow-origin': '*',
+              'x-content-type-options': 'nosniff',
               'x-markdown-tokens': String(md.tokens),
             },
           })
@@ -399,6 +462,7 @@ export default {
           'content-type': 'text/html; charset=utf-8',
           'cache-control': 'public, max-age=300',
           'access-control-allow-origin': '*',
+          'x-content-type-options': 'nosniff',
         },
       })
     }

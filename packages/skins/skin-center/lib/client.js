@@ -3780,7 +3780,7 @@ window.__ModuleLoader__.load({
 			const scopes = ACTIVE_VISUAL_SELECTOR.split(", ");
 			const scoped = (selector) => scopes.map((scope) => `${scope} ${selector}`).join(",\n");
 			return `
-    /* Viewport and root lock: prevent outer page scrollbar and viewport
+    /* Viewport lock: prevent outer page scrollbar and viewport
        displacement during element focus/scrollIntoView. */
     ${ACTIVE_VISUAL_SELECTOR},
     ${scoped("body")} {
@@ -3789,13 +3789,6 @@ window.__ModuleLoader__.load({
       overflow: hidden !important;
       margin: 0 !important;
       padding: 0 !important;
-    }
-    ${scoped("[id=\"root\"]")} {
-      box-sizing: border-box !important;
-      height: 100% !important;
-      width: 100% !important;
-      max-height: 100% !important;
-      overflow: hidden !important;
     }
     ${scoped("[data-slot=\"sidebar.workspaces\"] [class*=\"_fade\"]")} {
       background: none !important;
@@ -4819,7 +4812,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion() {
 			try {
-				return "0.3.4";
+				return "0.3.7";
 			} catch {
 				return;
 			}
@@ -4885,15 +4878,14 @@ window.__ModuleLoader__.load({
 		//#region src/client/index.ts
 		/** Locale namespace owned by this plugin. */
 		const NS = "skinCenter";
-		/** Required services: slots + locale (plugin card), theme (preview toggle), settingsScope + its transport (background scrim), and workspaces (native directory picker for wallpaper folders). */
+		/** Required services: slots + locale (plugin card), theme (preview toggle), settingsScope + its transport (background scrim), and remote (wallpaper directory picker). */
 		const inject = [
 			"slots",
 			"locale",
 			"theme",
 			"settingsScope",
 			"connection",
-			"remote",
-			"workspaces"
+			"remote"
 		];
 		/** Self-report item for the install heartbeat. */
 		const SELF_ITEM = [{ name: "@linxin666/dsh-client-ui-skin-center" }];
@@ -5057,7 +5049,11 @@ window.__ModuleLoader__.load({
 					dirs: () => wallpaper.dirs(),
 					addDir: (dir) => wallpaper.addDir(dir),
 					removeDir: (dir) => wallpaper.removeDir(dir),
-					pickDir: () => ctx.workspaces.pickDirectory(),
+					pickDir: async () => {
+						const result = await ctx.remote.directoryPicker.pick();
+						if (!result.ok) throw new Error(result.error.message);
+						return result.value;
+					},
 					activeId: () => wallpaper.activeId(),
 					trying: () => wallpaper.trying(),
 					subscribe: (listener) => wallpaper.subscribe(listener),

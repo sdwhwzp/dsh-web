@@ -12,6 +12,8 @@
  * Aggregate summaries expose counts only, never raw events.
  */
 
+import { readJsonCapped } from './body.js'
+
 const VISITOR_RE = /^[A-Za-z0-9_-]{16,64}$/
 const PATH_RE = /^\/[A-Za-z0-9._~!$&'()*+,;=:@%?/-]{0,127}$/
 const NAME_RE = /^[A-Za-z0-9@][A-Za-z0-9@/._:-]{0,63}$/
@@ -26,7 +28,9 @@ const KINDS = new Set(['pageview', 'heartbeat'])
  */
 const BOT_UA_RE = /bot|crawler|spider|scrape|curl|wget|python|httpclient|http-client|headless|phantom|slurp|archive|scanner|monitor|pingdom|uptime|lighthouse|preview/i
 const MAX_ITEMS = 64
-/** Events older than this many days are pruned opportunistically. */
+/** Heartbeats carry at most MAX_ITEMS small items; cap the raw body too. */
+const TELEMETRY_BODY_MAX_BYTES = 16 * 1024
+/** Events older than this many days are pruned by the cron trigger. */
 const RETENTION_DAYS = 400
 
 async function sha256(text) {
@@ -191,7 +195,7 @@ export async function telemetrySummary(env, days, page = {}) {
   }
 }
 
-/** Opportunistic retention prune; called on summary reads. */
+/** Retention prune; called by the cron trigger. */
 export async function pruneOldEvents(env) {
   const cutoffDay = utcDay(Date.now() - RETENTION_DAYS * 86400000)
   await env.DB.prepare('DELETE FROM telemetry_events WHERE day < ?1').bind(cutoffDay).run()
@@ -200,8 +204,9 @@ export async function pruneOldEvents(env) {
 /** POST /api/telemetry/event handler. Returns the json() helper's shape. */
 export async function handleTelemetryPost(request, env, json) {
   if (!env.DB) return json({ ok: false, error: 'storage-unavailable' }, 503)
-  let body
-  try { body = await request.json() } catch { return json({ ok: false, error: 'invalid-json' }, 400) }
+  const read = await readJsonCapped(request, TELEMETRY_BODY_MAX_BYTES)
+  if (!read.ok) return json({ ok: false, error: read.error }, read.error === 'payload-too-large' ? 413 : 400)
+  const body = read.value
   if (!body || !KINDS.has(body.kind)) return json({ ok: false, error: 'invalid-kind' }, 400)
   const hash = await visitorHash(body.visitor, env)
   if (!hash) return json({ ok: false, error: 'invalid-visitor' }, 400)
@@ -217,41 +222,111 @@ export async function handleTelemetryPost(request, env, json) {
     if (!parsed.ok) return json({ ok: false, error: parsed.error }, 400)
     subjects = parsed.items.map((item) => ({ subject: item.name, version: item.version, channel: item.channel }))
   }
-  await recordEvents(env, await submissionRows(env, body.kind === 'pageview' ? 'pv' : 'hb', hash, subjects))
+  try {
+    await recordEvents(env, await submissionRows(env, body.kind === 'pageview' ? 'pv' : 'hb', hash, subjects))
+  } catch {
+    // Telemetry is best-effort: D1 overload must not surface as a worker
+    // exception page. A 503 keeps the client contract (retry on next mount)
+    // instead of the client treating the day as reported.
+    return json({ ok: false, error: 'storage-unavailable' }, 503)
+  }
   return json({ ok: true })
 }
 
 /** GET /api/telemetry/summary handler. When TELEMETRY_READ_KEY is configured,
- * callers must present it via the x-telemetry-key header or ?key= parameter. */
-export function summaryAuthorized(request, url, env) {
+ * callers must present it via the x-telemetry-key header. The key is never
+ * accepted in the URL: query strings persist in edge logs, browser history
+ * and referrers. Comparison runs on SHA-256 digests, not raw strings. */
+export async function summaryAuthorized(request, url, env) {
   const key = env.TELEMETRY_READ_KEY
   if (!key) return true
-  return (request.headers.get('x-telemetry-key') || url.searchParams.get('key') || '') === key
+  const presented = request.headers.get('x-telemetry-key') || ''
+  if (!presented) return false
+  return (await sha256(presented)) === (await sha256(key))
+}
+
+/** Compact shields count: 84912 -> "84.9k", 1200000 -> "1.2m". */
+function formatBadgeCount(users) {
+  const trim = (v) => String(Math.round(v * 10) / 10)
+  return users >= 1e6 ? trim(users / 1e6) + 'm' : users >= 1e3 ? trim(users / 1e3) + 'k' : String(users)
+}
+
+const BADGE_CACHE_ID = 'users'
+
+/** Recompute the heartbeat distinct-visitor count and seed badge_cache. */
+export async function refreshBadgeCache(env) {
+  const row = await env.DB.prepare("SELECT COUNT(DISTINCT visitor) AS users FROM telemetry_events WHERE kind = 'hb'").first()
+  const users = Number(row && row.users || 0)
+  await env.DB.prepare(
+    'INSERT INTO badge_cache (id, value, computed_at) VALUES (?1, ?2, ?3) ON CONFLICT(id) DO UPDATE SET value = excluded.value, computed_at = excluded.computed_at'
+  ).bind(BADGE_CACHE_ID, users, Date.now()).run()
+  return users
 }
 
 /**
  * Public shields endpoint badge: all-time distinct heartbeat visitors
  * ("users"). Aggregate count only — no key required, no raw data exposed.
+ *
+ * The live count is a full-table scan over ~1M rows that exceeds shields'
+ * ~3.5s fetch timeout, so the badge reads a single precomputed row that a
+ * cron trigger (wrangler.jsonc triggers.crons) refreshes every 30 minutes.
+ * On top of that the response is cached at the edge for 30 minutes with a
+ * 24h stale copy. Every fallback answers within the timeout or with a valid
+ * shields JSON — the README badge must never show "inaccessible".
  */
-export async function handleTelemetryUsersBadge(env, json) {
-  if (!env.DB) return json({ schemaVersion: 1, label: 'users', message: 'unavailable', color: 'lightgrey' }, 200)
-  const row = await env.DB.prepare("SELECT COUNT(DISTINCT visitor) AS users FROM telemetry_events WHERE kind = 'hb'").first()
-  const users = Number(row && row.users || 0)
-  const trim = (v) => String(Math.round(v * 10) / 10)
-  const message = users >= 1e6 ? trim(users / 1e6) + 'm' : users >= 1e3 ? trim(users / 1e3) + 'k' : String(users)
-  return json({ schemaVersion: 1, label: 'users', message, color: 'blue' }, 200, { 'cache-control': 'public, max-age=1800' })
+export async function handleTelemetryUsersBadge(request, env, json) {
+  const url = new URL(request.url)
+  url.search = ''
+  const cache = caches.default
+  const key = new Request(url.href, { method: 'GET' })
+  const fresh = await cache.match(key)
+  if (fresh) return fresh
+  let message = 'unavailable'
+  let counted = false
+  try {
+    if (env.DB) {
+      const row = await env.DB.prepare('SELECT value FROM badge_cache WHERE id = ?1').bind(BADGE_CACHE_ID).first()
+      if (row) {
+        message = formatBadgeCount(Number(row.value || 0))
+        counted = true
+      } else {
+        // Bootstrap before the first cron tick: run the full scan once and
+        // seed the row so every later read is a single indexed lookup.
+        message = formatBadgeCount(await refreshBadgeCache(env))
+        counted = true
+      }
+    }
+  } catch { /* D1 overloaded or unavailable: fall through to the stale copy */ }
+  if (!counted) {
+    const stale = await cache.match(new Request(url.href + '?stale=1', { method: 'GET' }))
+    if (stale) return stale
+    return json({ schemaVersion: 1, label: 'users', message, color: 'lightgrey' }, 200)
+  }
+  const body = { schemaVersion: 1, label: 'users', message, color: 'blue' }
+  const freshResponse = json(body, 200, { 'cache-control': 'public, max-age=1800' })
+  try {
+    await cache.put(key, freshResponse.clone())
+    await cache.put(new Request(url.href + '?stale=1', { method: 'GET' }), json(body, 200, { 'cache-control': 'public, max-age=86400' }))
+  } catch { /* caching is best-effort; the computed response is already valid */ }
+  return freshResponse
 }
 
 export async function handleTelemetrySummary(request, url, env, json) {
   if (!env.DB) return json({ ok: false, error: 'storage-unavailable' }, 503)
-  if (!summaryAuthorized(request, url, env)) return json({ ok: false, error: 'unauthorized' }, 403)
+  if (!(await summaryAuthorized(request, url, env))) return json({ ok: false, error: 'unauthorized' }, 403)
   let days = Number.parseInt(url.searchParams.get('days') || '', 10)
   if (!Number.isFinite(days)) days = 30
   days = Math.min(Math.max(days, 1), 365)
-  const summary = await telemetrySummary(env, days, {
-    paths: parsePage(url, 'paths', 20, 100),
-    items: parsePage(url, 'items', 200, 200),
-  })
-  try { await pruneOldEvents(env) } catch { /* pruning is best-effort */ }
+  let summary
+  try {
+    summary = await telemetrySummary(env, days, {
+      paths: parsePage(url, 'paths', 20, 100),
+      items: parsePage(url, 'items', 200, 200),
+    })
+  } catch {
+    // D1 overload must surface as a plain 503 for the dashboard proxy,
+    // not as a worker exception page.
+    return json({ ok: false, error: 'storage-unavailable' }, 503)
+  }
   return json(summary)
 }

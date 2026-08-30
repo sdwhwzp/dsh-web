@@ -124,14 +124,16 @@ describe('semantic adapter', () => {
 })
 
 describe('shared shell rendering adapter (#954)', () => {
-  it('locks html, body and root to prevent outer viewport overflow (#1135)', () => {
+  it('locks html and body viewport without clipping root or breaking layout width (#1135, #1222, #1225)', () => {
     const css = shellRenderingCss()
     expect(css).toContain('html[data-dsh-skin],')
     expect(css).toContain('html[data-dsh-custom-theme]:not([data-dsh-skin]),')
     expect(css).toContain('html[data-dsh-wallpaper-active],')
     expect(css).toContain('overflow: hidden !important;')
     expect(css).toContain('height: 100% !important;')
-    expect(css).toContain('box-sizing: border-box !important;')
+    expect(css).toContain('width: 100% !important;')
+    // [id="root"] must not be locked with overflow: hidden or rigid dimensions to avoid bottom clipping (#1225) and sidebar push failure (#1222)
+    expect(css).not.toContain('[id="root"]')
   })
 
   it('scopes the workspace fade correction to active skin-center visual modes', () => {

@@ -1,7 +1,20 @@
-import test from 'node:test'
+import test, { beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 
 import worker from '../market/worker/src/index.js'
+
+const workerCacheEntries = new Map()
+const workerCache = {
+  async match(request) {
+    const response = workerCacheEntries.get(request.url)
+    return response ? response.clone() : undefined
+  },
+  async put(request, response) {
+    workerCacheEntries.set(request.url, response.clone())
+  },
+}
+globalThis.caches = { default: workerCache }
+beforeEach(() => workerCacheEntries.clear())
 
 function context() { return { waitUntil() {} } }
 
@@ -16,6 +29,19 @@ test('market worker answers like preflight with CORS', async () => {
   assert.equal(response.status, 204)
   assert.equal(response.headers.get('access-control-allow-origin'), '*')
   assert.match(response.headers.get('access-control-allow-methods') || '', /POST/)
+  assert.equal(response.headers.get('access-control-allow-headers'), 'content-type')
+})
+
+test('market worker preflight never reflects arbitrary request headers', async () => {
+  const response = await worker.fetch(new Request('https://dsh-market.com/api/like', {
+    method: 'OPTIONS',
+    headers: {
+      origin: 'https://evil.example',
+      'access-control-request-headers': 'content-type, x-custom-spam, authorization',
+    },
+  }), {}, context())
+  assert.equal(response.status, 204)
+  assert.equal(response.headers.get('access-control-allow-headers'), 'content-type')
 })
 
 test('market worker rejects the removed card-header Turnstile bypass', async () => {
@@ -26,6 +52,22 @@ test('market worker rejects the removed card-header Turnstile bypass', async () 
   }), { TURNSTILE_SECRET: 'configured' }, context())
   assert.equal(response.status, 403)
   assert.equal((await response.json()).error, 'captcha-required')
+})
+
+test('market worker fails closed on writes when TURNSTILE_SECRET is unset', async () => {
+  const db = { prepare: () => { throw new Error('DB must not be touched without the Turnstile binding') } }
+  for (const [path, body] of [
+    ['/api/like', { kind: 'skin', asset_id: 'harbor', device_fp: '0123456789abcdef', turnstile_token: 'token-1' }],
+    ['/api/install', { kind: 'skin', asset_id: 'harbor', device_fp: '0123456789abcdef', install_id: 'install-1-abcdef1234567890', turnstile_token: 'token-1' }],
+  ]) {
+    const response = await worker.fetch(new Request('https://dsh-market.com' + path, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }), { DB: db }, context())
+    assert.equal(response.status, 403, path + ' rejects without the secret binding')
+    assert.equal((await response.json()).error, 'captcha-invalid')
+  }
 })
 
 test('market worker preserves static asset cache validators', async () => {
@@ -165,6 +207,7 @@ test('worker serves the OpenAPI description and API docs', async () => {
   const docs = await worker.fetch(new Request('https://dsh-market.com/api-docs.html'), {}, context())
   assert.equal(docs.status, 200)
   assert.match(docs.headers.get('content-type') || '', /text\/html/)
+  assert.equal(docs.headers.get('x-content-type-options'), 'nosniff')
   assert.match(await docs.text(), /创意工坊 API 文档/)
 })
 
@@ -207,6 +250,7 @@ test('worker serves a markdown homepage via Accept: text/markdown', async () => 
   const response = await worker.fetch(new Request('https://dsh-market.com/', { headers: { accept: 'text/markdown' } }), { ASSETS: assets }, context())
   assert.equal(response.status, 200)
   assert.match(response.headers.get('content-type') || '', /text\/markdown/)
+  assert.equal(response.headers.get('x-content-type-options'), 'nosniff')
   assert.ok(Number(response.headers.get('x-markdown-tokens')) > 0)
   const body = await response.text()
   assert.match(body, /^# DSH Web UI/)
@@ -360,7 +404,7 @@ test('telemetry rejects malformed submissions', async () => {
   assert.equal(db.batches.length, 0)
 })
 
-test('telemetry summary returns aggregates only and prunes old events', async () => {
+test('telemetry summary returns aggregates without pruning old events', async () => {
   const db = telemetryDb({
     summary: [
       [{ day: '2026-05-01', pv: 12, uv: 5 }],
@@ -388,8 +432,7 @@ test('telemetry summary returns aggregates only and prunes old events', async ()
   assert.equal(payload.plugins.items[0].active_today, 1)
   assert.equal(payload.plugins.items[0].channels.market, 1)
   assert.equal(payload.plugins.items[0].versions[0].version, '1.2.3')
-  assert.equal(db.runs.length, 1)
-  assert.match(db.runs[0].sql, /DELETE FROM telemetry_events/)
+  assert.equal(db.runs.length, 0)
 })
 
 test('telemetry summary binds the requested pagination windows', async () => {
@@ -432,10 +475,12 @@ test('telemetry summary enforces the read key only when configured', async () =>
   const lockedEnv = { TELEMETRY_READ_KEY: 's3cret', DB: telemetryDb() }
   const denied = await worker.fetch(new Request('https://dsh-market.com/api/telemetry/summary'), lockedEnv, context())
   assert.equal(denied.status, 403)
-  const wrongKey = await worker.fetch(new Request('https://dsh-market.com/api/telemetry/summary?key=nope'), lockedEnv, context())
+  const wrongKey = await worker.fetch(new Request('https://dsh-market.com/api/telemetry/summary', {
+    headers: { 'x-telemetry-key': 'nope' },
+  }), lockedEnv, context())
   assert.equal(wrongKey.status, 403)
-  const queryOk = await worker.fetch(new Request('https://dsh-market.com/api/telemetry/summary?key=s3cret'), lockedEnv, context())
-  assert.equal(queryOk.status, 200)
+  const queryDenied = await worker.fetch(new Request('https://dsh-market.com/api/telemetry/summary?key=s3cret'), lockedEnv, context())
+  assert.equal(queryDenied.status, 403, 'URL query keys are no longer accepted')
   const headerOk = await worker.fetch(new Request('https://dsh-market.com/api/telemetry/summary', {
     headers: { 'x-telemetry-key': 's3cret' },
   }), lockedEnv, context())
@@ -449,13 +494,14 @@ test('telemetry endpoints degrade cleanly without D1', async () => {
   assert.equal(summary.status, 503)
 })
 
-/** Fake D1 with a first() method for the users-badge count query. */
+/** Fake D1 with a precomputed users-badge row. */
 function badgeDb(users) {
   return {
-    prepare() {
+    prepare(sql) {
       return {
         bind() { return this },
-        async first() { return { users } },
+        async first() { return String(sql).includes('badge_cache') ? { value: users } : { users } },
+        async run() {},
       }
     },
   }
@@ -536,6 +582,118 @@ test('total downloads badge sums the family range API with caching', async () =>
     assert.equal(npmCalls, callsAfterFirst, 'second hit within the TTL must reuse the cache')
   } finally {
     globalThis.fetch = originalFetch
+  }
+})
+function manifestAssets(itemsByKind) {
+  return {
+    async fetch(request) {
+      const pathname = request instanceof URL ? request.pathname : new URL(typeof request === 'string' ? request : request.url).pathname
+      const kind = pathname.replace('/manifest/', '').replace('.json', '')
+      return new Response(JSON.stringify({ items: itemsByKind[kind] || [] }), { headers: { 'content-type': 'application/json' } })
+    },
+  }
+}
+
+test('worker write endpoints reject oversized bodies with 413', async () => {
+  const big = JSON.stringify({ kind: 'skin', asset_id: 'harbor', device_fp: '0123456789abcdef', pad: 'x'.repeat(8 * 1024) })
+  const like = await worker.fetch(new Request('https://dsh-market.com/api/like', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: big,
+  }), { TURNSTILE_SECRET: 'configured' }, context())
+  assert.equal(like.status, 413)
+  assert.equal((await like.json()).error, 'payload-too-large')
+  const bigTelemetry = JSON.stringify({ kind: 'heartbeat', visitor: 'visitor-abcdef1234567890', pad: 'x'.repeat(32 * 1024) })
+  const telemetry = await worker.fetch(new Request('https://dsh-market.com/api/telemetry/event', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: bigTelemetry,
+  }), { DB: { prepare: () => ({ run: async () => ({}) }) } }, context())
+  assert.equal(telemetry.status, 413)
+})
+
+test('worker write endpoints reject oversized streamed bodies without content-length', async () => {
+  const big = JSON.stringify({ kind: 'skin', asset_id: 'harbor', device_fp: '0123456789abcdef', pad: 'x'.repeat(8 * 1024) })
+  const stream = new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode(big)); controller.close() } })
+  const response = await worker.fetch(new Request('https://dsh-market.com/api/like', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: stream,
+    duplex: 'half',
+  }), { TURNSTILE_SECRET: 'configured' }, context())
+  assert.equal(response.status, 413)
+})
+
+test('worker write endpoints reject assets missing from the published manifests', async () => {
+  const db = { prepare: () => { throw new Error('DB must not be touched for unknown assets') } }
+  const assets = manifestAssets({ skin: [{ id: 'harbor' }] })
+  const like = await worker.fetch(new Request('https://dsh-market.com/api/like', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ kind: 'skin', asset_id: 'not-published', device_fp: '0123456789abcdef' }),
+  }), { TURNSTILE_SECRET: 'configured', DB: db, ASSETS: assets }, context())
+  assert.equal(like.status, 400)
+  assert.equal((await like.json()).error, 'unknown-asset')
+  const install = await worker.fetch(new Request('https://dsh-market.com/api/install', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ kind: 'skin', asset_id: 'not-published', device_fp: '0123456789abcdef', install_id: 'install-1-abcdef1234567890' }),
+  }), { TURNSTILE_SECRET: 'configured', DB: db, ASSETS: assets }, context())
+  assert.equal(install.status, 400)
+  assert.equal((await install.json()).error, 'unknown-asset')
+})
+
+test('worker accepts a like for a manifest-listed asset and caches the allowlist', async () => {
+  const realFetch = globalThis.fetch
+  globalThis.fetch = async () => new Response(JSON.stringify({ success: true, action: 'market-like', hostname: 'dsh-market.com' }))
+  try {
+    let manifestReads = 0
+    const assets = {
+      async fetch(request) {
+        manifestReads += 1
+        const pathname = request instanceof URL ? request.pathname : new URL(typeof request === 'string' ? request : request.url).pathname
+        const items = pathname === '/manifest/skins.json' ? [{ id: 'harbor' }] : []
+        return new Response(JSON.stringify({ items }), { headers: { 'content-type': 'application/json' } })
+      },
+    }
+    const db = {
+      prepare: (sql) => ({ bind: () => ({ sql }) }),
+      batch: async () => [{ results: [] }, { results: [] }, { results: [{ votes: 3 }] }],
+    }
+    const post = () => worker.fetch(new Request('https://dsh-market.com/api/like', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: 'skin', asset_id: 'harbor', device_fp: '0123456789abcdef', turnstile_token: 'token-1' }),
+    }), { TURNSTILE_SECRET: 'configured', DB: db, ASSETS: assets }, context())
+    const first = await post()
+    assert.equal(first.status, 200)
+    assert.equal((await first.json()).votes, 3)
+    const readsAfterFirst = manifestReads
+    const second = await post()
+    assert.equal(second.status, 200)
+    assert.equal(manifestReads, readsAfterFirst, 'allowlist cache must serve the second write within the TTL')
+  } finally {
+    globalThis.fetch = realFetch
+  }
+})
+
+test('worker allows writes when the asset manifests are unreadable', async () => {
+  const realFetch = globalThis.fetch
+  globalThis.fetch = async () => new Response(JSON.stringify({ success: true, action: 'market-like', hostname: 'dsh-market.com' }))
+  try {
+    const assets = { async fetch() { throw new Error('assets down') } }
+    const db = {
+      prepare: (sql) => ({ bind: () => ({ sql }) }),
+      batch: async () => [{ results: [] }, { results: [] }, { results: [{ votes: 1 }] }],
+    }
+    const response = await worker.fetch(new Request('https://dsh-market.com/api/like', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: 'skin', asset_id: 'anything', device_fp: '0123456789abcdef', turnstile_token: 'token-1' }),
+    }), { TURNSTILE_SECRET: 'configured', DB: db, ASSETS: assets }, context())
+    assert.equal(response.status, 200, 'availability rule: manifest outage must not break writes')
+  } finally {
+    globalThis.fetch = realFetch
   }
 })
 

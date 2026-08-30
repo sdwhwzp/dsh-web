@@ -82,17 +82,15 @@ describe('PetAccountSettingsScope', () => {
 
     const scope = new PetAccountSettingsScope()
     await vi.waitFor(() => expect(scope.getSnapshot().revision).toBe(1))
-    const result = await scope.mutate([
-      { field: 'size', op: 'unset' },
-      { field: 'petId', op: 'set', value: 'whale-girl' },
+    await scope.mutate([
+      { op: 'unset', path: ['size'] },
+      { op: 'set', path: ['petId'], value: 'whale-girl' },
     ])
 
-    expect(result).toEqual({
-      ok: true,
-      fields: [
-        { field: 'size', landed: true },
-        { field: 'petId', landed: true },
-      ],
+    expect(scope.getSnapshot()).toMatchObject({
+      revision: 2,
+      value: base,
+      user: { petId: 'whale-girl' },
     })
     scope.dispose()
   })

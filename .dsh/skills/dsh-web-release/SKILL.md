@@ -11,7 +11,7 @@ GitHub Actions 发布管线（构建/测试/npm 发布/GitHub Release）→ 发�
 
 ## 仓库事实（先读，决定每一步怎么做）
 
-- 仓库：zhu1090093659/dsh-web（**PUBLIC**），本机路径 /Users/zcl/code/dsh-web-ui。
+- 仓库：zhu1090093659/dsh-web（**PUBLIC**），本机路径 /Users/zcl/code/dsh-web。
 - 全家桶由 `scripts/lib/family-packages.mjs` 非递归遍历 `packages/` 与 `packages/skins/` 得到；当前工作树为 19 个家族包（`packages/*` 18 个 + `packages/skins/skin-center` 1 个），`@linxin666/dsh-client-ui-skin-center` 也是独立发布包。版本与包数量以 `node scripts/verify-version.mjs X.Y.Z` 的输出为准，不在技能中手抄固定数量。
   全部发布到 npm scope `@linxin666`，registry 固定 registry.npmjs.org。
 - **版本策略：全仓统一版本**（tag vX.Y.Z = 每个 package.json 的 version，由管线强制校验）。
@@ -23,6 +23,15 @@ GitHub Actions 发布管线（构建/测试/npm 发布/GitHub Release）→ 发�
 - 发布通道：npm 发布全部由 GitHub Actions 管线完成，使用仓库 secret `NPM_TOKEN`
   （npm automation token，@linxin666 scope）；本机 npm 登录态不固定（无登录态时
   `npm whoami` 401 属正常；本机当前以 linxin666 登录），发版不依赖本机登录态。
+- **npm 通道当前暂停（2026-08-28 起）**：release.yml 的 workflow env
+  `NPM_PUBLISH_ENABLED: 'false'` 跳过 `pnpm -r publish` 与 legacy 双发两步——
+  全家桶跟踪未上 npm 的 `@deepseek-ai/*` alpha cohort，发布出去依赖无法从
+  registry 解析（决策记录
+  `.agents/notes/implemented/process/2026-08-28-pause-release-npm-publish-unstable-dsh-alpha.md`）。
+  tag 推送仍执行完整门禁、版本校验、mount smoke（auto 模式以 workspace 打包的
+  file: tarball 验证本 tag 构建）并创建 GitHub Release——GitHub Release 是唯一
+  发布产物，npm 消费方继续解析最后一个已发布版本。恢复发布需 cohort 可从
+  registry 解析，并把开关改回 `'true'`。
 - 根 package.json 是 private（不发布）；`pnpm -r publish` 自动跳过。
 - **分支模型**：`dev` 是开发分支（集成分支），本地开发与远程 PR 统一以
   `dev` 为目标（远端默认分支）；`main` 是稳定分支（发布分支），只接收
@@ -86,7 +95,7 @@ pnpm runtime-deps:check
 兼容性修复完成后必须同步更新行为测试、对应 Agent Note 和双语 release notes；不要通过改成 major 版本、跳过自动升级检查或先发布后观察来绕过阻断条件。
 
 ```sh
-cd /Users/zcl/code/dsh-web-ui
+cd /Users/zcl/code/dsh-web
 git checkout dev                   # 本地工作分支以 dev 为基线（远端默认分支）
 git fetch origin && git rebase origin/dev   # 先同步上游最新 dev
 git status --short                 # 明确本次要提交的内容，无意外文件
@@ -221,8 +230,10 @@ gh run list --workflow=release.yml    # 查历史
 ## 4. 发布后验证（必须逐项执行）
 
 ```sh
-npm view @linxin666/dsh-web-all version          # 期望 = X.Y.Z
-npm view @linxin666/dsh-client-ui-skin-center version # 期望 = X.Y.Z
+# npm 通道暂停期间：版本应保持暂停前的最后已发布版本，不得变化
+npm view @linxin666/dsh-web-all version
+npm view @linxin666/dsh-client-ui-skin-center version
+# 通道恢复后（NPM_PUBLISH_ENABLED='true'）：期望 = X.Y.Z
 # 仅在双发窗口内执行：
 npm view @linxin666/dsh-web-ui-all version       # 期望 = X.Y.Z
 # 窗口结束后：旧包版本应保持窗口末版本，且 deprecated 字段必须非空

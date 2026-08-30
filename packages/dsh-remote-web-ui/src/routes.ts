@@ -3,15 +3,19 @@
  * under /api: the webserver matches exact paths before the connection
  * plugin's /api prefix, so these handlers own the full response lifecycle
  * and apply their own trust fence (loopback-only for control endpoints;
- * loopback-or-LAN for the phone-facing accept/heartbeat/status). The
- * cookie set on accept is the device identity the api/gate listener checks
- * on every other /api request.
+ * loopback-or-LAN for the phone-facing accept/heartbeat/status). The cookie
+ * set on accept is the device identity the plugin's own surfaces enforce:
+ * the /remote channel gate and the api/gate listener. Note that on the
+ * 0.1.2-alpha.1 cohort nothing emits api/gate — direct /api is governed by
+ * the harness fence + browser auth — while the /remote channel always
+ * enforces the pairing cookie itself.
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { z, type ZodType } from 'zod'
 import { UnknownLanAddressError, type PairingService, type PairingSnapshot } from './pairing.ts'
+import { isLoopbackAddress } from './loopback.ts'
 import { isLoopbackClient, readCookie } from './gate.ts'
 import { readJsonBody, writeJson } from './http.ts'
 
@@ -64,6 +68,22 @@ export function isTrustedApiRequest(request: IncomingMessage, trustedHosts: read
 const MAX_BODY_BYTES = 4096
 
 /**
+ * The rate-limit bucket key for one accept attempt (pure; unit-tested).
+ * The first client-visible XFF hop separates buckets behind the auto-tunnel
+ * (every internet client arrives from 127.0.0.1 there) — but only for
+ * loopback peers, since a direct LAN client can rotate the header freely.
+ * @param socketIp - the socket peer address.
+ * @param forwarded - the first XFF hop, already trimmed, if any.
+ * @param bucket - page (GET /pair-accept) vs api (POST /api/pair/accept).
+ */
+export function acceptLimitKey(socketIp: string, forwarded: string | undefined, bucket: 'page' | 'api'): string {
+  if (isLoopbackAddress(socketIp) && forwarded !== undefined && forwarded !== '') {
+    return `${bucket}|${socketIp}|${forwarded}`
+  }
+  return `${bucket}|${socketIp}`
+}
+
+/**
  * The host authority of a configured public base URL, e.g. `foo.trycloudflare.com`
  * from `https://foo.trycloudflare.com`. Undefined when the URL does not parse —
  * a malformed config then simply contributes no fence entry (and the panel
@@ -92,6 +112,9 @@ export const PAIR_PATHS = {
   heartbeat: '/api/pair/heartbeat',
   status: '/api/pair/status',
   events: '/api/pair/events',
+  lanBind: '/api/pair/lan-bind',
+  /** Top-level accept-and-redirect entry the QR link points at. */
+  acceptPage: '/pair-accept',
 } as const
 
 /**
@@ -103,7 +126,6 @@ export const PAIR_PATHS = {
  * are tolerated exactly as the previous manual reads ignored them.
  */
 export const issuePayloadSchema = z.object({
-  workspaceId: z.string().min(1).optional(),
   address: z.string().min(1).optional(),
 })
 export const acceptPayloadSchema = z.object({
@@ -188,6 +210,21 @@ export interface PairRoutesDeps {
   lanAddresses: readonly string[]
   /** Current desktop gate policy, re-read for every status response. */
   requirePairingForLan?: boolean | (() => boolean)
+  /**
+   * LAN-bind facts for the settings card (managed patch block state, live
+   * bind host/port, firewall summary). Re-read per request so a hot-reloaded
+   * rebind and a fresh toggle round are both reflected without a restart.
+   * The route is loopback-only; undefined drops it (tests).
+   */
+  lanBindStatus?: () => Record<string, unknown>
+  /**
+   * The authenticated home URL (the connection service's launch-token URL)
+   * for the given request origin. The /pair-accept entry redirects there
+   * after setting the device cookie, so a LAN device clears BOTH the
+   * browser-auth gate and the pairing gate in one navigation. Undefined
+   * falls back to '/'.
+   */
+  authenticatedHome?: (origin: string) => string
 }
 
 /**
@@ -204,10 +241,13 @@ export function makeRoutes(deps: PairRoutesDeps): WebRoute[] {
 
   /** Loopback-only fence: the desktop panel's control endpoints. */
   const loopbackFence = (req: IncomingMessage): boolean => isTrustedApiRequest(req, [])
-  /** Phone-facing fence: loopback, the derived LAN literals, or the configured public host. */
+  /** Phone-facing fence: loopback, the service's live LAN literals, or the configured public host. */
   const lanFence = (req: IncomingMessage): boolean => {
     const publicHost = publicHostOf(service.publicBaseUrl)
-    return isTrustedApiRequest(req, publicHost === undefined ? lanAddresses : [...lanAddresses, publicHost])
+    // The service's LAN bases re-read per request: a hot rebind (the lan-bind
+    // toggle) updates them mid-process, and the fence must follow.
+    const bases = service.lanAddresses
+    return isTrustedApiRequest(req, publicHost === undefined ? bases : [...bases, publicHost])
   }
 
   const requireMethod = (req: IncomingMessage, res: ServerResponse, method: string): boolean => {
@@ -221,17 +261,20 @@ export function makeRoutes(deps: PairRoutesDeps): WebRoute[] {
   const acceptAttempts = new Map<string, { count: number; windowStart: number }>()
   const ACCEPT_MAX_ATTEMPTS = 10
   const ACCEPT_WINDOW_MS = 30_000
-  const rateLimitAccept = (req: IncomingMessage): boolean => {
+  /**
+   * @param bucket - the POST /api/pair/accept and the GET /pair-accept flows
+   *   count separately: a QR re-scan (page navigation) must not consume a
+   *   brute-force budget that belongs to token guessing (and vice versa).
+   */
+  const rateLimitAccept = (req: IncomingMessage, bucket: 'page' | 'api'): boolean => {
     const socketIp = (req.socket as { remoteAddress?: string } | undefined)?.remoteAddress ?? 'unknown'
-    // Behind the auto-tunnel every internet client arrives from 127.0.0.1,
-    // so a single shared bucket would let one attacker keep the legitimate
-    // owner rate-limited. Partition the availability bucket by the first
-    // client-visible XFF hop (set by the tunnel edge): XFF is untrusted for
-    // authentication and only separates buckets, it never grants access.
+    // XFF is honored only for loopback peers (the tunnel edge); see
+    // acceptLimitKey. It is untrusted for authentication and never grants
+    // access.
     const forwarded = typeof req.headers['x-forwarded-for'] === 'string'
       ? (req.headers['x-forwarded-for'].split(',')[0] ?? '').trim()
       : undefined
-    const ip = forwarded === undefined || forwarded === '' ? socketIp : socketIp + '|' + forwarded
+    const ip = acceptLimitKey(socketIp, forwarded, bucket)
     const nowMs = Date.now()
     // The map lives as long as the plugin: prune expired windows once the
     // table grows past a modest size so distinct source IPs (LAN clients,
@@ -262,18 +305,21 @@ export function makeRoutes(deps: PairRoutesDeps): WebRoute[] {
       writeJson(res, 400, { ok: false, code: 'bad-payload' })
       return
     }
-    const { workspaceId, address } = payload
+    const { address } = payload
     try {
-      const { token, expiresAt } = service.issue(workspaceId, address)
+      // The QR link is the official Web GUI itself: after the accept round
+      // trip every device — phone or PC — boots the desktop SPA (phones get
+      // the injected portrait adaptation, PCs the full desktop UI), so the
+      // remote surface can never drift from the official one.
+      const { token, expiresAt } = service.issue(undefined, address)
       // The default base is the public (tunneled) URL when configured — a
       // phone anywhere can reach it — and the first LAN interface otherwise.
       // An explicit address always names a LAN literal.
       const base = address === undefined ? (service.publicBaseUrl ?? service.lanBaseUrl) : service.lanBaseUrlFor(address)
       if (base === undefined) throw new Error('remote-web-ui: base unavailable')
-      const workspaceQuery = workspaceId === undefined ? '' : `&workspace=${encodeURIComponent(workspaceId)}`
       writeJson(res, 200, {
         ok: true,
-        url: `${base}/m/?pair=${token}${workspaceQuery}`,
+        url: `${base}/pair-accept?pair=${token}`,
         token,
         expiresAt,
         // Every constructible base, so a multi-homed panel can switch the
@@ -300,7 +346,7 @@ export function makeRoutes(deps: PairRoutesDeps): WebRoute[] {
       writeJson(res, 403, { ok: false, code: 'forbidden' })
       return
     }
-    if (rateLimitAccept(req)) {
+    if (rateLimitAccept(req, 'api')) {
       writeJson(res, 429, { ok: false, code: 'rate-limited' })
       return
     }
@@ -412,7 +458,63 @@ export function makeRoutes(deps: PairRoutesDeps): WebRoute[] {
     events.push(service.snapshot())
   }
 
-  return [
+  /** LAN-bind facts for the settings card; loopback-only, read per request. */
+  const handleLanBind = (req: IncomingMessage, res: ServerResponse): void => {
+    if (!requireMethod(req, res, 'GET')) return
+    if (!loopbackFence(req)) {
+      writeJson(res, 403, { ok: false, code: 'forbidden' })
+      return
+    }
+    writeJson(res, 200, { ok: true, ...(deps.lanBindStatus?.() ?? {}) })
+  }
+
+  /**
+   * The QR entry: navigate here with ?pair=<token>. Sets the device cookie,
+   * then redirects to the authenticated home (the connection service's
+   * launch-token URL), so a LAN device that has never seen this authority
+   * clears the browser-auth gate and boots the paired official UI in one
+   * chain: /pair-accept → /?token=<launch> → /. A device that is already
+   * authenticated (or loopback) skips straight through the same way.
+   */
+  const handleAcceptPage = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    if (!requireMethod(req, res, 'GET')) return
+    if (!lanFence(req)) {
+      res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' })
+      res.end('forbidden')
+      return
+    }
+    if (rateLimitAccept(req, 'page')) {
+      res.writeHead(429, { 'content-type': 'text/plain; charset=utf-8' })
+      res.end('rate limited')
+      return
+    }
+    const url = new URL(req.url ?? '/', 'http://pair.invalid')
+    const token = url.searchParams.get('pair') ?? ''
+    const ua = req.headers['user-agent']
+    const result = token === '' ? { ok: false as const, code: 'invalid' as const } : service.accept(token, typeof ua === 'string' ? ua : undefined)
+    if (!result.ok) {
+      res.writeHead(303, { location: '/', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' })
+      res.end()
+      return
+    }
+    // Same origin the device navigated (x-forwarded-proto honors a tunnel's
+    // https edge); authenticatedUrl rewrites it into the launch-token URL.
+    const proto = req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http'
+    const origin = `http://${req.headers.host ?? '127.0.0.1'}`
+    const originUrl = proto === 'https' ? origin.replace('http://', 'https://') : origin
+    const home = deps.authenticatedHome?.(originUrl) ?? '/'
+    res.writeHead(303, {
+      location: home,
+      'cache-control': 'no-store',
+      'referrer-policy': 'no-referrer',
+      'set-cookie': [
+        `${service.config.cookieName}=${result.deviceId}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${String(COOKIE_MAX_AGE_SEC)}`,
+      ],
+    })
+    res.end()
+  }
+
+  const routes: WebRoute[] = [
     { kind: 'exact', path: PAIR_PATHS.issue, handler: handleIssue },
     { kind: 'exact', path: PAIR_PATHS.accept, handler: handleAccept },
     { kind: 'exact', path: PAIR_PATHS.stop, handler: handleStop },
@@ -421,4 +523,9 @@ export function makeRoutes(deps: PairRoutesDeps): WebRoute[] {
     { kind: 'exact', path: PAIR_PATHS.status, handler: handleStatus },
     { kind: 'exact', path: PAIR_PATHS.events, handler: handleEvents },
   ]
+  if (deps.lanBindStatus !== undefined) {
+    routes.push({ kind: 'exact', path: PAIR_PATHS.lanBind, handler: handleLanBind })
+  }
+  routes.push({ kind: 'exact', path: PAIR_PATHS.acceptPage, handler: handleAcceptPage })
+  return routes
 }
