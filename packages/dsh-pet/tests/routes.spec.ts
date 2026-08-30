@@ -298,7 +298,7 @@ describe('pet routes', () => {
       const bob = await fetch(accountUrl('/api/pet/settings'), {
         headers: principalHeaders('3'),
       }).then(response => response.json()) as { value: { enabled: boolean; petId: string } }
-      expect(bob.value).toMatchObject({ enabled: true, petId: 'whale-girl' })
+      expect(bob.value).toMatchObject({ enabled: false, petId: 'whale-girl' })
 
       const rejected = await fetch(accountUrl('/api/pet/state'), {
         headers: {

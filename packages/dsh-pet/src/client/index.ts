@@ -127,7 +127,7 @@ export function apply(ctx: ClientContext): void {
   const settingsScope = new PetAccountSettingsScope()
   const enabled = (): boolean => {
     const snapshot = settingsScope.getSnapshot()
-    return snapshot.status !== 'ready' || (snapshot.value?.enabled ?? true)
+    return snapshot.status === 'ready' && (snapshot.value?.enabled ?? false)
   }
 
   // First-level settings section: one staged form over this request's pet

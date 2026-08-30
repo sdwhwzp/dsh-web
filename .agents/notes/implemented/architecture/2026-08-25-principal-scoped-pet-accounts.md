@@ -29,7 +29,7 @@ The persisted pet document records the two account switches and the fields expli
 
 ## Consequences
 
-- Direct access on the Host port preserves the established pet and its full session-reactive behavior. Each authenticated gateway account starts with defaults and persists independently across browser reloads and service restarts; account renames retain the same pet because the immutable id remains stable.
+- Direct access on the Host port preserves the established pet and its full session-reactive behavior. The settings default and every new authenticated gateway account start with the pet disabled; an account can enable it independently, and that choice persists across browser reloads and service restarts. Account renames retain the same pet because the immutable id remains stable.
 - Deleting or revoking an external account stops access but does not delete its opaque pet directory. Storage retention follows the same conservative rule as other user-owned data and avoids destructive coupling to an account provider.
 - A gateway deployment must install a compatible Host `requestPrincipal` verifier for account separation. Signed identity headers without that verifier return 403 rather than falling back to the desktop account.
 - Gateway companions remain idle until the Host session stream carries verified principal attribution. This is an explicit isolation guarantee, not a best-effort activity filter.

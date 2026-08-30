@@ -13,7 +13,7 @@ Re-implemented from the pet feature of the Codex desktop app, as an official DSH
 | Feature | Description |
 |---|---|
 | Multi-pet registry | The host scans built-in `assets/`, the hatch-pet custom pets directory, and composed config entries; each pet is a manifest plus an atlas |
-| Per-account companions | Direct access and every authenticated gateway account keep independent selection, name, position, visibility, switches, affinity, treats, gameplay state, and interaction counters; one account cannot change another account's pet |
+| Per-account companions | Direct access and every authenticated gateway account keep independent selection, name, position, visibility, switches, affinity, treats, gameplay state, and interaction counters; one account cannot change another account's pet, and a new account starts with its pet disabled |
 | Pet selection in settings | The plugin settings card lists every registered pet (built-in assets plus user directories — the installed set); switching persists and the sprite swaps immediately. The card sits in the first-level Pet settings section |
 | Per-pet naming | Rename from the hover panel; each pet keeps its own name (stored per pet id, migrated from the legacy flat name) |
 | State animation | Official session activity → manifest-defined sequences of 9-state tracks; each track finishes its full duration before the sequence advances and the complete sequence loops |

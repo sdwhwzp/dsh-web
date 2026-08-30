@@ -136,7 +136,7 @@ export function makePetSettingsSchema(fallbackPetId: string) {
     right: z.number().step(1).min(0).max(DISPLAY_INSET_MAX).default(24),
     bottom: z.number().step(1).min(0).max(DISPLAY_INSET_MAX).default(20),
     petId: z.string().default(fallbackPetId),
-    enabled: z.boolean().default(true),
+    enabled: z.boolean().default(false),
     decorationEnabled: z.boolean().default(true),
   })
 }

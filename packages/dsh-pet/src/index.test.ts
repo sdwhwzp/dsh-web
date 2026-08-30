@@ -10,7 +10,7 @@ describe('makePetSettingsSchema', () => {
       size: 160,
       right: 24,
       bottom: 20,
-      enabled: true,
+      enabled: false,
     })
   })
 
