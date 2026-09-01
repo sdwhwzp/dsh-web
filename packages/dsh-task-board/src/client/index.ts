@@ -27,7 +27,7 @@ import { claimTaskboardApply, releaseTaskboardApply } from './apply-guard.ts'
 import { mountBoard } from './board-mount.tsx'
 import { mountSidebarEntry } from './sidebar-entry.ts'
 import { TaskBoardSettingsCard, TaskBoardSettingsCardController, type TaskBoardSettings } from './TaskBoardSettingsCard.tsx'
-import { en, zh, type TaskBoardKey } from './locales.ts'
+import { en, zh, setRuntimeTranslate, type TaskBoardKey } from './locales.ts'
 import { HttpTaskBoardHostTransport } from './host-api.ts'
 import { reportDailyHeartbeat } from './telemetry.ts'
 
@@ -75,7 +75,7 @@ declare module '@deepseek-ai/cordis' {
 /**
  * Required services (fiber inject waiting — the runtime must be up first).
  * The generated remote faces are probed at use time instead of injected:
- * `remote.agentPresets` only registers on 0.1.2-alpha.1 hosts (the
+ * `remote.agentPresets` only registers on 0.1.2-alpha.2 hosts (the
  * api-remotes contribution), so a hard wait would pend the entry forever
  * on hosts below that cohort, which serve the same roster through the
  * connection RPC face.
@@ -95,7 +95,7 @@ interface PresetRosterRow {
 /**
  * Read the agent-preset roster through whichever face the running host
  * serves: the generated api-remotes face (`remote.agentPresets`,
- * 0.1.2-alpha.1) or the connection RPC face
+ * 0.1.2-alpha.2) or the connection RPC face
  * (`connection.api.agentPresets`, hosts below that cohort). Answers
  * undefined when the host serves neither, so the caller leaves the picker
  * options untouched instead of erroring.
@@ -104,7 +104,17 @@ async function readPresetRoster(
   ctx: ClientContext,
   remote: ClientRemote,
 ): Promise<{ ok: boolean; presets: readonly PresetRosterRow[] } | undefined> {
-  const remotes = (remote as Partial<ClientRemote>).agentPresets
+  // The cordis `remote` proxy throws on a property that was never injected
+  // ("cannot get property X without inject") rather than returning undefined,
+  // so the probe must guard the access — a hard read would abort mounting on
+  // hosts below the 0.1.2-alpha.2 cohort instead of degrading to the legacy
+  // connection RPC face below.
+  let remotes: ClientRemote['agentPresets'] | undefined
+  try {
+    remotes = (remote as Partial<ClientRemote>).agentPresets
+  } catch {
+    remotes = undefined
+  }
   if (remotes !== undefined) {
     const response = await remotes.list()
     if (!response.ok) return { ok: false, presets: [] }
@@ -146,6 +156,12 @@ export function apply(ctx: ClientContext): void {
       return () => {}
     }
   }, 'task-board: dictionaries')
+
+  // Wire the SDK translate seat into the module-level t (sidebar row and
+  // other plain-DOM callers): reads the active locale at call time, so they
+  // follow the Language setting without a reload. The register effect above
+  // guarantees the dictionaries exist before the first read.
+  try { setRuntimeTranslate(ctx.locale.bind(NS)) } catch { /* locale missing: document-language fallback stays */ }
 
   // Plugin configuration card: one staged form over the `task-board` settings
   // namespace, contributed to the Web UI plugin group.
@@ -236,8 +252,8 @@ export function apply(ctx: ClientContext): void {
     void pushPresetOptions()
     disposers.push(ctx.on('connection/reset', () => { void pushPresetOptions() }))
     try {
-      disposers.push(mountSidebarEntry(controller))
-      disposers.push(mountBoard(controller))
+      disposers.push(mountSidebarEntry(controller, ctx.locale))
+      disposers.push(mountBoard(controller, ctx.locale))
     } catch (error) {
       // DOM failures degrade the board, never the GUI.
       console.error('[dsh-task-board] mount failed:', error)

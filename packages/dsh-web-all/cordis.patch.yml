@@ -104,10 +104,20 @@
     - id: web-ui-usage
       name: '@linxin666/dsh-usage'
 
+# from ../dsh-session-archive
+- insert:
+    - id: web-ui-session-archive
+      name: '@linxin666/dsh-session-archive'
+
 # from ../skins/skin-center
 - insert:
     - id: web-ui-skin-center
       name: '@linxin666/dsh-client-ui-skin-center'
+
+# from ../dsh-i18n
+- insert:
+    - id: web-ui-i18n
+      name: '@linxin666/dsh-i18n'
 
 # external bundle: dsh-better-sidebar
 
@@ -115,13 +125,6 @@
 - insert:
     - id: web-ui-better-sidebar
       name: 'dsh-better-sidebar'
-
-# external bundle: @mlgbnb/dsh-archive-manager
-
-# from external bundle @mlgbnb/dsh-archive-manager (insert row web-ui-archive-manager)
-- insert:
-    - id: web-ui-archive-manager
-      name: '@mlgbnb/dsh-archive-manager'
 
 # external bundle: @morlay/better-session
 

@@ -1,4 +1,3 @@
-import { installSettingsSection, settingsNamespace } from "@deepseek-ai/dsh-settings";
 import z from "schemastery";
 import { chmodSync, closeSync, cpSync, createReadStream, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
@@ -708,6 +707,11 @@ function resolveHarnessPaths(home, profile, fromUrl = import.meta.url) {
 //#endregion
 //#region src/reviewed-hooks.generated.ts
 const REVIEWED_SKIN_HOOKS = {
+	"abyssal-serenade": {
+		entry: "hooks.mjs",
+		manifestSha256: "ff9ac39a1e5b6607e0a0795505e9556a1c957e956b50d7dbdeca59e96edcf874",
+		hooksSha256: "c920106a33ffabbf235d2f11cbd4d1d55a40bda36a69b154567307eaaa0bf982"
+	},
 	"blue-fantasy": {
 		entry: "hooks.mjs",
 		manifestSha256: "b22cc82145e1f90f4257af1411724e34a99513761290980fb5f8d25727809808",
@@ -733,6 +737,11 @@ const REVIEWED_SKIN_HOOKS = {
 		manifestSha256: "a09949fdf5217ac2f6d5d37603df525e56713385ad799cf4c496fbd71cc5861d",
 		hooksSha256: "7981a2f98d1ade2815f7e33e2d79672c280334001a00406bb11b5362ce8182bf"
 	},
+	"hologram-sanctum": {
+		entry: "hooks.mjs",
+		manifestSha256: "a655bbde8580eddb45271949a7864355cc5c368f91bd811f3632809134c9c3e8",
+		hooksSha256: "f82cf61957efb9d9f53557637b00333aa307b3c9642e73620afdbb1fa9511e9e"
+	},
 	"maid-atelier": {
 		entry: "hooks.mjs",
 		manifestSha256: "f36e854f52f24939dfe6318ed6b1ff6fe33d0564e63255a22aaca459af1a84d9",
@@ -757,6 +766,16 @@ const REVIEWED_SKIN_HOOKS = {
 		entry: "hooks.mjs",
 		manifestSha256: "48b9c76b6f8fc4fad1473d987c0ebd8c10f4734e2eff2091bbb9040c9a5ce089",
 		hooksSha256: "0ea2d7e3f7547d9a37884b788042557ec7c59b1416be527660329584c4d65254"
+	},
+	"starry-nocturne": {
+		entry: "hooks.mjs",
+		manifestSha256: "5a5bd138ed156d1877e00ea9acfbf94f8342b751d21796942ed3175562801a61",
+		hooksSha256: "5493c9d0c28c80c18e0fe39ee851f3ffe7813f0a126c67c95b36674b2a4bcf65"
+	},
+	"stellar-diva": {
+		entry: "hooks.mjs",
+		manifestSha256: "66a56618fbd36da1423d97a0f1196aec391c478f6bdc40fc38f99e23df3dbdbe",
+		hooksSha256: "22efa5c0860f8f20c425c79d29a82ee9a98cfb710e2e9c3c6ca633a9eae7086b"
 	},
 	"trading": {
 		entry: "hooks.mjs",
@@ -9294,9 +9313,9 @@ const inject = ["webServer"];
 * skin center. The browser half spells the same string so it can bind the
 * scope without depending on this Host package.
 */
-const SKIN_BACKGROUND_NAMESPACE = settingsNamespace("skin-background");
+const SKIN_BACKGROUND_NAMESPACE = "skin-background";
 /** Versioned settings namespace for the official-theme palette editor. */
-const SKIN_CUSTOM_THEME_NAMESPACE = settingsNamespace(SKIN_CUSTOM_THEME_NS);
+const SKIN_CUSTOM_THEME_NAMESPACE = SKIN_CUSTOM_THEME_NS;
 const CustomThemeProfileSchema = z.object({
 	accent: z.string().default(CUSTOM_THEME_DEFAULTS.light.accent),
 	background: z.string().default(CUSTOM_THEME_DEFAULTS.light.background),
@@ -9333,7 +9352,7 @@ const SkinBackgroundConfigSchema = z.object({
 * persists the selection here; the host half reads weLibraryDirs to extend
 * the library scan beyond the auto-detected Steam folders.
 */
-const SKIN_WALLPAPER_NAMESPACE = settingsNamespace("skin-wallpaper");
+const SKIN_WALLPAPER_NAMESPACE = "skin-wallpaper";
 /** Runtime schema for SkinWallpaperConfig. */
 const SkinWallpaperConfigSchema = z.object({
 	enabled: z.boolean().default(true),
@@ -9360,31 +9379,37 @@ const SkinWallpaperConfigSchema = z.object({
 */
 const apply = mountOnce("@linxin666/dsh-client-ui-skin-center", applyImpl);
 function applyImpl(ctx) {
-	installSettingsSection(ctx, SKIN_BACKGROUND_NAMESPACE, SkinBackgroundConfigSchema, {}, {
-		setSource: (source) => {
-			const migration = migrateBackgroundFromSettings({
-				activeStatePath: defaultActiveStatePath(),
-				readSettings: source
-			});
-			for (const note of migration.notes) if (migration.migrated) console.info(`[ui-skin-center] background migration: ${note}`);
-			else console.error(`[ui-skin-center] background migration: ${note}`);
-		},
-		onChange: () => {}
+	ctx.inject(["settings"], (settingsCtx) => {
+		settingsCtx.settings.installSection(ctx, SKIN_BACKGROUND_NAMESPACE, SkinBackgroundConfigSchema, {}, {
+			setSource: (source) => {
+				const migration = migrateBackgroundFromSettings({
+					activeStatePath: defaultActiveStatePath(),
+					readSettings: source
+				});
+				for (const note of migration.notes) if (migration.migrated) console.info(`[ui-skin-center] background migration: ${note}`);
+				else console.error(`[ui-skin-center] background migration: ${note}`);
+			},
+			onChange: () => {}
+		});
 	});
-	installSettingsSection(ctx, SKIN_CUSTOM_THEME_NAMESPACE, SkinCustomThemeConfigSchema, {
-		...CUSTOM_THEME_DEFAULTS,
-		light: { ...CUSTOM_THEME_DEFAULTS.light },
-		dark: { ...CUSTOM_THEME_DEFAULTS.dark }
-	}, {
-		setSource: () => {},
-		onChange: () => {}
+	ctx.inject(["settings"], (settingsCtx) => {
+		settingsCtx.settings.installSection(ctx, SKIN_CUSTOM_THEME_NAMESPACE, SkinCustomThemeConfigSchema, {
+			...CUSTOM_THEME_DEFAULTS,
+			light: { ...CUSTOM_THEME_DEFAULTS.light },
+			dark: { ...CUSTOM_THEME_DEFAULTS.dark }
+		}, {
+			setSource: () => {},
+			onChange: () => {}
+		});
 	});
 	let wallpaperSource = () => ({});
-	installSettingsSection(ctx, SKIN_WALLPAPER_NAMESPACE, SkinWallpaperConfigSchema, {}, {
-		setSource: (source) => {
-			wallpaperSource = source;
-		},
-		onChange: () => {}
+	ctx.inject(["settings"], (settingsCtx) => {
+		settingsCtx.settings.installSection(ctx, SKIN_WALLPAPER_NAMESPACE, SkinWallpaperConfigSchema, {}, {
+			setSource: (source) => {
+				wallpaperSource = source;
+			},
+			onChange: () => {}
+		});
 	});
 	const routes = [...makeSkinCenterV2Routes(), ...makeWeRoutes({
 		getConfig: () => wallpaperSource(),
