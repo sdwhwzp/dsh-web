@@ -3,6 +3,9 @@
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
   'entry.label': '远程访问',
+  'mobile.whale.open': '打开侧边栏',
+  'mobile.composer.pickModel': '选择模型',
+  'mobile.composer.pickEffort': '选择推理等级',
   'title': '远程访问',
   'subtitle': '通过手机或另一台电脑配对，远程使用同一份 Web 界面（官方界面 + 移动端适配）',
   'card.title': '设备配对',
@@ -112,6 +115,7 @@ export const zh = {
   'settings.invalidNumber': '请输入数字，留空则使用默认值。',
   // 更新面板（侧边栏更新按钮）。
   'update.label': '检查更新',
+  'update.badge': '有更新',
   'update.availableLabel': '发现新版本，检查更新',
   'update.title': '检查更新',
   'update.checking': '正在检查远程仓库中的新版本…',
@@ -163,6 +167,9 @@ export type SettingsCardKey = RemoteKey
 /** English dictionary, checked complete against the zh key set. */
 export const en = {
   'entry.label': 'Remote access',
+  'mobile.whale.open': 'Open sidebar',
+  'mobile.composer.pickModel': 'Pick model',
+  'mobile.composer.pickEffort': 'Pick reasoning effort',
   'title': 'Remote access',
   'subtitle': 'Pair a phone or another computer to share the same Web GUI (official UI + mobile adaptation)',
   'card.title': 'Pair a device',
@@ -272,6 +279,7 @@ export const en = {
   'settings.invalidNumber': 'Enter a number, or leave blank to use the default.',
   // Update panel (the sidebar update trigger).
   'update.label': 'Check for updates',
+  'update.badge': 'Update available',
   'update.availableLabel': 'New version available. Check for updates',
   'update.title': 'Check for updates',
   'update.checking': 'Checking the remote repository for newer releases…',

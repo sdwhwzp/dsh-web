@@ -127,15 +127,25 @@ export function apply(ctx: ClientContext): void {
   // the narrow-viewport semantics open the drawer).
   const layout = ctx.get('layout') as { toggleSidebar?: () => void; closeDetails?: () => void } | undefined
   const adapt = (window as unknown as { __dshRemoteAdapt?: RemoteAdaptGlobal }).__dshRemoteAdapt
+  // The official layout face throws (by contract) when the root entry has
+  // not mounted yet; these closures also fire from gestures racing that
+  // first mount, so they tolerate the throw instead of surfacing it.
+  const layoutCall = (call: (() => void) | undefined): void => {
+    try {
+      call?.()
+    } catch {
+      // Boot-order throw: the panel action is a no-op before the root entry.
+    }
+  }
   if (layout !== undefined && adapt !== undefined) {
     if (typeof layout.toggleSidebar === 'function') {
       adapt.toggleSidebar = () => {
-        layout.toggleSidebar?.()
+        layoutCall(layout.toggleSidebar)
       }
     }
     if (typeof layout.closeDetails === 'function') {
       adapt.closeDetails = () => {
-        layout.closeDetails?.()
+        layoutCall(layout.closeDetails)
       }
     }
   }
@@ -148,6 +158,11 @@ export function apply(ctx: ClientContext): void {
   }
 
   const t = ctx.locale.bind(NS)
+  // Hand the `remote` translate seat to the module-scope adaptation layer:
+  // the whale/compact-picker labels were rendered with the English fallback
+  // before any dictionary existed; the wiring plus the layer's own sync tick
+  // re-render them in the active locale.
+  if (adapt !== undefined) adapt.translate = t
   const binder = ctx.get('webUiSettings') ?? ctx.settingsScope
   const settingsScope = binder.bind<RemoteSettings>({ namespace: REMOTE_WEB_UI_NS })
   const enabled = (): boolean => {
@@ -168,7 +183,13 @@ export function apply(ctx: ClientContext): void {
   }
   settingsScope.subscribe(syncAdaptEnabled)
   syncAdaptEnabled()
-  adapt?.flushCloseDetails?.()
+  // The replay closes a details panel restored before the wiring; the
+  // layout face throws while the root entry has not mounted yet (a real
+  // boot-order race on slow remote loads), and the plugin's apply world
+  // must survive it — the replay is a best-effort no-op then.
+  try {
+    adapt?.flushCloseDetails?.()
+  } catch {}
 
   // Plugin configuration card: one staged form over the `remote-web-ui`
   // settings namespace, contributed to the Web UI plugin group.

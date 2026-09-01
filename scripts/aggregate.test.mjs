@@ -100,7 +100,7 @@ test('web-ui-all mounts dsh-better-sidebar as an external row', () => {
   assert.match(lines[idx + 1] ?? '', /^ {6}name: 'dsh-better-sidebar'$/)
 })
 
-test('web-ui-all leaves archive management to the Harness native implementation', () => {
+test('web-ui-all leaves archive management to its built-in plugin', () => {
   const patch = readFileSync(join(ROOT, 'packages/dsh-web-all/cordis.patch.yml'), 'utf8')
   const manifest = JSON.parse(readFileSync(join(ROOT, 'packages/dsh-web-all/package.json'), 'utf8'))
   assert.doesNotMatch(patch, /web-ui-archive-manager|@mlgbnb\/dsh-archive-manager/)

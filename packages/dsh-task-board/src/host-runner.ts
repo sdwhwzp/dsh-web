@@ -33,7 +33,16 @@ function sessionAddress(sessionId: string): SessionAddress {
  * unknown at every boot.
  */
 function isServiceUnavailable(error: unknown): boolean {
-  return (error as { code?: unknown }).code === 'service-unavailable'
+  const code = (error as { code?: unknown }).code
+  // The alpha.2 gateway emits the namespace-qualified code ('gateway/service-unavailable');
+  // the bare form is the pre-alpha.2 shape. Recognize both so a provider that is merely
+  // slow to activate (start-order race) is retried instead of degraded to "roster unknown".
+  return code === 'service-unavailable' || code === 'gateway/service-unavailable'
+}
+
+function isInvocationUnavailable(error: unknown): boolean {
+  const code = (error as { code?: unknown }).code
+  return code === 'invocation-unavailable' || code === 'gateway/invocation-unavailable'
 }
 
 const SERVICE_UNAVAILABLE_ATTEMPTS = 5
@@ -120,7 +129,7 @@ function isErrorTurnEnd(data: unknown): boolean {
 }
 
 /**
- * Wire-argument layout of the 0.1.2-alpha.1 descriptor tables; the gateway's
+ * Wire-argument layout of the 0.1.2-alpha.2 descriptor tables; the gateway's
  * assertExactArguments (@deepseek-ai/dsh-api-gateway/lib/index.js) throws
  * arguments-invalid on any extra or missing args key.
  * - agentPresets/list declares no parameters, so its args must be {}.
@@ -141,6 +150,7 @@ export class HostExecutionRunner {
   private readonly scanMemos = new Map<string, number>()
   private readonly unavailableAttempts: number
   private readonly unavailableBackoffMs: number
+  private unsupportedSessionListWarned = false
 
   constructor(
     private readonly gateway: SessionGateway | TypertGateway,
@@ -210,6 +220,13 @@ export class HostExecutionRunner {
         const response = await this.invoke('session', 'list', {}) as SessionListValue
         return { known: true, count: response.items.filter(item => item.running).length, items: response.items as SessionSummary[] }
       } catch (error) {
+        if (isInvocationUnavailable(error)) {
+          if (!this.unsupportedSessionListWarned) {
+            this.unsupportedSessionListWarned = true
+            console.warn('[dsh-task-board] DSH runtime session endpoint unavailable (requires DSH >= 0.1.2-alpha.2); task board roster auto-discovery is disabled', error)
+          }
+          return { known: false }
+        }
         if (!isServiceUnavailable(error) || attempt >= this.unavailableAttempts) {
           console.error('[dsh-task-board] session/list failed; treating the host session roster as unknown', error)
           return { known: false }
@@ -229,6 +246,13 @@ export class HostExecutionRunner {
       try {
         response = await this.invoke('session', 'list', {}) as SessionListValue
       } catch (error) {
+        if (isInvocationUnavailable(error)) {
+          if (!this.unsupportedSessionListWarned) {
+            this.unsupportedSessionListWarned = true
+            console.warn('[dsh-task-board] DSH runtime session endpoint unavailable (requires DSH >= 0.1.2-alpha.2); task board roster auto-discovery is disabled', error)
+          }
+          return { outcome: 'pending' }
+        }
         console.warn('[dsh-task-board] session/list failed during execution inspection; keeping the outcome pending', error)
         return { outcome: 'pending' }
       }
