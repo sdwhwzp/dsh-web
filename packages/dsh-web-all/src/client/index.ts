@@ -11,10 +11,12 @@
  * This shim stamps the expected attributes onto the real shell elements and
  * re-applies them on any DOM mutation (React re-renders that re-create the
  * columns), which restores every DOM-mounting plugin and the skins' column
- * selectors in one place. It only ever WRITES attributes; it never removes
- * nodes and never disturbs React's reconciliation.
+ * selectors in one place. It also owns one marked download anchor in each
+ * better-sidebar file header. It never removes host nodes; disposal and
+ * upstream-action detection remove only anchors carrying its own marker.
  */
 import type { Context } from '@deepseek-ai/cordis'
+import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 
 /** Column shims: element selector → attribute to stamp. */
 const COLUMN_SHIMS: ReadonlyArray<readonly [selector: string, attribute: string]> = [
@@ -22,6 +24,136 @@ const COLUMN_SHIMS: ReadonlyArray<readonly [selector: string, attribute: string]
   ['[class*="centerCol"]', 'data-pane="conversation"'],
   ['[class*="detailsCol"]', 'data-pane="details"'],
 ]
+
+const DOWNLOAD_MARKER = 'data-dsh-universal-download'
+const BETTER_SIDEBAR_HOST_SELECTOR = '[data-dsh-better-sidebar] [data-dsh-panel-host]'
+const EDITOR_PATH_INPUT_SELECTOR = 'input[class*="editorPathInput"][title]'
+const EDITOR_PATH_SELECTOR = `${BETTER_SIDEBAR_HOST_SELECTOR} ${EDITOR_PATH_INPUT_SELECTOR}`
+
+interface ServiceReader {
+  get(name: string): unknown
+}
+
+interface SidebarStateReader {
+  getSnapshot(): { sessionId?: string }
+}
+
+interface LocaleReader {
+  bind(namespace: string): (key: string) => string
+}
+
+function serviceOf<T>(ctx: Context, name: string): T | undefined {
+  const get = (ctx as unknown as Partial<ServiceReader>).get
+  if (typeof get !== 'function') return undefined
+  return get.call(ctx, name) as T | undefined
+}
+
+function sessionsOf(ctx: Context): ISessions | undefined {
+  return serviceOf<ISessions>(ctx, 'sessions')
+}
+
+function fileDownloadHref(ctx: Context, sessions: ISessions, path: string): string | undefined {
+  const snapshot = sessions.list.getSnapshot()
+  const sessionId = serviceOf<SidebarStateReader>(ctx, 'betterSidebar')?.getSnapshot().sessionId
+  if (sessionId === undefined) return undefined
+  const summary = snapshot.byId[sessionId as keyof typeof snapshot.byId]
+  if (summary === undefined) return undefined
+  const params = new URLSearchParams({ sessionId, path })
+  const cwd = summary.cwd
+  if (cwd !== undefined && cwd !== '') params.set('cwd', cwd)
+  params.set('download', '1')
+  return `/sidebar/file?${params.toString()}`
+}
+
+function updateDownloadAction(ctx: Context, input: HTMLInputElement, anchor: HTMLAnchorElement): void {
+  const locale = serviceOf<LocaleReader>(ctx, 'locale')
+  let label: string | undefined
+  try {
+    label = locale?.bind('betterSidebar')('download').trim()
+  } catch {
+    label = undefined
+  }
+  if (label === undefined || label === '') {
+    anchor.removeAttribute('href')
+    anchor.remove()
+    return
+  }
+  anchor.setAttribute('aria-label', label)
+  anchor.title = label
+  const sessions = sessionsOf(ctx)
+  const path = input.title.trim()
+  const href = sessions === undefined || path === '' ? undefined : fileDownloadHref(ctx, sessions, path)
+  if (href === undefined) {
+    anchor.removeAttribute('href')
+    anchor.remove()
+  }
+  else anchor.href = href
+}
+
+function downloadIcon(): SVGSVGElement {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  svg.setAttribute('viewBox', '0 0 16 16')
+  svg.setAttribute('width', '14')
+  svg.setAttribute('height', '14')
+  svg.setAttribute('aria-hidden', 'true')
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+  path.setAttribute('fill', 'currentColor')
+  path.setAttribute('d', 'M7.25 1.5h1.5v7.19l2.47-2.47 1.06 1.06L8 11.56 3.72 7.28l1.06-1.06 2.47 2.47V1.5ZM2 13h12v1.5H2V13Z')
+  svg.appendChild(path)
+  return svg
+}
+
+function isNativeDownloadAction(anchor: HTMLAnchorElement): boolean {
+  const href = anchor.getAttribute('href')
+  if (href === null) return false
+  try {
+    const url = new URL(href, window.location.href)
+    return url.origin === window.location.origin && url.pathname === '/sidebar/file'
+  } catch {
+    return false
+  }
+}
+
+function syncUniversalDownloadActions(ctx: Context): void {
+  for (const anchor of document.querySelectorAll<HTMLAnchorElement>(`a[${DOWNLOAD_MARKER}]`)) {
+    if (anchor.parentElement?.querySelector(EDITOR_PATH_INPUT_SELECTOR) == null) anchor.remove()
+  }
+
+  for (const input of document.querySelectorAll<HTMLInputElement>(EDITOR_PATH_SELECTOR)) {
+    const header = input.parentElement
+    if (header === null) continue
+    const custom = header.querySelector<HTMLAnchorElement>(`a[${DOWNLOAD_MARKER}]`)
+    const native = [...header.querySelectorAll<HTMLAnchorElement>('a[download]')]
+      .find(anchor => !anchor.hasAttribute(DOWNLOAD_MARKER) && isNativeDownloadAction(anchor))
+    if (native !== undefined) {
+      custom?.remove()
+      continue
+    }
+
+    let anchor = custom
+    if (anchor === null) {
+      anchor = document.createElement('a')
+      anchor.setAttribute(DOWNLOAD_MARKER, '')
+      anchor.setAttribute('download', '')
+      const styleSource = header.querySelector<HTMLElement>('button[class*="iconButton"]')
+      if (styleSource !== null) anchor.className = styleSource.className
+      anchor.appendChild(downloadIcon())
+      const controls = header.querySelectorAll<HTMLElement>('button[class*="iconButton"]')
+      const tail = controls.item(controls.length - 1)
+      header.insertBefore(anchor, tail)
+      const refresh = (event: Event): void => {
+        const currentInput = anchor?.parentElement?.querySelector<HTMLInputElement>(EDITOR_PATH_INPUT_SELECTOR)
+        if (currentInput === undefined || currentInput === null) anchor?.removeAttribute('href')
+        else updateDownloadAction(ctx, currentInput, anchor as HTMLAnchorElement)
+        if (!anchor?.hasAttribute('href') && event.type === 'click') event.preventDefault()
+      }
+      anchor.addEventListener('pointerdown', refresh)
+      anchor.addEventListener('contextmenu', refresh)
+      anchor.addEventListener('click', refresh)
+    }
+    updateDownloadAction(ctx, input, anchor)
+  }
+}
 
 /** Stable hooks consumed by the responsive compat layer (never text/hash selectors). */
 export const RESPONSIVE_CSS = `
@@ -409,13 +541,19 @@ export function apply(ctx: Context): void {
       removeMobileDismiss = installMobileSidebarDismiss(frame)
       dismissFrame = frame
     }
-    ensureMobileDismiss()
-    shimAfterPass = ensureMobileDismiss
+    const ensureCompatActions = (): void => {
+      ensureMobileDismiss()
+      syncUniversalDownloadActions(ctx)
+    }
+    ensureCompatActions()
+    shimAfterPass = ensureCompatActions
     // The shell renders after boot settlement and React can re-create the
     // columns on re-render; re-stamp on any DOM mutation. The callback only
     // schedules a coalesced pass — mutations never run the sweep inline, and
     // the pass short-circuits once every attribute is in place. Writes only
-    // the same attribute values, so this never fights React.
+    // the same attribute values. The download action is idempotent and owns
+    // a unique marker, so a React-created replacement header gets one fresh
+    // action while host-owned children remain untouched.
     const observer = new MutationObserver(() => {
       schedulePass()
       ensureMobileDismiss()
@@ -426,6 +564,7 @@ export function apply(ctx: Context): void {
       bootShield.remove()
       responsiveStyle.remove()
       removeMobileDismiss()
+      document.querySelectorAll(`a[${DOWNLOAD_MARKER}]`).forEach(anchor => anchor.remove())
       shimAfterPass = undefined
       shimScheduled = false
     }

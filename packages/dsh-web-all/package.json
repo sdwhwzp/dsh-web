@@ -17,7 +17,10 @@
       "patch": "./cordis.patch.yml"
     },
     "client": {
-      "inject": [],
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-api-session-controller"
+      ],
       "platform": "web"
     }
   },
@@ -40,6 +43,7 @@
     "@deepseek-ai/cordis": "^4.0.2",
     "@deepseek-ai/dsh-agent": "^0.1.2-alpha.3",
     "@deepseek-ai/dsh-api-session-controller": "^0.1.2-alpha.3",
+    "@deepseek-ai/dsh-client-locale": "^0.1.2-alpha.3",
     "@deepseek-ai/dsh-attachment": "^0.1.2-alpha.3",
     "@deepseek-ai/dsh-host-webserver": "^0.1.2-alpha.3",
     "@deepseek-ai/dsh-invariants": "^0.1.2-alpha.3",

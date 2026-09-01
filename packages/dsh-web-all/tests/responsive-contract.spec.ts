@@ -1,4 +1,6 @@
 /** @vitest-environment jsdom */
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { apply, RESPONSIVE_CSS } from '../src/client/index.ts'
 
@@ -158,5 +160,133 @@ describe('aggregate responsive compat contract', () => {
     expect(splash?.hasAttribute('data-ready')).toBe(true)
     cleanup?.()
     expect(document.querySelector('[data-dsh-boot-splash]')).toBeNull()
+  })
+
+  it('adds one portable download action to every file editor and resolves the current session at click time', () => {
+    document.documentElement.lang = 'zh-CN'
+    document.body.innerHTML = `
+      <div data-dsh-better-sidebar>
+        <div data-dsh-panel-host>
+          <div class="hash_editorHeader">
+            <input class="hash_editorPathInput" title="/workspace/report.xlsx" value="report.xlsx">
+            <button class="hash_iconButton" aria-label="refresh"></button>
+            <button class="hash_iconButton" aria-label="files"></button>
+          </div>
+        </div>
+      </div>`
+    let sidebarSessionId = 'session-a'
+    let downloadLabel = '下载'
+    const sessions = {
+      list: {
+        getSnapshot: () => ({
+          current: 'session-a',
+          byId: {
+            'session-a': { cwd: '/workspace' },
+            'session-b': { cwd: '/other' },
+            'session-c': {},
+          },
+        }),
+      },
+    }
+    let cleanup: (() => void) | undefined
+    apply({
+      get: (name: string) => name === 'sessions'
+        ? sessions
+        : name === 'betterSidebar'
+          ? { getSnapshot: () => ({ sessionId: sidebarSessionId }) }
+          : name === 'locale' ? { bind: () => () => downloadLabel } : undefined,
+      effect: (effect: () => (() => void) | void) => { cleanup = effect() ?? undefined },
+    } as never)
+
+    const anchor = document.querySelector<HTMLAnchorElement>('a[data-dsh-universal-download]')!
+    expect(document.querySelectorAll('a[data-dsh-universal-download]')).toHaveLength(1)
+    expect(anchor.getAttribute('aria-label')).toBe('下载')
+    expect(anchor.download).toBe('')
+    expect(anchor.href).toContain('sessionId=session-a')
+    expect(anchor.href).toContain('path=%2Fworkspace%2Freport.xlsx')
+    expect(anchor.href).toContain('cwd=%2Fworkspace')
+    expect(anchor.href).toContain('download=1')
+
+    sidebarSessionId = 'session-b'
+    const replacement = document.createElement('input')
+    replacement.className = 'hash_editorPathInput'
+    replacement.title = '/other/new-report.md'
+    document.querySelector<HTMLInputElement>('input.hash_editorPathInput')!.replaceWith(replacement)
+    downloadLabel = 'Download'
+    anchor.addEventListener('click', event => { event.preventDefault() })
+    anchor.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+    expect(anchor.href).toContain('sessionId=session-b')
+    expect(anchor.href).toContain('path=%2Fother%2Fnew-report.md')
+    expect(anchor.href).toContain('cwd=%2Fother')
+    expect(anchor.getAttribute('aria-label')).toBe('Download')
+
+    sidebarSessionId = 'session-c'
+    anchor.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+    expect(anchor.href).toContain('sessionId=session-c')
+    expect(new URL(anchor.href).searchParams.has('cwd')).toBe(false)
+    cleanup?.()
+    expect(document.querySelector('a[data-dsh-universal-download]')).toBeNull()
+  })
+
+  it('does not duplicate a download action supplied by better-sidebar itself', () => {
+    document.body.innerHTML = `
+      <div data-dsh-better-sidebar>
+        <div data-dsh-panel-host>
+          <div class="hash_editorHeader">
+            <input class="hash_editorPathInput" title="/workspace/readme.md" value="readme.md">
+            <a download href="/sidebar/file?sessionId=session-a&amp;path=%2Fworkspace%2Freadme.md&amp;download=1">native</a>
+            <button class="hash_iconButton" aria-label="files"></button>
+          </div>
+        </div>
+      </div>`
+    let cleanup: (() => void) | undefined
+    apply({
+      get: () => ({ list: { getSnapshot: () => ({ current: 'session-a', byId: { 'session-a': { cwd: '/workspace' } } }) } }),
+      effect: (effect: () => (() => void) | void) => { cleanup = effect() ?? undefined },
+    } as never)
+    expect(document.querySelectorAll('a[download]')).toHaveLength(1)
+    expect(document.querySelector('a[data-dsh-universal-download]')).toBeNull()
+    cleanup?.()
+  })
+
+  it('scopes the compat action to better-sidebar and ignores a cross-origin lookalike', () => {
+    document.body.innerHTML = `
+      <div class="hash_editorHeader">
+        <input class="hash_editorPathInput" title="/unrelated/file.md">
+      </div>
+      <div data-dsh-better-sidebar>
+        <div data-dsh-panel-host>
+          <div class="hash_editorHeader">
+            <input class="hash_editorPathInput" title="/workspace/readme.md">
+            <a download href="https://example.com/sidebar/file?path=foreign">foreign</a>
+            <button class="hash_iconButton" aria-label="files"></button>
+          </div>
+        </div>
+      </div>`
+    let cleanup: (() => void) | undefined
+    apply({
+      get: (name: string) => name === 'sessions'
+        ? { list: { getSnapshot: () => ({ current: 'session-a', byId: { 'session-a': { cwd: '/workspace' } } }) } }
+        : name === 'betterSidebar'
+          ? { getSnapshot: () => ({ sessionId: 'session-a' }) }
+          : name === 'locale' ? { bind: () => () => 'Download' } : undefined,
+      effect: (effect: () => (() => void) | void) => { cleanup = effect() ?? undefined },
+    } as never)
+    expect(document.querySelectorAll('a[data-dsh-universal-download]')).toHaveLength(1)
+    expect(document.querySelector('input[title="/unrelated/file.md"]')?.parentElement?.querySelector('a')).toBeNull()
+    cleanup?.()
+  })
+
+  it('tracks the pinned better-sidebar editor DOM hooks', () => {
+    const source = (file: string): string => readFileSync(
+      resolve(process.cwd(), 'node_modules/dsh-better-sidebar/src/client', file),
+      'utf8',
+    )
+    const editor = source('EditorHost.tsx')
+    const sidebar = source('Sidebar.tsx')
+    const entry = source('index.tsx')
+    expect(editor).toContain('className={css.editorPathInput}')
+    expect(sidebar).toContain('<div data-dsh-panel-host')
+    expect(entry).toContain("host.setAttribute('data-dsh-better-sidebar', '')")
   })
 })

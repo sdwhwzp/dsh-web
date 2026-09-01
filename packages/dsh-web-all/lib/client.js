@@ -11,6 +11,112 @@ window.__ModuleLoader__.load({
 			["[class*=\"centerCol\"]", "data-pane=\"conversation\""],
 			["[class*=\"detailsCol\"]", "data-pane=\"details\""]
 		];
+		const DOWNLOAD_MARKER = "data-dsh-universal-download";
+		const BETTER_SIDEBAR_HOST_SELECTOR = "[data-dsh-better-sidebar] [data-dsh-panel-host]";
+		const EDITOR_PATH_INPUT_SELECTOR = "input[class*=\"editorPathInput\"][title]";
+		const EDITOR_PATH_SELECTOR = `${BETTER_SIDEBAR_HOST_SELECTOR} ${EDITOR_PATH_INPUT_SELECTOR}`;
+		function serviceOf(ctx, name) {
+			const get = ctx.get;
+			if (typeof get !== "function") return void 0;
+			return get.call(ctx, name);
+		}
+		function sessionsOf(ctx) {
+			return serviceOf(ctx, "sessions");
+		}
+		function fileDownloadHref(ctx, sessions, path) {
+			const snapshot = sessions.list.getSnapshot();
+			const sessionId = serviceOf(ctx, "betterSidebar")?.getSnapshot().sessionId;
+			if (sessionId === void 0) return void 0;
+			const summary = snapshot.byId[sessionId];
+			if (summary === void 0) return void 0;
+			const params = new URLSearchParams({
+				sessionId,
+				path
+			});
+			const cwd = summary.cwd;
+			if (cwd !== void 0 && cwd !== "") params.set("cwd", cwd);
+			params.set("download", "1");
+			return `/sidebar/file?${params.toString()}`;
+		}
+		function updateDownloadAction(ctx, input, anchor) {
+			const locale = serviceOf(ctx, "locale");
+			let label;
+			try {
+				label = locale?.bind("betterSidebar")("download").trim();
+			} catch {
+				label = void 0;
+			}
+			if (label === void 0 || label === "") {
+				anchor.removeAttribute("href");
+				anchor.remove();
+				return;
+			}
+			anchor.setAttribute("aria-label", label);
+			anchor.title = label;
+			const sessions = sessionsOf(ctx);
+			const path = input.title.trim();
+			const href = sessions === void 0 || path === "" ? void 0 : fileDownloadHref(ctx, sessions, path);
+			if (href === void 0) {
+				anchor.removeAttribute("href");
+				anchor.remove();
+			} else anchor.href = href;
+		}
+		function downloadIcon() {
+			const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+			svg.setAttribute("viewBox", "0 0 16 16");
+			svg.setAttribute("width", "14");
+			svg.setAttribute("height", "14");
+			svg.setAttribute("aria-hidden", "true");
+			const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+			path.setAttribute("fill", "currentColor");
+			path.setAttribute("d", "M7.25 1.5h1.5v7.19l2.47-2.47 1.06 1.06L8 11.56 3.72 7.28l1.06-1.06 2.47 2.47V1.5ZM2 13h12v1.5H2V13Z");
+			svg.appendChild(path);
+			return svg;
+		}
+		function isNativeDownloadAction(anchor) {
+			const href = anchor.getAttribute("href");
+			if (href === null) return false;
+			try {
+				const url = new URL(href, window.location.href);
+				return url.origin === window.location.origin && url.pathname === "/sidebar/file";
+			} catch {
+				return false;
+			}
+		}
+		function syncUniversalDownloadActions(ctx) {
+			for (const anchor of document.querySelectorAll(`a[${DOWNLOAD_MARKER}]`)) if (anchor.parentElement?.querySelector(EDITOR_PATH_INPUT_SELECTOR) == null) anchor.remove();
+			for (const input of document.querySelectorAll(EDITOR_PATH_SELECTOR)) {
+				const header = input.parentElement;
+				if (header === null) continue;
+				const custom = header.querySelector(`a[${DOWNLOAD_MARKER}]`);
+				if ([...header.querySelectorAll("a[download]")].find((anchor) => !anchor.hasAttribute(DOWNLOAD_MARKER) && isNativeDownloadAction(anchor)) !== void 0) {
+					custom?.remove();
+					continue;
+				}
+				let anchor = custom;
+				if (anchor === null) {
+					anchor = document.createElement("a");
+					anchor.setAttribute(DOWNLOAD_MARKER, "");
+					anchor.setAttribute("download", "");
+					const styleSource = header.querySelector("button[class*=\"iconButton\"]");
+					if (styleSource !== null) anchor.className = styleSource.className;
+					anchor.appendChild(downloadIcon());
+					const controls = header.querySelectorAll("button[class*=\"iconButton\"]");
+					const tail = controls.item(controls.length - 1);
+					header.insertBefore(anchor, tail);
+					const refresh = (event) => {
+						const currentInput = anchor?.parentElement?.querySelector(EDITOR_PATH_INPUT_SELECTOR);
+						if (currentInput === void 0 || currentInput === null) anchor?.removeAttribute("href");
+						else updateDownloadAction(ctx, currentInput, anchor);
+						if (!anchor?.hasAttribute("href") && event.type === "click") event.preventDefault();
+					};
+					anchor.addEventListener("pointerdown", refresh);
+					anchor.addEventListener("contextmenu", refresh);
+					anchor.addEventListener("click", refresh);
+				}
+				updateDownloadAction(ctx, input, anchor);
+			}
+		}
 		/** Stable hooks consumed by the responsive compat layer (never text/hash selectors). */
 		const RESPONSIVE_CSS = `
 [data-dsh-frame] { min-height: 0; }
@@ -381,8 +487,12 @@ window.__ModuleLoader__.load({
 					removeMobileDismiss = installMobileSidebarDismiss(frame);
 					dismissFrame = frame;
 				};
-				ensureMobileDismiss();
-				shimAfterPass = ensureMobileDismiss;
+				const ensureCompatActions = () => {
+					ensureMobileDismiss();
+					syncUniversalDownloadActions(ctx);
+				};
+				ensureCompatActions();
+				shimAfterPass = ensureCompatActions;
 				const observer = new MutationObserver(() => {
 					schedulePass();
 					ensureMobileDismiss();
@@ -396,6 +506,7 @@ window.__ModuleLoader__.load({
 					bootShield.remove();
 					responsiveStyle.remove();
 					removeMobileDismiss();
+					document.querySelectorAll(`a[${DOWNLOAD_MARKER}]`).forEach((anchor) => anchor.remove());
 					shimAfterPass = void 0;
 					shimScheduled = false;
 				};

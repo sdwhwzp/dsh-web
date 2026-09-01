@@ -1480,6 +1480,9 @@ importers:
       '@deepseek-ai/dsh-attachment':
         specifier: ^0.1.2-alpha.3
         version: 0.1.2-alpha.3(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-brand@0.1.2-alpha.3(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.3(@deepseek-ai/cordis@4.0.2)))(@deepseek-ai/dsh-invariants@0.1.2-alpha.3(@deepseek-ai/cordis@4.0.2))
+      '@deepseek-ai/dsh-client-locale':
+        specifier: ^0.1.2-alpha.3
+        version: 0.1.2-alpha.3(@deepseek-ai/cordis@4.0.2)
       '@deepseek-ai/dsh-host-webserver':
         specifier: ^0.1.2-alpha.3
         version: 0.1.2-alpha.3(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.3(@deepseek-ai/cordis@4.0.2))
