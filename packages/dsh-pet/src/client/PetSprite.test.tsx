@@ -1139,4 +1139,3 @@ describe('PetSprite portal target', () => {
     expect(document.body.querySelector('[role="button"]')).not.toBeNull()
   })
 })
-

@@ -63,7 +63,7 @@ Then rebuild the web client and restart the DSH host.
 -    this.store.update((s) => { s.status = 'ready'; s.error = null })
 -    this.syncInputs()
    }
- 
+
    /**
 --- a/packages/client/ui-model-selection/src/client/ModelSelect.tsx
 +++ b/packages/client/ui-model-selection/src/client/ModelSelect.tsx
@@ -74,7 +74,7 @@ Then rebuild the web client and restart the DSH host.
 -    void select(selection).then(settleSelection)
 +    void select(selection).then(settleSelection).catch(() => settleSelection(false))
    }
- 
+
    const chooseEffort = (effort: string | undefined): void => {
 @@ -189,7 +189,7 @@
        ...effort === undefined ? {} : { reasoningEffort: effort },
@@ -83,5 +83,5 @@ Then rebuild the web client and restart the DSH host.
 -    void select(selection).then(settleSelection)
 +    void select(selection).then(settleSelection).catch(() => settleSelection(false))
    }
- 
+
    const waiting = state.current === null && state.status === 'loading'
