@@ -98,6 +98,47 @@ describe('physical delete', () => {
     expect(service.ledgerSnapshot().entries['session-del']).toBeUndefined()
   })
 
+  it('waits for projection-cache cleanup before completing deletion', async () => {
+    const host = createFakeHost({
+      feedItems: [{ sessionId: 'session-del', updatedAt: 10 }],
+      persistedIds: ['session-del'],
+    })
+    writeSessionDir(host, 'session-del')
+    const service = await settledService(host)
+    const internals = service as unknown as {
+      scrubProjcache(ids: ReadonlySet<string>, nativeIds?: Record<string, string>): Promise<void>
+      flushLedger(): Promise<void>
+    }
+    const originalScrub = internals.scrubProjcache.bind(service)
+    let releaseScrub!: () => void
+    const scrubGate = new Promise<void>((resolve) => {
+      releaseScrub = resolve
+    })
+    let markScrubStarted!: () => void
+    const scrubStarted = new Promise<void>((resolve) => {
+      markScrubStarted = resolve
+    })
+    internals.scrubProjcache = async (ids, nativeIds) => {
+      markScrubStarted()
+      await scrubGate
+      await originalScrub(ids, nativeIds)
+    }
+    internals.flushLedger = async () => {}
+
+    let settled = false
+    const deletion = service.deleteSessions(['session-del']).then((result) => {
+      settled = true
+      return result
+    })
+    await scrubStarted
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(settled).toBe(false)
+
+    releaseScrub()
+    await deletion
+    expect(settled).toBe(true)
+  })
+
   it('deletes the whole family when the parent is targeted, cascading to sub-sessions', async () => {
     const host = createFakeHost({
       feedItems: [

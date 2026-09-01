@@ -459,7 +459,7 @@ export class ArchiveService {
     }
 
     // 4. Projection cache (index entry + per-session file), both spellings.
-    this.scrubProjcache(deleted, built.nativeIds)
+    await this.scrubProjcache(deleted, built.nativeIds)
 
     // 5. Archive ledger, both spellings.
     for (const id of deleted) {
@@ -480,8 +480,8 @@ export class ArchiveService {
     return { results: [...plan.skipped, ...targets.map((id): OpResult => results.get(id) ?? { id, status: 'failed', reason: 'error' })], freedBytes }
   }
 
-  /** Best-effort projection-cache scrub; a stale cache entry is cosmetic. */
-  private scrubProjcache(ids: ReadonlySet<string>, nativeIds: Record<string, string> = {}): void {
+  /** Wait for the aggregate index rewrite; individual cache failures remain best-effort. */
+  private async scrubProjcache(ids: ReadonlySet<string>, nativeIds: Record<string, string> = {}): Promise<void> {
     const indexPath = join(this.dshHome, 'storages', 'session_projcache.json')
     try {
       if (existsSync(indexPath)) {
@@ -493,7 +493,7 @@ export class ArchiveService {
             const native = nativeIds[id]
             if (native !== undefined && native !== id) delete sessions[native]
           }
-          void writeJsonAtomic(indexPath, parsed)
+          await writeJsonAtomic(indexPath, parsed)
         }
       }
     } catch {
