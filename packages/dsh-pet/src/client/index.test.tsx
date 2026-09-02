@@ -55,9 +55,9 @@ beforeAll(() => {
   document.documentElement.lang = 'zh'
 })
 
-beforeEach(() => {
+function accountSettings(enabled: boolean): Response {
   const value = {
-    enabled: true,
+    enabled,
     decorationEnabled: true,
     visible: true,
     size: 160,
@@ -65,16 +65,20 @@ beforeEach(() => {
     bottom: 20,
     petId: 'whale-girl',
   }
-  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
-    value,
-    base: value,
-    user: { enabled: true },
-    revision: 0,
-    writable: true,
-  }), {
-    status: 200,
+  return new Response(JSON.stringify({ value, base: value, user: {}, revision: 0, writable: true }), {
     headers: { 'content-type': 'application/json' },
-  })))
+  })
+}
+
+function stubAccountSettings(enabled: boolean): void {
+  vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+    if (String(input) === '/api/pet/settings') return accountSettings(enabled)
+    throw new Error('pet runtime fetch is outside this lifecycle test')
+  }))
+}
+
+beforeEach(() => {
+  stubAccountSettings(true)
 })
 
 /** A client root context with observable fiber disposal. */
@@ -146,10 +150,21 @@ function fakeContext(): FakeClientLifecycle {
 }
 
 describe('pet client apply', () => {
-  it('mounts the pet root container with the L2 data-dsh-plugin attribute (#506)', async () => {
+  it('waits for account settings before mounting an explicitly enabled pet', async () => {
     apply(fakeContext().ctx)
+    expect(document.body.querySelector('[data-dsh-pet-root]')).toBeNull()
     const root = await waitForPetRoot()
     expect(root.getAttribute('data-dsh-plugin')).toBe('pet')
+  })
+
+  it('leaves a disabled account unmounted after its settings resolve', async () => {
+    stubAccountSettings(false)
+    apply(fakeContext().ctx)
+
+    await new Promise<void>((resolve) => { window.setTimeout(resolve, 0) })
+
+    expect(fetch).toHaveBeenCalledWith('/api/pet/settings', undefined)
+    expect(document.body.querySelector('[data-dsh-pet-root]')).toBeNull()
   })
 
   it('keeps one global pet root when two client factories overlap (#785)', async () => {
