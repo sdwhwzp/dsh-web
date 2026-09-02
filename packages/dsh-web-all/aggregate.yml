@@ -63,12 +63,10 @@ deps:
 # 行排在 patchFrom 之后：web-ui-settings 行在前，家族设置组先于 better-sidebar
 # 应用。旧 aionui-panel 已彻底移除（2026-08-28），右侧面板固定由
 # dsh-better-sidebar 提供，无需行级 config patch。
-# @mlgbnb/dsh-archive-manager 不在清单中；会话归档由内置 dsh-session-archive
-# 提供，聚合包不挂载直接读取持久化文件的外部管理器。
-# @morlay/better-session 提供分支式会话编辑（就地 edit / retry / reroll /
-# rewind，fork 派生新会话）。该包是 profile bundle，生成器把它的 patch 展开
-# 成可导入子包行并保留 bundle 自身的 jsonl patch。"inactive": true 让生成器
-# 在展开产物之后统一追加 disabled 覆盖行，持久层默认保持官方 jsonl 后端。
+# 2026-08-30 曾因 alpha.2 移除 `@deepseek-ai/dsh-client-runtime` 面把本行
+# 与 dsh-archive-manager 一并排除（见协调升级 note）；better-sidebar 于
+# 2026-08-31 以 0.18.0-alpha.0（peer 对齐 alpha.2、inject 改用
+# dsh-client-modules）回归。@mlgbnb/dsh-archive-manager 仍排除：其 latest
+# 1.0.7 仍 import 已移除面，上游发布 alpha.2 兼容版后按同法恢复。
 rows:
   - {"id": "better-sidebar", "name": "dsh-better-sidebar"}
-  - {"id": "better-session", "name": "@morlay/better-session", "inactive": true}
