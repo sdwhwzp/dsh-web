@@ -45,6 +45,16 @@ function isInvocationUnavailable(error: unknown): boolean {
   return code === 'invocation-unavailable' || code === 'gateway/invocation-unavailable'
 }
 
+/**
+ * Whether deployment authorization refused an anonymous background read.
+ * A deployment that registers a principalAccess provider denies every call
+ * without a transport-verified principal, so this poller can never satisfy
+ * it and must stop asking instead of retrying.
+ */
+function isPrincipalRequired(error: unknown): boolean {
+  return (error as { code?: unknown }).code === 'PRINCIPAL_ACCESS_DENIED'
+}
+
 const SERVICE_UNAVAILABLE_ATTEMPTS = 5
 const SERVICE_UNAVAILABLE_BACKOFF_MS = 2_000
 
@@ -151,6 +161,7 @@ export class HostExecutionRunner {
   private readonly unavailableAttempts: number
   private readonly unavailableBackoffMs: number
   private unsupportedSessionListWarned = false
+  private principalRequiredWarned = false
 
   constructor(
     private readonly gateway: SessionGateway | TypertGateway,
@@ -227,6 +238,13 @@ export class HostExecutionRunner {
           }
           return { known: false }
         }
+        if (isPrincipalRequired(error)) {
+          if (!this.principalRequiredWarned) {
+            this.principalRequiredWarned = true
+            console.warn('[dsh-task-board] deployment authorization requires an authenticated principal; roster auto-discovery is disabled for this background poller')
+          }
+          return { known: false }
+        }
         if (!isServiceUnavailable(error) || attempt >= this.unavailableAttempts) {
           console.error('[dsh-task-board] session/list failed; treating the host session roster as unknown', error)
           return { known: false }
@@ -250,6 +268,13 @@ export class HostExecutionRunner {
           if (!this.unsupportedSessionListWarned) {
             this.unsupportedSessionListWarned = true
             console.warn('[dsh-task-board] DSH runtime session endpoint unavailable (requires DSH >= 0.1.2-alpha.2); task board roster auto-discovery is disabled', error)
+          }
+          return { outcome: 'pending' }
+        }
+        if (isPrincipalRequired(error)) {
+          if (!this.principalRequiredWarned) {
+            this.principalRequiredWarned = true
+            console.warn('[dsh-task-board] deployment authorization requires an authenticated principal; execution inspection stays pending')
           }
           return { outcome: 'pending' }
         }
