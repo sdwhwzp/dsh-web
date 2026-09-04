@@ -14395,7 +14395,7 @@ window.__ModuleLoader__.load({
 		* @param props - copy, state, and actions.
 		* @returns the panel element tree.
 		*/
-		function RemotePanel({ t, state, copied, onClose, onStop, onRefresh, onCopy, onPickAddress, onPickPublic, onRevoke }) {
+		function RemotePanel({ t, state, copied, copiedToken, onClose, onStop, onRefresh, onCopy, onCopyToken, onPickAddress, onPickPublic, onRevoke }) {
 			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 				className: remote_module_css_default.panel,
 				role: "dialog",
@@ -14504,9 +14504,9 @@ window.__ModuleLoader__.load({
 						className: remote_module_css_default.hint,
 						children: state.public ? t("pair.publicHint") : t("pair.hint")
 					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 						className: remote_module_css_default.pairLinks,
-						children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 							className: remote_module_css_default.pairLinkRow,
 							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 								className: remote_module_css_default.pairLinkText,
@@ -14524,11 +14524,33 @@ window.__ModuleLoader__.load({
 								onClick: () => onCopy(state.url),
 								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCopyOutline16, { size: 14 }), copied ? t("action.copied") : t("action.copyLink")]
 							})]
-						})
+						}), state.token !== void 0 && state.token !== "" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: remote_module_css_default.pairLinkRow,
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: remote_module_css_default.pairLinkText,
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: remote_module_css_default.pairLinkLabel,
+									children: t("pair.tokenLabel")
+								}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("code", {
+									className: remote_module_css_default.link,
+									title: state.token,
+									children: state.token
+								})]
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+								type: "button",
+								className: remote_module_css_default.copyLink,
+								onClick: () => onCopyToken ? onCopyToken(state.token) : onCopy(state.token),
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCopyOutline16, { size: 14 }), copiedToken ? t("action.copiedToken") : t("action.copyToken")]
+							})]
+						})]
 					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("p", {
 						className: remote_module_css_default.oneTimeHint,
-						children: t("pair.oneTimeHint")
+						children: [
+							t("pair.oneTimeHint"),
+							" ",
+							t("pair.dockerHint")
+						]
 					}),
 					state.phase === "stopped" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
 						className: remote_module_css_default.stoppedHint,
@@ -15187,6 +15209,7 @@ window.__ModuleLoader__.load({
 				stateRef.current = state;
 			}, [state]);
 			const [copied, setCopied] = (0, react.useState)(false);
+			const [copiedToken, setCopiedToken] = (0, react.useState)(false);
 			const eventSource = (0, react.useRef)(void 0);
 			const openSeq = (0, react.useRef)(0);
 			const closeEventSource = (0, react.useCallback)(() => {
@@ -15209,6 +15232,7 @@ window.__ModuleLoader__.load({
 				return {
 					kind: "ready",
 					url: result.url,
+					token: result.token,
 					expiresAt: result.expiresAt,
 					expired: Date.now() > result.expiresAt,
 					phase: "waiting",
@@ -15305,6 +15329,15 @@ window.__ModuleLoader__.load({
 					}, 1500);
 				});
 			}, []);
+			const handleCopyToken = (0, react.useCallback)((token) => {
+				copyText$1(token).then((ok) => {
+					if (!ok) return;
+					setCopiedToken(true);
+					window.setTimeout(() => {
+						setCopiedToken(false);
+					}, 1500);
+				});
+			}, []);
 			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 				className: remote_module_css_default.entryRow,
 				"data-rail": wide ? void 0 : "rail",
@@ -15328,10 +15361,12 @@ window.__ModuleLoader__.load({
 					t,
 					state,
 					copied,
+					copiedToken,
 					onClose: closePanel,
 					onStop: handleStop,
 					onRefresh: handleRefresh,
 					onCopy: handleCopy,
+					onCopyToken: handleCopyToken,
 					onPickAddress: handlePickAddress,
 					onPickPublic: handlePickPublic,
 					onRevoke: handleRevoke
@@ -16515,6 +16550,8 @@ window.__ModuleLoader__.load({
 			"pair.expires": "二维码有效至 {time}",
 			"pair.expired": "二维码已过期，请刷新",
 			"pair.linkLabel": "配对链接",
+			"pair.tokenLabel": "配对令牌",
+			"pair.dockerHint": "Docker 或反向代理环境下，可直接复制此令牌并在目标设备配对页面输入。",
 			"pair.oneTimeHint": "链接含一次性令牌；任一设备配对成功后立即失效，配对下一台设备请刷新二维码。",
 			"pair.failed.title": "配对失败",
 			"pair.failed.detail": "链接无效或已使用，请回到电脑端刷新二维码后重新扫码。",
@@ -16538,7 +16575,9 @@ window.__ModuleLoader__.load({
 			"action.refresh": "刷新二维码",
 			"action.copy": "复制链接",
 			"action.copyLink": "复制链接",
+			"action.copyToken": "复制令牌",
 			"action.copied": "已复制",
+			"action.copiedToken": "已复制令牌",
 			"devices.title": "已授权设备",
 			"devices.empty": "还没有已配对的设备。扫码或打开链接后会出现在这里。",
 			"devices.unknown": "未知设备",
@@ -16676,6 +16715,8 @@ window.__ModuleLoader__.load({
 			"pair.expires": "QR code valid until {time}",
 			"pair.expired": "QR code expired — refresh it",
 			"pair.linkLabel": "Pairing link",
+			"pair.tokenLabel": "Pairing token",
+			"pair.dockerHint": "In Docker or reverse proxy environments, copy this token to pair directly on the target device.",
 			"pair.oneTimeHint": "The link carries one single-use token; it dies as soon as any device pairs. Refresh the QR to pair the next device.",
 			"pair.failed.title": "Pairing failed",
 			"pair.failed.detail": "The link is invalid or was already used. Refresh the QR code on your computer and scan again.",
@@ -16699,7 +16740,9 @@ window.__ModuleLoader__.load({
 			"action.refresh": "Refresh QR",
 			"action.copy": "Copy link",
 			"action.copyLink": "Copy link",
+			"action.copyToken": "Copy token",
 			"action.copied": "Copied",
+			"action.copiedToken": "Token copied",
 			"devices.title": "Authorized devices",
 			"devices.empty": "No paired devices yet. Scan the QR or open the link to add one.",
 			"devices.unknown": "Unknown device",
