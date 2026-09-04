@@ -15,6 +15,7 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { createHash } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AffinityConfig, PetAffinityView, PetInteraction } from './affinity.ts'
 import type { TreatConfig } from './treats.ts'
@@ -364,13 +365,15 @@ export class PetService extends Service {
     return { key, dir: join(this.persistDir, 'pet-accounts', digest) }
   }
 
-  /** Resolve or lazily load one account companion; direct Host access keeps the legacy root file. */
+  /** Resolve one account companion; a new principal starts disabled and direct Host access keeps the legacy root file. */
   private account(scope?: PetAccountScope): PetAccountState {
     if (scope === undefined) return this.localAccount
     const identity = this.accountIdentity(scope)
     const cached = this.accounts.get(identity.key)
     if (cached !== undefined) return cached
-    let persist = loadPetPersist(identity.dir)
+    let persist = existsSync(join(identity.dir, 'pet.json'))
+      ? loadPetPersist(identity.dir)
+      : { ...emptyPersist(), enabled: false }
     if (this.registry.byId(persist.petId) === undefined) {
       persist = { ...persist, petId: this.registry.defaultEntry().id }
     }
@@ -389,7 +392,7 @@ export class PetService extends Service {
     if (scope === undefined) return { ...this.localSettingsBase }
     const defaults = emptyPersist()
     return {
-      enabled: defaults.enabled,
+      enabled: false,
       decorationEnabled: defaults.decorationEnabled,
       visible: defaults.display.visible,
       size: defaults.display.size,

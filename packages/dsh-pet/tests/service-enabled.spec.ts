@@ -1344,6 +1344,7 @@ describe('account-scoped pet persistence', () => {
     const dir = tempDir()
     const alice = { source: 'dsh-passwords', id: '2' }
     const bob = { source: 'dsh-passwords', id: '3' }
+    const carol = { source: 'dsh-passwords', id: '4' }
     try {
       const service = new PetService(new Context(), { persistDir: dir, registry: fixtureRegistry() })
       await service.setPetId('otter', alice)
@@ -1357,6 +1358,9 @@ describe('account-scoped pet persistence', () => {
       expect(() => service.mutateAccountSettings([
         { op: 'set', path: ['visible'], value: false },
       ], 2, alice)).toThrow('settings-conflict')
+      service.mutateAccountSettings([
+        { op: 'set', path: ['enabled'], value: true },
+      ], 0, bob)
 
       const aliceView = await service.state(alice)
       expect(aliceView).toMatchObject({
@@ -1388,6 +1392,7 @@ describe('account-scoped pet persistence', () => {
       })
       expect(reloaded.accountSettings(alice).value.enabled).toBe(false)
       expect(reloaded.accountSettings(bob).value.enabled).toBe(true)
+      expect(reloaded.accountSettings(carol).value.enabled).toBe(false)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

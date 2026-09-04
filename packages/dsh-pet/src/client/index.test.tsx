@@ -8,7 +8,7 @@
  * or container behind, so the page always holds
  * exactly one [data-dsh-pet-root].
  */
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 // The npm SDK's client half is a closure-factory bundle for the GUI's
 // __ModuleLoader__ (not importable under vitest); provide defineStore /
 // createSnapshotStore (same fake-store pattern as the settings-card tests).
@@ -55,6 +55,32 @@ beforeAll(() => {
   document.documentElement.lang = 'zh'
 })
 
+function accountSettings(enabled: boolean): Response {
+  const value = {
+    enabled,
+    decorationEnabled: true,
+    visible: true,
+    size: 160,
+    right: 24,
+    bottom: 20,
+    petId: 'whale-girl',
+  }
+  return new Response(JSON.stringify({ value, base: value, user: {}, revision: 0, writable: true }), {
+    headers: { 'content-type': 'application/json' },
+  })
+}
+
+function stubAccountSettings(enabled: boolean): void {
+  vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+    if (String(input) === '/api/pet/settings') return accountSettings(enabled)
+    throw new Error('pet runtime fetch is outside this lifecycle test')
+  }))
+}
+
+beforeEach(() => {
+  stubAccountSettings(true)
+})
+
 /** A client root context with observable fiber disposal. */
 interface FakeClientLifecycle {
   ctx: ClientContext
@@ -66,7 +92,15 @@ const activeLifecycles: FakeClientLifecycle[] = []
 afterEach(() => {
   for (const lifecycle of activeLifecycles.splice(0).reverse()) lifecycle.dispose()
   document.body.replaceChildren()
+  vi.unstubAllGlobals()
 })
+
+async function waitForRoot(): Promise<Element> {
+  await vi.waitFor(() => {
+    expect(document.body.querySelector('[data-dsh-pet-root]')).not.toBeNull()
+  })
+  return document.body.querySelector('[data-dsh-pet-root]')!
+}
 
 function fakeContext(): FakeClientLifecycle {
   const disposers: (() => void)[] = []
@@ -116,22 +150,34 @@ function fakeContext(): FakeClientLifecycle {
 }
 
 describe('pet client apply', () => {
-  it('mounts the pet root container with the L2 data-dsh-plugin attribute (#506)', () => {
+  it('waits for account settings before mounting an explicitly enabled pet', async () => {
     apply(fakeContext().ctx)
-    const root = document.body.querySelector('[data-dsh-pet-root]')
-    expect(root).not.toBeNull()
-    expect(root!.getAttribute('data-dsh-plugin')).toBe('pet')
+    expect(document.body.querySelector('[data-dsh-pet-root]')).toBeNull()
+    const root = await waitForRoot()
+    expect(root.getAttribute('data-dsh-plugin')).toBe('pet')
   })
 
-  it('keeps one global pet root when two client factories overlap (#785)', () => {
+  it('leaves a new account unmounted when its resolved default is disabled', async () => {
+    stubAccountSettings(false)
+    apply(fakeContext().ctx)
+    await vi.waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith('/api/pet/settings', undefined)
+    })
+    expect(document.body.querySelector('[data-dsh-pet-root]')).toBeNull()
+  })
+
+  it('keeps one global pet root when two client factories overlap (#785)', async () => {
     const first = fakeContext()
     apply(first.ctx)
-    const firstContainer = document.body.querySelector('[data-dsh-pet-root]')
-    expect(firstContainer).not.toBeNull()
+    const firstContainer = await waitForRoot()
 
     // A rebuilt bundle re-applies while the first fiber is still draining.
     const second = fakeContext()
     apply(second.ctx)
+
+    await vi.waitFor(() => {
+      expect(document.body.querySelector('[data-dsh-pet-root]')).not.toBe(firstContainer)
+    })
 
     const roots = document.body.querySelectorAll('[data-dsh-pet-root]')
     expect(roots).toHaveLength(1)
@@ -143,27 +189,28 @@ describe('pet client apply', () => {
     expect(document.body.querySelectorAll('[data-dsh-pet-root]')).toHaveLength(1)
   })
 
-  it('tears down root and container on fiber disposal (#785)', () => {
+  it('tears down root and container on fiber disposal (#785)', async () => {
     const lifecycle = fakeContext()
     apply(lifecycle.ctx)
-    expect(document.body.querySelectorAll('[data-dsh-pet-root]')).toHaveLength(1)
+    await waitForRoot()
     lifecycle.dispose()
 
     expect(document.body.querySelectorAll('[data-dsh-pet-root]')).toHaveLength(0)
   })
 
-  it('re-applies cleanly after disposal so a hot reload keeps one pet (#785)', () => {
+  it('re-applies cleanly after disposal so a hot reload keeps one pet (#785)', async () => {
     const first = fakeContext()
     apply(first.ctx)
+    await waitForRoot()
     first.dispose()
     expect(document.body.querySelectorAll('[data-dsh-pet-root]')).toHaveLength(0)
 
     const second = fakeContext()
     apply(second.ctx)
-    expect(document.body.querySelectorAll('[data-dsh-pet-root]')).toHaveLength(1)
+    await waitForRoot()
   })
 
-  it('sweeps stale containers left behind by instances without a teardown slot (#785)', () => {
+  it('sweeps stale containers left behind by instances without a teardown slot (#785)', async () => {
     // A container from a bundle build that predates the teardown registry:
     // nothing registered a teardown, so only the mount-path sweep can clear it.
     const stale = document.createElement('div')
@@ -171,6 +218,10 @@ describe('pet client apply', () => {
     document.body.appendChild(stale)
 
     apply(fakeContext().ctx)
+
+    await vi.waitFor(() => {
+      expect(stale.isConnected).toBe(false)
+    })
 
     const roots = document.body.querySelectorAll('[data-dsh-pet-root]')
     expect(roots).toHaveLength(1)
