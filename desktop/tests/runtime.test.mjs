@@ -236,5 +236,3 @@ test('checkVcRuntime detects presence or absence of vcruntime140.dll', () => {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
 });
-
-
