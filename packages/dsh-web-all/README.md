@@ -17,6 +17,8 @@ The one-click aggregate package for the whole dsh web UI family: installing it b
 
 ## Install
 
+Requires Harness `>=0.1.3-alpha.1`, including the Host streaming API used by the bundled [Pet](../dsh-pet/README.md).
+
 ### From npm (recommended)
 
 **DSH Web CLI (Browser)**:

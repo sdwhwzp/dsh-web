@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { SessionSeq } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, TurnEndReason } from '@deepseek-ai/dsh-session'
+import type { Agent, AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
 import { loadPetPersist } from '../src/persist.ts'
 import { PetService } from '../src/service.ts'
 import { WHISPER_CATEGORY_POOLS, WHISPER_RESULT_POOLS } from '../src/chatter.ts'
@@ -50,7 +51,7 @@ declare module '@deepseek-ai/dsh-session' {
   }
 }
 
-type AssistantChunk = SessionEvent<'assistant/chunk'>['data']['chunk']
+type AssistantChunk = Extract<AssistantStreamFrame, { type: 'chunk' }>['chunk']
 type AssistantMessage = SessionEvent<'assistant/message'>['data']['message']
 type ToolCallId = SessionEvent<'tool/call'>['data']['callId']
 type ToolResultMessage = SessionEvent<'tool/result'>['data']['message']
@@ -91,13 +92,26 @@ function stepStart(turn: number, step: number, seq: number): SessionEvent<'step/
   return { type: 'step/start', seq: SessionSeq(seq), time: seq, data: { turn, step } }
 }
 
-function assistantChunk(
+function emitAssistantFrame(ctx: Context, session: Session, frame: AssistantStreamFrame): void {
+  ctx.emit('agent/assistant-stream', { agent: { session } as Agent, frame })
+}
+
+function emitAssistantChunk(
+  ctx: Context,
+  session: Session,
   turn: number,
   step: number,
   chunk: AssistantChunk,
-  seq: number,
-): SessionEvent<'assistant/chunk'> {
-  return { type: 'assistant/chunk', seq: SessionSeq(seq), time: seq, data: { turn, step, chunk } }
+  index: number,
+): void {
+  emitAssistantFrame(ctx, session, {
+    type: 'chunk',
+    attemptId: `attempt-${turn}-${step}` as AssistantStreamFrame['attemptId'],
+    revision: step,
+    index: index - 1,
+    time: index,
+    chunk,
+  })
 }
 
 function assistantMessage(
@@ -112,7 +126,13 @@ function assistantMessage(
     source: { kind: 'model', provider: 'mock', model: 'mock' },
     content: [{ type: 'text', text }],
   }
-  return { type: 'assistant/message', seq: SessionSeq(seq), time: seq, data: { turn, step, message } }
+  return {
+    type: 'assistant/message', seq: SessionSeq(seq), time: seq,
+    data: {
+      turn, step, message,
+      stream: [{ type: 'text-chunks', time0: seq, index: 0, dt: [0], texts: [text] }],
+    },
+  }
 }
 
 function toolCall(
@@ -189,7 +209,7 @@ function tempDir(): string {
   return mkdtempSync(join(tmpdir(), 'dsh-pet-spec-'))
 }
 
-describe('PetService (rc.6 session events)', () => {
+describe('PetService host activity', () => {
   it('stops consuming session events while disabled and resumes on re-enable', async () => {
     const ctx = new Context()
     const dir = tempDir()
@@ -210,6 +230,42 @@ describe('PetService (rc.6 session events)', () => {
       expect(await service.state()).toMatchObject({ animation: 'idle', phase: 'idle', sessionActive: false })
       expect((await service.state()).affinity.turns).toBe(1)
     } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('ignores stream lifecycle frames and detaches live activity while disabled', async () => {
+    const ctx = new Context()
+    const dir = tempDir()
+    const session = makeSession('live')
+    const attemptId = 'attempt-1-1' as AssistantStreamFrame['attemptId']
+    try {
+      const service = new PetService(ctx, { persistDir: dir })
+      emitAssistantFrame(ctx, session, { type: 'start', attemptId, revision: 1, turn: 1, step: 1 })
+      expect((await service.state()).phase).toBe('idle')
+
+      emitAssistantChunk(ctx, session, 1, 1, { type: 'reasoning-delta', index: 0, text: 'thinking' }, 1)
+      expect((await service.state()).phase).toBe('thinking')
+      emitAssistantFrame(ctx, session, {
+        type: 'end', attemptId, revision: 1, index: 1, outcome: { kind: 'abandoned' },
+      })
+      expect((await service.state()).phase).toBe('thinking')
+      expect((await service.state()).affinity.turns).toBe(0)
+
+      service.setEnabled(false)
+      emitAssistantChunk(ctx, session, 1, 1, { type: 'text-delta', index: 0, text: 'hidden' }, 2)
+      expect((await service.state()).phase).toBe('idle')
+
+      service.setEnabled(true)
+      emitAssistantChunk(ctx, session, 1, 1, { type: 'text-delta', index: 0, text: 'writing' }, 3)
+      expect((await service.state()).phase).toBe('review')
+      expect((await service.state()).affinity.turns).toBe(0)
+
+      await ctx.fiber.dispose()
+      emitAssistantChunk(ctx, session, 1, 1, { type: 'reasoning-delta', index: 0, text: 'disposed' }, 4)
+      expect((await service.state()).phase).toBe('review')
+    } finally {
+      await ctx.fiber.dispose()
       rmSync(dir, { recursive: true, force: true })
     }
   })
@@ -240,44 +296,64 @@ describe('PetService (rc.6 session events)', () => {
     }
   })
 
-  it('projects the full official work sequence onto animations and bubbles', async () => {
+  it('projects live activity locally and rewards a committed turn once', async () => {
     const ctx = new Context()
     const dir = tempDir()
     const session = makeSession('s1')
+    const attemptId = 'attempt-1-1' as AssistantStreamFrame['attemptId']
+    const accounts = [{ source: 'test', id: 'alice' }, { source: 'test', id: 'bob' }]
     try {
       const service = new PetService(ctx, { persistDir: dir })
+      for (const scope of accounts) {
+        service.mutateAccountSettings([{ op: 'set', path: ['enabled'], value: true }], undefined, scope)
+      }
+      const expectAccountIdle = async () => {
+        for (const scope of accounts) {
+          expect(await service.state(scope)).toMatchObject({
+            phase: 'idle', sessionActive: false, sessions: [], affinity: { turns: 0 },
+          })
+        }
+      }
 
       ctx.emit('session/event', session, turnStart(1, 1))
       expect(await service.state()).toMatchObject({ animation: 'waiting', bubble: '准备开始' })
-
       ctx.emit('session/event', session, stepStart(1, 1, 2))
       expect(await service.state()).toMatchObject({ animation: 'waiting', bubble: '等待模型响应' })
-
-      ctx.emit('session/event', session, assistantChunk(1, 1, {
+      emitAssistantFrame(ctx, session, { type: 'start', attemptId, revision: 1, turn: 1, step: 1 })
+      emitAssistantChunk(ctx, session, 1, 1, {
         type: 'reasoning-delta', index: 0, text: '分析',
-      }, 3))
+      }, 1)
       expect(await service.state()).toMatchObject({ animation: 'running', bubble: '正在思考' })
+      await expectAccountIdle()
 
-      ctx.emit('session/event', session, assistantMessage(1, 1, '完整回复', 4))
+      emitAssistantChunk(ctx, session, 1, 1, {
+        type: 'text-delta', index: 1, text: '完整回复',
+      }, 2)
       expect(await service.state()).toMatchObject({ animation: 'review', bubble: '整理回复中' })
-
-      ctx.emit('session/event', session, assistantChunk(1, 1, {
-        type: 'text-delta', index: 0, text: '回答',
-      }, 5))
-      expect(await service.state()).toMatchObject({ animation: 'review', bubble: '整理回复中' })
-
-      ctx.emit('session/event', session, toolCall(1, 1, 'call-1', 'shell', 6))
-      expect(await service.state()).toMatchObject({
-        animation: 'running-right',
-        bubble: '正在使用 shell',
+      await expectAccountIdle()
+      ctx.emit('session/event', session, assistantMessage(1, 1, '完整回复', 3))
+      emitAssistantFrame(ctx, session, {
+        type: 'end', attemptId, revision: 1, index: 2,
+        outcome: { kind: 'committed', eventType: 'assistant/message', seq: SessionSeq(3) },
       })
+      expect(await service.state()).toMatchObject({ phase: 'review', affinity: { turns: 0 } })
 
-      ctx.emit('session/event', session, toolResult(1, 1, 'call-1', 7))
+      ctx.emit('session/event', session, toolCall(1, 1, 'call-1', 'shell', 4))
+      expect(await service.state()).toMatchObject({
+        animation: 'running-right', bubble: '正在使用 shell',
+      })
+      ctx.emit('session/event', session, toolResult(1, 1, 'call-1', 5))
       expect(await service.state()).toMatchObject({ animation: 'running', bubble: '处理工具结果' })
-
-      ctx.emit('session/event', session, turnEnd(1, { kind: 'completed' }, 8))
-      expect(await service.state()).toMatchObject({ animation: 'jumping', bubble: '完成啦' })
+      const completed = turnEnd(1, { kind: 'completed' }, 6)
+      ctx.emit('session/event', session, completed)
+      expect(await service.state()).toMatchObject({
+        animation: 'jumping', bubble: '完成啦', affinity: { turns: 1 },
+      })
+      ctx.emit('session/event', session, completed)
+      expect((await service.state()).affinity.turns).toBe(1)
+      await expectAccountIdle()
     } finally {
+      await ctx.fiber.dispose()
       rmSync(dir, { recursive: true, force: true })
     }
   })
@@ -290,18 +366,18 @@ describe('PetService (rc.6 session events)', () => {
       const service = new PetService(ctx, { persistDir: dir })
       // The SITUATION wakes the whisper, not the words: a reasoning chunk
       // speaks the thinking category while the status bubble reports as usual.
-      ctx.emit('session/event', session, assistantChunk(1, 1, {
+      emitAssistantChunk(ctx, session, 1, 1, {
         type: 'reasoning-delta', index: 0, text: '这里有个错误要修',
-      }, 1))
+      }, 1)
       const view = await service.state()
       expect(view.bubble).toBe('正在思考')
       expect(view.sessions?.[0]?.whisper).toBe(WHISPER_CATEGORY_POOLS.thinking[0])
 
       // The cooldown keeps the next chunk quiet right after; the same
       // whisper keeps riding the session's bubble.
-      ctx.emit('session/event', session, assistantChunk(1, 1, {
+      emitAssistantChunk(ctx, session, 1, 1, {
         type: 'reasoning-delta', index: 0, text: '又一个错误',
-      }, 2))
+      }, 2)
       expect((await service.state()).sessions?.[0]?.whisper).toBe(WHISPER_CATEGORY_POOLS.thinking[0])
 
       // Past the TTL the whisper leaves the session's bubble.
@@ -322,16 +398,16 @@ describe('PetService (rc.6 session events)', () => {
     const session = makeSession('s1')
     try {
       const service = new PetService(ctx, { persistDir: dir })
-      ctx.emit('session/event', session, assistantChunk(1, 1, {
+      emitAssistantChunk(ctx, session, 1, 1, {
         type: 'text-delta', index: 0, text: '在整理回复',
-      }, 1))
+      }, 1)
       const view = await service.state()
       expect(view.bubble).toBe('整理回复中')
       expect(view.sessions?.[0]?.whisper).toBe(WHISPER_CATEGORY_POOLS.writing[0])
       // An empty chunk stays quiet and does not disturb the bubble.
-      ctx.emit('session/event', session, assistantChunk(1, 1, {
+      emitAssistantChunk(ctx, session, 1, 1, {
         type: 'text-delta', index: 0, text: '',
-      }, 2))
+      }, 2)
       expect((await service.state()).sessions?.[0]?.whisper).toBe(WHISPER_CATEGORY_POOLS.writing[0])
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -384,9 +460,9 @@ describe('PetService (rc.6 session events)', () => {
     try {
       const service = new PetService(ctx, { persistDir: dir })
 
-      ctx.emit('session/event', sessionA, assistantChunk(1, 1, {
+      emitAssistantChunk(ctx, sessionA, 1, 1, {
         type: 'reasoning-delta', index: 0, text: 'A',
-      }, 1))
+      }, 1)
       expect(await service.state()).toMatchObject({ animation: 'running', bubble: '正在思考' })
 
       ctx.emit('session/event', sessionB, toolCall(1, 1, 'call-b', 'search', 1))
@@ -395,18 +471,18 @@ describe('PetService (rc.6 session events)', () => {
         bubble: '正在使用 search',
       })
 
-      ctx.emit('session/event', sessionA, assistantChunk(1, 1, {
+      emitAssistantChunk(ctx, sessionA, 1, 1, {
         type: 'text-delta', index: 0, text: 'A',
-      }, 2))
+      }, 2)
       expect(await service.state()).toMatchObject({ animation: 'review', bubble: '整理回复中' })
 
       ctx.emit('session/event', sessionB, turnEnd(1, { kind: 'completed' }, 2))
       expect(await service.state()).toMatchObject({ animation: 'jumping', bubble: '完成啦' })
       expect((await service.state()).affinity.turns).toBe(1)
 
-      ctx.emit('session/event', sessionA, assistantChunk(1, 1, {
+      emitAssistantChunk(ctx, sessionA, 1, 1, {
         type: 'text-delta', index: 0, text: 'A2',
-      }, 3))
+      }, 3)
       ctx.emit('session/disposed', sessionB)
       expect(await service.state()).toMatchObject({
         animation: 'review',
@@ -431,9 +507,9 @@ describe('PetService (rc.6 session events)', () => {
     try {
       const service = new PetService(ctx, { persistDir: dir })
 
-      ctx.emit('session/event', sessionA, assistantChunk(1, 1, {
+      emitAssistantChunk(ctx, sessionA, 1, 1, {
         type: 'reasoning-delta', index: 0, text: 'A',
-      }, 1))
+      }, 1)
       ctx.emit('session/event', sessionB, toolCall(1, 1, 'call-b', 'search', 1))
 
       let view = await service.state()
@@ -450,9 +526,9 @@ describe('PetService (rc.6 session events)', () => {
       ])
 
       // A new event on A moves A to the top of the stack.
-      ctx.emit('session/event', sessionA, assistantChunk(1, 1, {
+      emitAssistantChunk(ctx, sessionA, 1, 1, {
         type: 'text-delta', index: 0, text: 'A',
-      }, 2))
+      }, 2)
       view = await service.state()
       expect(view.sessions?.map(session => session.sessionId)).toEqual(['s-a', 's-b'])
 
@@ -484,12 +560,12 @@ describe('PetService (rc.6 session events)', () => {
     try {
       const service = new PetService(ctx, { persistDir: dir })
 
-      ctx.emit('session/event', sessionA, assistantChunk(1, 1, {
+      emitAssistantChunk(ctx, sessionA, 1, 1, {
         type: 'reasoning-delta', index: 0, text: 'A',
-      }, 1))
-      ctx.emit('session/event', sessionB, assistantChunk(1, 1, {
+      }, 1)
+      emitAssistantChunk(ctx, sessionB, 1, 1, {
         type: 'reasoning-delta', index: 0, text: 'B',
-      }, 2))
+      }, 2)
 
       // B was the most recent event, so it leads without a current report.
       expect((await service.state()).sessions?.map(session => session.sessionId)).toEqual(['s-b', 's-a'])
@@ -512,9 +588,9 @@ describe('PetService (rc.6 session events)', () => {
       const service = new PetService(ctx, { persistDir: dir })
 
       ctx.emit('session/event', sessionA, toolCall(1, 1, 'call-a', 'search', 1))
-      ctx.emit('session/event', sessionB, assistantChunk(1, 1, {
+      emitAssistantChunk(ctx, sessionB, 1, 1, {
         type: 'reasoning-delta', index: 0, text: 'B',
-      }, 2))
+      }, 2)
 
       const view = await service.state('s-a')
       expect(view.sessions?.[0]).toMatchObject({ sessionId: 's-a', whisper: WHISPER_CATEGORY_POOLS.reading[0] })
@@ -596,9 +672,9 @@ describe('PetService (rc.6 session events)', () => {
     try {
       const service = new PetService(ctx, { persistDir: dir })
 
-      ctx.emit('session/event', sessionA, assistantChunk(1, 1, {
+      emitAssistantChunk(ctx, sessionA, 1, 1, {
         type: 'reasoning-delta', index: 0, text: 'A',
-      }, 1))
+      }, 1)
       ctx.emit('session/event', sessionB, toolCall(1, 1, 'call-b', 'search', 1))
       // The subagent's activity is the most recent meaningful event: the
       // sprite follows it, but it must not occupy its own bubble.
@@ -647,9 +723,9 @@ describe('PetService (rc.6 session events)', () => {
     const sessionB = makeSession('s-b')
     try {
       const service = new PetService(ctx, { persistDir: dir })
-      ctx.emit('session/event', sessionA, assistantChunk(1, 1, {
+      emitAssistantChunk(ctx, sessionA, 1, 1, {
         type: 'reasoning-delta', index: 0, text: 'A',
-      }, 1))
+      }, 1)
       ctx.emit('session/event', sessionB, toolCall(1, 1, 'call-b', 'search', 1))
       expect(await service.state()).toMatchObject({ animation: 'running-right' })
 
@@ -1231,9 +1307,9 @@ describe('voice packs in PetService (pet-center M4, issue #677)', () => {
           whispers: { categories: { thinking: ['自定义思考'] } },
         }),
       })
-      ctx.emit('session/event', session, assistantChunk(1, 1, {
+      emitAssistantChunk(ctx, session, 1, 1, {
         type: 'reasoning-delta', index: 0, text: '想想怎么改',
-      }, 1))
+      }, 1)
       expect((await service.state()).sessions?.[0]?.whisper).toBe('自定义思考')
     } finally {
       rmSync(dir, { recursive: true, force: true })

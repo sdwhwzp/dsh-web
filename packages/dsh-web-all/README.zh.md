@@ -17,6 +17,8 @@ DSH Web UI 全家桶聚合插件：一键安装全部功能插件（task-board /
 
 ## 安装
 
+需要 Harness `>=0.1.3-alpha.1`，以提供内置[宠物](../dsh-pet/README.zh.md)使用的宿主流式 API。
+
 ### 从 npm 安装（推荐）
 
 **DSH Web CLI（浏览器端）**：

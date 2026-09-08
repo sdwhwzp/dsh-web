@@ -1,6 +1,6 @@
 /**
- * Official session event projection — pure. Maps the durable DSH session
- * vocabulary onto the pet's visual phases and carries an optional completed-
+ * Host activity projection — pure. Maps durable DSH session events and
+ * process-local assistant frames onto visual phases and carries a completed-
  * turn reward for the ledger. Holds no state of its own; callers keep a
  * {@link ProjectionRuntime} per session and feed events in arrival order.
  *
@@ -15,6 +15,7 @@
  */
 
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import type { AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
 import type { PetStateInput } from './state.ts'
 import {
   StatusVoice,
@@ -83,6 +84,37 @@ export function isActivityPhase(phase: string): phase is PetStateInput['phase'] 
 }
 
 /**
+ * Project live assistant chunks into thinking and writing activity.
+ * @param frame - one process-local assistant publication.
+ * @param runtime - the session's status and whisper voices.
+ * @param nowMs - injected wall clock for copy rotation and whisper pacing.
+ * @returns a visual transition for nonempty reasoning or text deltas.
+ */
+export function projectAssistantStreamFrame(
+  frame: AssistantStreamFrame,
+  runtime: ProjectionRuntime,
+  nowMs: number = Date.now(),
+): PetActivityTransition | undefined {
+  if (frame.type !== 'chunk') return undefined
+  const { chunk } = frame
+  if (chunk.type === 'reasoning-delta' && chunk.text.length > 0) {
+    const whisper = runtime.whispers.feed('thinking', nowMs)
+    return {
+      input: { phase: 'thinking', line: runtime.voice.scene('thinking', nowMs) },
+      ...(whisper === undefined ? {} : { whisper }),
+    }
+  }
+  if (chunk.type === 'text-delta' && chunk.text.length > 0) {
+    const whisper = runtime.whispers.feed('writing', nowMs)
+    return {
+      input: { phase: 'review', line: runtime.voice.scene('review', nowMs) },
+      ...(whisper === undefined ? {} : { whisper }),
+    }
+  }
+  return undefined
+}
+
+/**
  * Project the durable DSH session vocabulary into the pet's visual phases.
  * Unknown and log-only events do not disturb the last meaningful activity.
  * @param nowMs - injected wall clock for copy rotation and whisper pacing.
@@ -102,24 +134,6 @@ export function projectOfficialEvent(
       runtime.activeTools.clear()
       runtime.stepHadFailure = false
       return { input: { phase: 'waiting', line: runtime.voice.scene('waiting', nowMs) } }
-    case 'assistant/chunk': {
-      const { chunk } = event.data
-      if (chunk.type === 'reasoning-delta' && chunk.text.length > 0) {
-        const whisper = runtime.whispers.feed('thinking', nowMs)
-        return {
-          input: { phase: 'thinking', line: runtime.voice.scene('thinking', nowMs) },
-          ...(whisper === undefined ? {} : { whisper }),
-        }
-      }
-      if (chunk.type === 'text-delta' && chunk.text.length > 0) {
-        const whisper = runtime.whispers.feed('writing', nowMs)
-        return {
-          input: { phase: 'review', line: runtime.voice.scene('review', nowMs) },
-          ...(whisper === undefined ? {} : { whisper }),
-        }
-      }
-      return undefined
-    }
     case 'assistant/message':
       return { input: { phase: 'review', line: runtime.voice.scene('review', nowMs) } }
     case 'tool/call': {

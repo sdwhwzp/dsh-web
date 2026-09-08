@@ -12,7 +12,7 @@ type GatewayRequest = {
 
 type FakeWorkspace = { id: string }
 
-// Real 0.1.2-alpha.2 gateway wire contract, encoded from assertExactArguments
+// Real 0.1.3-alpha.1 gateway wire contract, encoded from assertExactArguments
 // in @deepseek-ai/dsh-api-gateway/lib/index.js plus the descriptor tables in
 // each package's lib/typert.host.js: session/list carries its request under
 // the '_request' wire key; session create/rename/prompt/page/follow (and the
@@ -137,12 +137,7 @@ describe('HostExecutionRunner', () => {
         }
         if (request.method === 'selectModel') {
           order.push('selectModel')
-          expect(payload).toEqual({
-            sessionId: 'session-model',
-            provider: 'deepseek',
-            modelId: 'deepseek-chat',
-          })
-          return { currentModel: { provider: 'deepseek', modelId: 'deepseek-chat' } }
+          return { selected: { provider: 'deepseek', model: 'deepseek-chat' } }
         }
         if (request.method === 'prompt') {
           order.push('prompt')
@@ -157,6 +152,12 @@ describe('HostExecutionRunner', () => {
     }
     await expect(new HostExecutionRunner(gateway).launch(taskWithModel)).resolves.toBe('session-model')
     expect(order).toEqual(['create', 'rename', 'selectModel', 'prompt'])
+    expect(gateway.invoke.mock.calls.filter(([request]) => request.method === 'selectModel'))
+      .toEqual([[{
+        namespace: 'session',
+        method: 'selectModel',
+        args: { request: { sessionId: 'session-model', provider: 'deepseek', model: 'deepseek-chat' } },
+      }]])
   })
 
   it('fails closed on a stale workspace or unacknowledged permission command', async () => {

@@ -578,7 +578,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$11() {
 			try {
-				return "0.3.17";
+				return "0.3.18-dsh.20260908.1";
 			} catch {
 				return;
 			}
@@ -1924,7 +1924,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$10() {
 			try {
-				return "0.3.17";
+				return "0.3.18-dsh.20260908.1";
 			} catch {
 				return;
 			}
@@ -4357,7 +4357,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$9() {
 			try {
-				return "0.3.17";
+				return "0.3.18-dsh.20260908.1";
 			} catch {
 				return;
 			}
@@ -8999,7 +8999,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$8() {
 			try {
-				return "0.3.17";
+				return "0.3.18-dsh.20260908.1";
 			} catch {
 				return;
 			}
@@ -10861,7 +10861,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$7() {
 			try {
-				return "0.3.17";
+				return "0.3.18-dsh.20260908.1";
 			} catch {
 				return;
 			}
@@ -13216,7 +13216,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$6() {
 			try {
-				return "0.3.17";
+				return "0.3.18-dsh.20260908.1";
 			} catch {
 				return;
 			}
@@ -14250,7 +14250,7 @@ window.__ModuleLoader__.load({
 			return previous !== null && JSON.stringify(previous) === JSON.stringify(next);
 		}
 		//#endregion
-		//#region ../../node_modules/.pnpm/clsx@2.1.1/node_modules/clsx/dist/clsx.mjs
+		//#region ../../../../../20260908-013-candidate/dsh-web-validation/source/node_modules/.pnpm/clsx@2.1.1/node_modules/clsx/dist/clsx.mjs
 		function r(e) {
 			var t, f, n = "";
 			if ("string" == typeof e || "number" == typeof e) n += e;
@@ -17796,7 +17796,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$5() {
 			try {
-				return "0.3.17";
+				return "0.3.18-dsh.20260908.1";
 			} catch {
 				return;
 			}
@@ -19855,7 +19855,7 @@ window.__ModuleLoader__.load({
 			});
 		}
 		//#endregion
-		//#region ../../node_modules/.pnpm/@xterm+xterm@6.0.0/node_modules/@xterm/xterm/lib/xterm.js
+		//#region ../../../../../20260908-013-candidate/dsh-web-validation/source/node_modules/.pnpm/@xterm+xterm@6.0.0/node_modules/@xterm/xterm/lib/xterm.js
 		var require_xterm = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 			(function(e, t) {
 				if ("object" == typeof exports && "object" == typeof module) module.exports = t();
@@ -32853,7 +32853,7 @@ window.__ModuleLoader__.load({
 			})()));
 		}));
 		//#endregion
-		//#region ../../node_modules/.pnpm/@xterm+addon-fit@0.11.0/node_modules/@xterm/addon-fit/lib/addon-fit.js
+		//#region ../../../../../20260908-013-candidate/dsh-web-validation/source/node_modules/.pnpm/@xterm+addon-fit@0.11.0/node_modules/@xterm/addon-fit/lib/addon-fit.js
 		var require_addon_fit = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 			(function(e, t) {
 				"object" == typeof exports && "object" == typeof module ? module.exports = t() : "function" == typeof define && define.amd ? define([], t) : "object" == typeof exports ? exports.FitAddon = t() : e.FitAddon = t();
@@ -34257,7 +34257,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$4() {
 			try {
-				return "0.3.17";
+				return "0.3.18-dsh.20260908.1";
 			} catch {
 				return;
 			}
@@ -36661,7 +36661,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$3() {
 			try {
-				return "0.3.17";
+				return "0.3.18-dsh.20260908.1";
 			} catch {
 				return;
 			}
@@ -37716,7 +37716,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$2() {
 			try {
-				return "0.3.17";
+				return "0.3.18-dsh.20260908.1";
 			} catch {
 				return;
 			}
@@ -41112,7 +41112,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$1() {
 			try {
-				return "0.3.17";
+				return "0.3.18-dsh.20260908.1";
 			} catch {
 				return;
 			}
@@ -49687,7 +49687,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion() {
 			try {
-				return "0.3.17";
+				return "0.3.18-dsh.20260908.1";
 			} catch {
 				return;
 			}

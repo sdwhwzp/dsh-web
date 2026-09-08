@@ -276,7 +276,7 @@ global React root (createRoot → document.body) <-- polling 2s -- pet-client (b
                                        PetSprite floating layer (portal + rAF)
 ```
 
-- **Status source**: the host projects official `turn/start`, `step/start`, `assistant/chunk`, `assistant/message`, `tool/call`, `tool/result`, and `turn/end` events into waiting/thinking/tool/review/done/failed states. Optional legacy `activity/status` events remain a compatibility input.
+- **Status source**: the host projects durable `turn/start`, `step/start`, `assistant/message`, `tool/call`, `tool/result`, and `turn/end` events into waiting/thinking/tool/review/done/failed states. Live reasoning and text chunks arrive through `agent/assistant-stream`; stream start/end frames do not award turns. Durable `turn/end` owns reward deduplication. Optional legacy `activity/status` events remain a compatibility input. Principal-scoped accounts stay idle without host-global session bubbles; direct Host access keeps live activity.
 - **Registry**: the host normalizes every manifest into a full render definition (geometry, per-row frame counts, per-track durations) and serves it over `/api/pet/pets`; the browser half renders any entry from that definition and carries no per-pet code.
 - **Account persistence**: direct access at the Host port keeps the established `$DSH_HOME/pet.json`. A verified gateway principal `(source, immutable id)` maps to an opaque SHA-256 directory under `$DSH_HOME/pet-accounts/`; its `pet.json` stores that account's selection, names, display, switches, affinity, treats, and interaction counters. A principal without a file starts with `enabled: false`; enabling it in Settings > Pet persists only for that principal. Renaming an account does not reset its pet.
 - **Multi-session semantics**: the direct desktop account consumes host-global session activity. Concurrent sessions each keep their own projected state: the most recent meaningful event drives the sprite animation, while every active TOP-LEVEL session reports its stage in its own bubble (the state view's sessions list, capped at 12 most-recent). Subagent children are tracked for animation, rewards, and the single display bubble but render no bubble of their own, so N conversations never multiply into an N-plus-subagents stack. Every session's completed turns are still rewarded independently; disposing a session removes its bubble, and disposing the display session falls back to the most recent remaining one. Principal-scoped gateway accounts never inherit this global activity or its bubbles.
@@ -285,6 +285,8 @@ global React root (createRoot → document.body) <-- polling 2s -- pet-client (b
 - **Communication**: browser ↔ host over the same-origin `/api/pet/*` JSON endpoints (state/pets/settings/settings/mutate/interact/set-visible/set-config/set-name/set-pet); each pet's atlas loads from `/pet/<id>/<spritesheetPath>`. When a trusted gateway supplies a verified request principal, every state and mutation endpoint selects that principal's account file; a direct request with no principal selects the desktop account.
 
 ## Install
+
+Requires Harness `>=0.1.3-alpha.1` for Host assistant streaming.
 
 Install the family aggregate package `@linxin666/dsh-web-all` (all plugins and skins in one) or this plugin alone:
 

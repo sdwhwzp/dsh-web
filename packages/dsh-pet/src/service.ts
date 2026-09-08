@@ -24,6 +24,7 @@ import {
   emptyProjectionRuntime,
   isActivityPhase,
   projectOfficialEvent,
+  projectAssistantStreamFrame,
   type ActivityStatusEventLike,
   type ProjectionRuntime,
 } from './event-projection.ts'
@@ -599,6 +600,16 @@ export class PetService extends Service {
           if (transition.completedTurn !== undefined) {
             this.rewardTurn(String(session.id), transition.completedTurn)
           }
+        }),
+        this.ctx.on('agent/assistant-stream', ({ agent, frame }) => {
+          if (frame.type !== 'chunk') return
+          const session = agent.session
+          const runtime = this.activityOf(session).runtime
+          const transition = projectAssistantStreamFrame(frame, runtime)
+          if (transition === undefined) return
+          runtime.officialEventsSeen = true
+          this.officialEventSessions.add(session)
+          this.applyActivity(session, transition.input, transition.whisper)
         }),
         this.ctx.on('session/disposed', (session: Session) => {
           this.localAccount.ledger.forgetSession(String(session.id))

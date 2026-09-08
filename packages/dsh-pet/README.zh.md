@@ -276,7 +276,7 @@ dsh-pet/
                                        PetSprite 浮层（portal + rAF）
 ```
 
-- **状态来源**：宿主把官方 `turn/start`、`step/start`、`assistant/chunk`、`assistant/message`、`tool/call`、`tool/result`、`turn/end` 事件投影为 waiting/thinking/tool/review/done/failed 状态。可选兼容 `activity/status` 事件仍作为输入。
+- **状态来源**：宿主把持久化的 `turn/start`、`step/start`、`assistant/message`、`tool/call`、`tool/result`、`turn/end` 事件投影为 waiting/thinking/tool/review/done/failed 状态。实时推理和文本 chunk 由 `agent/assistant-stream` 提供；流 start/end 帧不奖励回合，持久化的 `turn/end` 负责奖励去重。可选兼容 `activity/status` 事件仍作为输入。按身份隔离的账号保持空闲且不显示宿主全局会话气泡，直接访问宿主时保留实时活动。
 - **注册表**：宿主把每份 manifest 归一化为完整渲染定义（几何、每行帧数、每轨时长），经 `/api/pet/pets` 下发；浏览器半区用该定义渲染任意条目，不携带任何宠物专属代码。
 - **账号持久化**：直连宿主端口沿用 `$DSH_HOME/pet.json`。通过验证的网关身份 `(来源, 不变账号 ID)` 映射到 `$DSH_HOME/pet-accounts/` 下的 SHA-256 不透明目录；其中的 `pet.json` 保存该账号的宠物选择、名字、显示配置、开关、亲密度、小鱼干与互动计数。没有账号文件时从 `enabled: false` 开始；在「设置 > 宠物」开启后只为该身份持久化。账号改名不会重置宠物。
 - **多会话语义**：直连桌面账号消费宿主全局会话活动。并行会话各自保留投影状态：最近一次有意义事件驱动精灵动画，同时每个活动的顶层会话在独立气泡里报告自己的阶段（state 视图的 sessions 列表，最多保留最近 12 个）。子代理会话仍参与动画、计奖与单一显示气泡，但不占独立气泡位——N 个对话不会变成"N + 子代理数"的气泡堆。每个会话完成的轮次仍独立计奖；销毁会话移除它的气泡，销毁当前显示会话则回退到最近仍在活动的会话。按身份隔离的网关账号不会继承这些全局活动或气泡。
@@ -285,6 +285,8 @@ dsh-pet/
 - **通信**：浏览器 ↔ 宿主走同源 `/api/pet/*` JSON 端点（state/pets/settings/settings/mutate/interact/set-visible/set-config/set-name/set-pet）；每只宠物的图集从 `/pet/<id>/<spritesheetPath>` 加载。可信网关提供通过验证的请求身份时，每个状态与修改端点选择该身份的账号文件；没有身份的直连请求选择桌面账号。
 
 ## 安装
+
+需要 Harness `>=0.1.3-alpha.1` 提供宿主助手流式事件。
 
 安装聚合全家桶 `@linxin666/dsh-web-all`（全部插件与皮肤一次到位），或单独安装本插件：
 
