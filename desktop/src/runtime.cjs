@@ -24,6 +24,25 @@ const DESKTOP_PORT_SPAN = 100;
 /** Marker file written into a profile directory this app seeded itself. */
 const SEED_MARKER = '.dsh-desktop-seed.json';
 
+/**
+ * argv fragments that mark a second launch as a programmatic spawn of this
+ * executable (doctor supervisor/provisioning children, CLI helpers) rather
+ * than a real user double-click. Raising the main window for such launches
+ * is the #1382 focus-stealing loop: every background retry repaints and
+ * focuses the window while the child itself fails the single-instance lock.
+ */
+const PROGRAMMATIC_LAUNCH_MARKERS = ['cli.mjs', 'supervisor', 'provision', '--parent-pid'];
+
+/**
+ * Decide whether a `second-instance` argv belongs to a programmatic spawn of
+ * the app executable. A genuine user launch carries no arguments.
+ * @param {readonly string[]} argv - full second-instance argv (exe path first).
+ * @returns {boolean}
+ */
+function isProgrammaticLaunch(argv) {
+  return argv.some((arg) => PROGRAMMATIC_LAUNCH_MARKERS.some((marker) => String(arg).includes(marker)));
+}
+
 /** Version stamp file produced by scripts/build-runtime.mjs. */
 const RUNTIME_STAMP = 'VERSION.json';
 
@@ -81,13 +100,19 @@ function resolveDshHome(env, homedir) {
  * or shadowed key causes spawned children (such as powershell.exe for DPAPI decryption)
  * to fail with ENOENT. We normalize all case variants of PATH into a single env.PATH.
  *
+ * Normalizes NODE_PATH across platforms: ensures node_modules search fallback
+ * reaches the bundled host runtime, the user's $DSH_HOME/profiles/node_modules,
+ * and any specified extra paths so dynamically installed profile plugins find
+ * their peer and shared dependencies without relying on CLI pre-healing.
+ *
  * @param {string} home - resolved DSH_HOME.
  * @param {string} nodeHome - bundled node runtime directory.
  * @param {string} [platform] - process.platform override for testing.
  * @param {NodeJS.ProcessEnv} [baseEnv] - environment to derive from.
+ * @param {readonly string[]} [extraNodePaths] - additional node_modules paths.
  * @returns {Record<string, string | undefined>}
  */
-function childEnv(home, nodeHome, platform = process.platform, baseEnv = process.env) {
+function childEnv(home, nodeHome, platform = process.platform, baseEnv = process.env, extraNodePaths = []) {
   const env = { ...baseEnv, DSH_HOME: home };
   const delimiter = platform === 'win32' ? ';' : ':';
   const nodeBinDir = platform === 'win32' ? nodeHome : path.posix.join(nodeHome, 'bin');
@@ -104,7 +129,121 @@ function childEnv(home, nodeHome, platform = process.platform, baseEnv = process
 
   env.PATH = nodeBinDir + (existingPath ? delimiter + existingPath : '');
   delete env.ELECTRON_RUN_AS_NODE;
+
+  let existingNodePath = '';
+  for (const key of Object.keys(env)) {
+    if (key.toUpperCase() === 'NODE_PATH') {
+      if (!existingNodePath && typeof env[key] === 'string' && env[key] !== '') {
+        existingNodePath = env[key];
+      }
+      delete env[key];
+    }
+  }
+
+  const nodePaths = [];
+  for (const entry of extraNodePaths) {
+    if (entry && !nodePaths.includes(entry)) nodePaths.push(entry);
+  }
+  if (existingNodePath) {
+    for (const entry of existingNodePath.split(delimiter)) {
+      if (entry && !nodePaths.includes(entry)) nodePaths.push(entry);
+    }
+  }
+  if (nodePaths.length > 0) {
+    env.NODE_PATH = nodePaths.join(delimiter);
+  }
+
   return env;
+}
+
+/**
+ * Ensure fallback module junctions exist for installed profile plugins so
+ * missing peer dependencies (such as @deepseek-ai/dsh-client-ui-primitives)
+ * resolve immediately on boot without requiring a terminal `dsh web` run.
+ *
+ * @param {string} home - $DSH_HOME.
+ * @param {string} hostRuntimeDir - runtimeRoot/host.
+ */
+function ensureProfileFallbacks(home, hostRuntimeDir) {
+  const profileDir = path.join(home, 'profiles', 'web');
+  const profilePkgFile = path.join(profileDir, 'package.json');
+  if (!fs.existsSync(profilePkgFile)) return;
+
+  let manifest;
+  try {
+    manifest = JSON.parse(fs.readFileSync(profilePkgFile, 'utf8'));
+  } catch {
+    return;
+  }
+
+  const bundles = manifest && manifest.dsh && manifest.dsh.profile && Array.isArray(manifest.dsh.profile.bundles)
+    ? manifest.dsh.profile.bundles
+    : [];
+  const dependencies = Object.keys((manifest && manifest.dependencies) || {});
+  const allPluginNames = new Set([...bundles, ...dependencies]);
+  if (allPluginNames.size === 0) return;
+
+  const candidateSourceDirs = [
+    path.join(hostRuntimeDir, 'node_modules'),
+    path.join(home, 'profiles', 'node_modules'),
+  ];
+  if (process.platform === 'win32' && process.env.APPDATA) {
+    candidateSourceDirs.push(path.join(process.env.APPDATA, 'npm', 'node_modules'));
+  }
+
+  const profileModulesDir = path.join(profileDir, 'node_modules');
+  const fallbackModulesDir = path.join(profileDir, '.dsh-module-fallback', 'node_modules');
+
+  const ensureJunction = (target, linkPath) => {
+    try {
+      if (fs.existsSync(linkPath)) return;
+      fs.mkdirSync(path.dirname(linkPath), { recursive: true });
+      fs.symlinkSync(target, linkPath, 'junction');
+    } catch {
+      // Best-effort; continue
+    }
+  };
+
+  for (const pluginName of allPluginNames) {
+    const pluginPkg = path.join(profileModulesDir, pluginName, 'package.json');
+    if (!fs.existsSync(pluginPkg)) continue;
+    let pkg;
+    try {
+      pkg = JSON.parse(fs.readFileSync(pluginPkg, 'utf8'));
+    } catch {
+      continue;
+    }
+    const peers = Object.keys(pkg.peerDependencies || {});
+    for (const peer of peers) {
+      const targetInProfile = path.join(profileModulesDir, peer);
+      if (fs.existsSync(targetInProfile)) continue;
+
+      for (const sourceRoot of candidateSourceDirs) {
+        const candidate = path.join(sourceRoot, peer);
+        if (fs.existsSync(candidate)) {
+          const fallbackLink = path.join(fallbackModulesDir, peer);
+          ensureJunction(candidate, fallbackLink);
+          ensureJunction(fallbackLink, targetInProfile);
+          break;
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Check whether required Visual C++ runtime libraries exist on Windows.
+ * Returns true on non-Windows platforms or when the required DLLs are present.
+ *
+ * @param {string} [platform] - process.platform override for testing.
+ * @param {string} [systemRoot] - Windows system directory override.
+ * @returns {boolean}
+ */
+function checkVcRuntime(platform = process.platform, systemRoot = process.env.SystemRoot || process.env.windir || 'C:\\Windows') {
+  if (platform !== 'win32') return true;
+  const sys32 = path.join(systemRoot, 'System32');
+  const vcruntime = path.join(sys32, 'vcruntime140.dll');
+  return fs.existsSync(vcruntime);
 }
 
 /**
@@ -239,8 +378,12 @@ async function waitForGui(port, options) {
   }
 }
 
-/** The host prints its tokenized GUI URL on this stdout line. */
-const TOKEN_URL_PATTERN = /^dsh web: (\S+)$/;
+/**
+ * The host prints its tokenized GUI URL on this stdout line. A non-loopback
+ * bind makes the host append a ` (LAN: …)` suffix (#1377), so the suffix is
+ * optional here; the line anchor stays so only full URL lines match.
+ */
+const TOKEN_URL_PATTERN = /^dsh web: (\S+)(?: \(LAN: \S+\))?$/;
 
 /**
  * Extract the tokenized GUI URL from one host stdout line, if any.
@@ -275,6 +418,7 @@ module.exports = {
   resolveRuntimePaths,
   resolveDshHome,
   childEnv,
+  isProgrammaticLaunch,
   readStampFile,
   profileAction,
   applyProfileSeed,
@@ -285,4 +429,6 @@ module.exports = {
   waitForGui,
   parseTokenUrlLine,
   parseShasums,
+  ensureProfileFallbacks,
+  checkVcRuntime,
 };

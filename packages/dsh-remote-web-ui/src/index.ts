@@ -458,13 +458,15 @@ function applyImpl(ctx: Context, config?: Config): void {
   // directory on update, so a boot-time captured path would fail to read
   // after a successful update; versions are re-read from disk per check.
   const requireFromHost = createRequire(import.meta.url)
-  const resolveAnchorPath = (): string | undefined => resolveAnchorManifest(specifier => {
+  /** Host-process resolve that degrades to "not installed" (undefined) instead of throwing. */
+  const hostResolve = (specifier: string): string | undefined => {
     try {
       return requireFromHost.resolve(specifier)
     } catch {
       return undefined
     }
-  })
+  }
+  const resolveAnchorPath = (): string | undefined => resolveAnchorManifest(hostResolve)
 
   const releaseNotesCache = new Map<string, { at: number; notes?: UpdateReleaseNotes }>()
   const fetchReleaseNotesCached = async (version: string): Promise<UpdateReleaseNotes | undefined> => {
@@ -480,13 +482,7 @@ function applyImpl(ctx: Context, config?: Config): void {
     fence: request => isTrustedApiRequest(request, []),
     check: () => checkUpdates({
       anchorManifestPath: resolveAnchorPath(),
-      resolve: specifier => {
-        try {
-          return requireFromHost.resolve(specifier)
-        } catch {
-          return undefined
-        }
-      },
+      resolve: hostResolve,
       fetchLatest: name => fetchLatestVersion(name, fetch),
       fetchReleaseNotes: fetchReleaseNotesCached,
     }),
@@ -510,13 +506,7 @@ function applyImpl(ctx: Context, config?: Config): void {
         run: { profileDir: target.profileDir, packages: target.packages },
         check: {
           anchorManifestPath: resolveAnchorPath(),
-          resolve: specifier => {
-            try {
-              return requireFromHost.resolve(specifier)
-            } catch {
-              return undefined
-            }
-          },
+          resolve: hostResolve,
           fetchLatest: name => fetchLatestVersion(name, fetch),
           fetchReleaseNotes: fetchReleaseNotesCached,
         },
@@ -602,7 +592,6 @@ function applyImpl(ctx: Context, config?: Config): void {
   const routes = [
     ...makeRoutes({
       service,
-      lanAddresses: service.lanAddresses,
       requirePairingForLan: () => resolve().requirePairingForLan,
       lanBindStatus,
       indexDocument: fetchAppShell,
@@ -885,13 +874,24 @@ function applyImpl(ctx: Context, config?: Config): void {
   }), 'remote-web-ui: remote channel boot patch')
 
   ctx.inject(['settings'], (settingsCtx) => {
-    settingsCtx.settings.installSection(ctx, REMOTE_WEB_UI_SETTINGS_NAMESPACE, Config, config ?? {}, {
-      setSource: (source) => {
-        current = source
+    try {
+      if (typeof settingsCtx.settings?.installSection === 'function') {
+        settingsCtx.settings.installSection(ctx, REMOTE_WEB_UI_SETTINGS_NAMESPACE, Config, config ?? {}, {
+          setSource: (source) => {
+            current = source
+            sync()
+          },
+          onChange: sync,
+        })
+      } else if (typeof settingsCtx.settings?.register === 'function') {
+        const scope = settingsCtx.settings.register(REMOTE_WEB_UI_SETTINGS_NAMESPACE, Config, { base: config ?? {} })
+        current = () => scope?.get?.() ?? (config ?? {})
+        scope?.watch?.(() => { sync() })
         sync()
-      },
-      onChange: sync,
-    })
+      }
+    } catch {
+      // Defensive fallback against settings registration differences
+    }
   })
   sync()
 }

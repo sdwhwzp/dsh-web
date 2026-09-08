@@ -70,23 +70,26 @@ describe('resolveNamespaceEntry', () => {
     expect(resolveNamespaceEntry('dsh-client-ui-task-board')).toBe('task-board')
     expect(resolveNamespaceEntry('dsh-skins')).toBe('skin-background')
     expect(resolveNamespaceEntry('dsh-ssh')).toBe('dsh-ssh')
-    expect(resolveNamespaceEntry('dsh-client-ui-market')).toBe('dsh-web-ui-market')
   })
 
   it('passes bare family namespaces through', () => {
     expect(resolveNamespaceEntry('pet')).toBe('pet')
     expect(resolveNamespaceEntry('remote-web-ui')).toBe('remote-web-ui')
     expect(resolveNamespaceEntry('community-plugins')).toBe('community-plugins')
-    expect(resolveNamespaceEntry('dsh-web-ui-market')).toBe('dsh-web-ui-market')
   })
 
-  it('maps the market and skin custom-theme / wallpaper namespaces (#1176)', () => {
-    expect(resolveNamespaceEntry('dsh-market')).toBe('dsh-web-ui-market')
-    expect(resolveNamespaceEntry('dsh-client-ui-market')).toBe('dsh-web-ui-market')
-    expect(resolveNamespaceEntry('dsh-web-ui-market')).toBe('dsh-web-ui-market')
-    expect(resolveNamespaceEntry('market')).toBe('dsh-web-ui-market')
+  it('maps the market and skin custom-theme / wallpaper namespaces (#1176, #1370)', () => {
+    expect(resolveNamespaceEntry('dsh-market')).toBe('dsh-market')
+    expect(resolveNamespaceEntry('dshmarket')).toBe('dsh-market')
+    expect(resolveNamespaceEntry('dsh-client-ui-market')).toBe('dsh-market')
+    expect(resolveNamespaceEntry('dsh-web-ui-market')).toBe('dsh-market')
+    expect(resolveNamespaceEntry('market')).toBe('dsh-market')
     expect(resolveNamespaceEntry('skin-custom-theme')).toBe('skin-custom-theme')
     expect(resolveNamespaceEntry('skin-wallpaper')).toBe('skin-wallpaper')
+    expect(resolveNamespaceEntry('usage')).toBe('usage')
+    expect(resolveNamespaceEntry('doctor')).toBe('doctor')
+    expect(resolveNamespaceEntry('liangshen')).toBe('liangshen')
+    expect(resolveNamespaceEntry('session-archive')).toBe('session-archive')
   })
 
   it('ignores packages without a settings namespace and unknown names', () => {
@@ -135,6 +138,14 @@ describe('composeAllowlist', () => {
       'nope',
     ], registered))
       .toEqual(['dsh-ssh', 'dsh-web-ui-market', 'skin-background', 'task-board'])
+  })
+
+  it('resolves official dshmarket registered as dsh-market (#1370)', () => {
+    const officialRegistered = ['dsh-market', 'task-board']
+    expect(composeAllowlist([], officialRegistered)).toEqual(['dsh-market', 'task-board'])
+    expect(composeAllowlist(['dsh-market'], officialRegistered)).toEqual(['dsh-market'])
+    expect(composeAllowlist(['dshmarket'], officialRegistered)).toEqual(['dsh-market'])
+    expect(composeAllowlist(['dsh-web-ui-market'], officialRegistered)).toEqual(['dsh-market'])
   })
 
   it('drops namespaces not registered in the settings seam', () => {

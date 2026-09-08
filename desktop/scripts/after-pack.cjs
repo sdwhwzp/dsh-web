@@ -57,7 +57,16 @@ exports.default = async function afterPack(context) {
   copyPayload(path.join(stagingRoot, 'VERSION.json'), path.join(runtimeRoot, 'VERSION.json'));
 
   assertDestFile(path.join(runtimeRoot, 'node', os === 'win' ? 'node.exe' : path.join('bin', 'node')));
+  // The bundled toolchain (npm from the official distribution, pnpm staged by
+  // fetch-pnpm.mjs) must reach the packaged app or in-app `dsh plugin` flows
+  // fail on machines without preinstalled tooling.
+  assertDestFile(path.join(runtimeRoot, 'node', os === 'win' ? 'npm.cmd' : path.join('bin', 'npm')));
+  assertDestFile(path.join(runtimeRoot, 'node', os === 'win' ? 'pnpm.cmd' : path.join('bin', 'pnpm')));
   assertDestFile(path.join(runtimeRoot, 'host', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'));
   assertDestFile(path.join(runtimeRoot, 'profile-web', 'node_modules', '@linxin666', 'dsh-web-all', 'cordis.patch.yml'));
+  // The windows tunnel binary is staged by build-runtime.mjs; without this
+  // assertion a broken payload copy would surface only as a failed first
+  // tunnel start on a user machine.
+  assertDestFile(path.join(runtimeRoot, 'profile-web', 'node_modules', 'cloudflared', 'bin', 'cloudflared.exe'));
   console.log(`[after-pack] runtime payload staged into ${path.relative(path.join(__dirname, '..'), runtimeRoot)} (${os}-${cpu})`);
 };

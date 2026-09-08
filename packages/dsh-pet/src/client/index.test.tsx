@@ -85,6 +85,10 @@ beforeEach(() => {
 interface FakeClientLifecycle {
   ctx: ClientContext
   dispose(): void
+  settingsListenerCount(): number
+  emitSettings(): void
+  sessionsListenerCount(): number
+  setEnabled(enabled: boolean): void
 }
 
 const activeLifecycles: FakeClientLifecycle[] = []
@@ -104,6 +108,24 @@ async function waitForPetRoot(): Promise<Element> {
 
 function fakeContext(): FakeClientLifecycle {
   const disposers: (() => void)[] = []
+  const settingsListeners = new Set<() => void>()
+  const sessionListeners = new Set<() => void>()
+  let settingsValue: { enabled?: boolean } | undefined
+  const scope = {
+    getSnapshot: () => ({
+      status: 'ready',
+      writable: true,
+      value: settingsValue,
+      base: undefined,
+      user: {},
+      revision: 1,
+      mode: 'host',
+    }),
+    subscribe: (listener: () => void) => {
+      settingsListeners.add(listener)
+      return () => { settingsListeners.delete(listener) }
+    },
+  }
   const ctx = {
     effect: (fn: () => unknown, _label?: string) => {
       const dispose = fn()
@@ -129,8 +151,8 @@ function fakeContext(): FakeClientLifecycle {
       list: {
         getSnapshot: () => ({ current: undefined, byId: {} }),
         subscribe: (listener: () => void) => {
-          const set = new Set<() => void>([listener])
-          return () => { set.delete(listener) }
+          sessionListeners.add(listener)
+          return () => { sessionListeners.delete(listener) }
         },
       },
       open: () => {},
@@ -144,6 +166,12 @@ function fakeContext(): FakeClientLifecycle {
       disposed = true
       for (const dispose of disposers.splice(0).reverse()) dispose()
     },
+    settingsListenerCount: () => settingsListeners.size,
+    emitSettings: () => {
+      for (const listener of settingsListeners) listener()
+    },
+    sessionsListenerCount: () => sessionListeners.size,
+    setEnabled: (enabled: boolean) => { settingsValue = { enabled } },
   }
   activeLifecycles.push(lifecycle)
   return lifecycle

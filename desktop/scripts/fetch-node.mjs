@@ -13,9 +13,9 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+import { extractArchive } from './tar-extract.mjs';
 
 const require = createRequire(import.meta.url);
 const { parseShasums } = require('../src/runtime.cjs');
@@ -47,9 +47,54 @@ function sha256(buffer) {
 }
 
 function extract(archive, destDir) {
-  fs.mkdirSync(destDir, { recursive: true });
-  // bsdtar (macOS) and GNU tar both handle tar.gz; bsdtar also unpacks zip.
-  execFileSync('tar', ['-xf', archive, '-C', destDir], { stdio: 'inherit' });
+  // tar-extract prefers the System32 bsdtar on Windows: Git-bash GNU tar
+  // rejects drive-letter paths and cannot read the win-x64 zip at all.
+  extractArchive(archive, destDir);
+}
+
+/**
+ * Copy a distribution tree, preserving symlinks verbatim. The official
+ * tarballs only carry in-tree relative links (bin/npm ->
+ * ../lib/node_modules/npm/bin/npm-cli.js) that stay valid after relocation,
+ * and npm's CLI resolves modules relative to its real path, so replacing
+ * links with their targets breaks it — while fs.cpSync's dereference: true
+ * rewrites the relative targets into absolute paths into the deleted
+ * extraction temp dir (observed on Node 25), which is worse.
+ */
+function copyTree(source, destination) {
+  const stat = fs.lstatSync(source);
+  if (stat.isSymbolicLink()) {
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    fs.symlinkSync(fs.readlinkSync(source), destination);
+    return;
+  }
+  if (stat.isFile()) {
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    fs.copyFileSync(source, destination);
+    fs.chmodSync(destination, stat.mode);
+    return;
+  }
+  if (!stat.isDirectory()) throw new Error('unexpected file type while copying ' + source);
+  fs.mkdirSync(destination, { recursive: true });
+  for (const entry of fs.readdirSync(source)) {
+    copyTree(path.join(source, entry), path.join(destination, entry));
+  }
+}
+
+/** Fail when a staged symlink escapes the distribution or dangles. */
+function assertInTreeSymlinks(root) {
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isSymbolicLink()) {
+        const resolved = path.resolve(path.dirname(full), fs.readlinkSync(full));
+        if (!resolved.startsWith(root + path.sep) || !fs.existsSync(resolved)) {
+          throw new Error('staged Node distribution contains a broken symlink: ' + path.relative(root, full) + ' -> ' + fs.readlinkSync(full));
+        }
+      } else if (entry.isDirectory()) walk(full);
+    }
+  };
+  walk(root);
 }
 
 async function main() {
@@ -68,6 +113,9 @@ async function main() {
     const marker = path.join(outDir, '.node-version');
     if (fs.existsSync(marker) && fs.readFileSync(marker, 'utf8').trim() === version) {
       console.log('[fetch-node] ' + target.os + '-' + target.cpu + ' already at ' + version + ', skipping');
+      // Assert even on the skip path: an older script version could have
+      // staged a distribution whose bin shims are dangling symlinks.
+      assertInTreeSymlinks(outDir);
       continue;
     }
 
@@ -85,7 +133,8 @@ async function main() {
 
     fs.rmSync(outDir, { recursive: true, force: true });
     fs.mkdirSync(outRoot, { recursive: true });
-    fs.cpSync(path.join(unpackDir, entries[0]), outDir, { recursive: true, dereference: true });
+    copyTree(path.join(unpackDir, entries[0]), outDir);
+    assertInTreeSymlinks(outDir);
     fs.writeFileSync(marker, version + '\n');
     fs.rmSync(tmp, { recursive: true, force: true });
     console.log('[fetch-node] staged ' + target.os + '-' + target.cpu + ' -> ' + path.relative(desktopDir, outDir));

@@ -46,13 +46,20 @@ function pnpmInstall(part) {
   // passes. Retry a few times and relay the captured output as text so the
   // real diagnosis is not lost to a byte-array dump.
   const attempts = 3;
+  // Windows resolves pnpm through a .cmd shim, which spawnSync cannot
+  // execute without a shell (ENOENT on every retry). The shell is only
+  // needed there, and every argument is a constant literal, so routing
+  // through cmd.exe adds no injection surface. Same fix as the dsh-trading
+  // desktop runtime; failure class surfaced by release run 34077107610.
+  const spawnOptions = {
+    cwd: path.join(runtimeSrc, part),
+    env: { ...process.env },
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+    shell: process.platform === 'win32',
+  };
   for (let attempt = 1; attempt <= attempts; attempt++) {
-    const result = spawnSync('pnpm', ['install'], {
-      cwd: path.join(runtimeSrc, part),
-      env: { ...process.env },
-      encoding: 'utf8',
-      maxBuffer: 64 * 1024 * 1024,
-    });
+    const result = spawnSync('pnpm', ['install'], spawnOptions);
     if (result.status === 0) {
       console.log(String(result.stdout).split('\n').slice(-6).join('\n'));
       return;
@@ -113,26 +120,73 @@ function stage(part) {
   console.log('[build-runtime] staged ' + part + ' -> ' + path.relative(desktopDir, dest));
 }
 
+/** A Windows PE image starts with the letters MZ. */
+function isWindowsPe(file) {
+  const header = Buffer.alloc(2);
+  const fd = fs.openSync(file, 'r');
+  try {
+    fs.readSync(fd, header, 0, 2, 0);
+  } finally {
+    fs.closeSync(fd);
+  }
+  return header[0] === 0x4d && header[1] === 0x5a;
+}
+
+const CLOUDFLARED_WIN_EXE_URL = 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe';
+
+/**
+ * The cloudflared package's postinstall installs the build machine's platform
+ * binary only (bin/cloudflared); the staged profile payload must serve every
+ * shipped OS. Fetch the Windows distribution under the name the package
+ * resolves natively on win32 (bin/cloudflared.exe) so tunneling is
+ * zero-setup there too. macOS x64 stays a runtime concern: one payload tree
+ * cannot carry two same-named darwin binaries, so the tunnel plugin
+ * validates the staged binary and re-fetches the matching arch on first use.
+ */
+async function stageCloudflaredWindowsBinary() {
+  const exe = path.join(stagingRoot, 'profile-web', 'node_modules', 'cloudflared', 'bin', 'cloudflared.exe');
+  if (fs.existsSync(exe) && isWindowsPe(exe)) {
+    console.log('[build-runtime] cloudflared.exe already staged, skipping');
+    return;
+  }
+  console.log('[build-runtime] downloading ' + CLOUDFLARED_WIN_EXE_URL);
+  const response = await fetch(CLOUDFLARED_WIN_EXE_URL, { redirect: 'follow' });
+  if (!response.ok) throw new Error('cloudflared.exe download failed: ' + response.status + ' ' + CLOUDFLARED_WIN_EXE_URL);
+  const buffer = Buffer.from(await response.arrayBuffer());
+  if (buffer.length < 1024 || buffer[0] !== 0x4d || buffer[1] !== 0x5a) {
+    throw new Error('downloaded cloudflared.exe is not a Windows PE binary (' + buffer.length + ' bytes)');
+  }
+  fs.mkdirSync(path.dirname(exe), { recursive: true });
+  fs.writeFileSync(exe, buffer);
+  console.log('[build-runtime] staged cloudflared.exe -> ' + path.relative(desktopDir, exe));
+}
+
 function assertRuntimeEntrypoints() {
   const hostBin = path.join(stagingRoot, 'host', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js');
   if (!fs.existsSync(hostBin)) throw new Error('staged host is missing ' + path.relative(desktopDir, hostBin));
   const bundle = path.join(stagingRoot, 'profile-web', 'node_modules', '@linxin666', 'dsh-web-all', 'cordis.patch.yml');
   if (!fs.existsSync(bundle)) throw new Error('staged profile is missing the dsh-web-all bundle patch');
+  const cloudflaredExe = path.join(stagingRoot, 'profile-web', 'node_modules', 'cloudflared', 'bin', 'cloudflared.exe');
+  if (!fs.existsSync(cloudflaredExe)) throw new Error('staged profile is missing ' + path.relative(desktopDir, cloudflaredExe) + ' (the windows tunnel binary)');
   // The extraResources glob `node-${os}-${arch}` uses the electron-builder os
   // spelling (mac/win). electron-builder only WARNS when a source is missing,
-  // and the result is an app without a runtime — assert here instead.
+  // and the result is an app without a runtime — assert here instead. npm
+  // ships inside the official distributions; pnpm is staged by
+  // scripts/fetch-pnpm.mjs so in-app plugin flows work with zero tooling.
   const nodePayloads = [
-    ['node-mac-arm64', ['bin', 'node']],
-    ['node-mac-x64', ['bin', 'node']],
-    ['node-win-x64', ['node.exe']],
+    ['node-mac-arm64', [['bin', 'node'], ['bin', 'npm'], ['bin', 'pnpm']]],
+    ['node-mac-x64', [['bin', 'node'], ['bin', 'npm'], ['bin', 'pnpm']]],
+    ['node-win-x64', [['node.exe'], ['npm.cmd'], ['pnpm.cmd']]],
   ];
-  for (const [dir, segments] of nodePayloads) {
-    const bin = path.join(stagingRoot, dir, ...segments);
-    if (!fs.existsSync(bin)) throw new Error('staged payload is missing ' + path.relative(desktopDir, bin) + ' (electron-builder resolves node-${os}-${arch} as node-<mac|win>-<arch>)');
+  for (const [dir, required] of nodePayloads) {
+    for (const segments of required) {
+      const bin = path.join(stagingRoot, dir, ...segments);
+      if (!fs.existsSync(bin)) throw new Error('staged payload is missing ' + path.relative(desktopDir, bin) + ' (electron-builder resolves node-${os}-${arch} as node-<mac|win>-<arch>)');
+    }
   }
 }
 
-function main() {
+async function main() {
   const hostVersion = readPinnedVersion('host', '@deepseek-ai/dsh');
   const webAllVersion = readPinnedVersion('profile-web', '@linxin666/dsh-web-all');
 
@@ -140,6 +194,7 @@ function main() {
   pnpmInstall('profile-web');
   stage('host');
   stage('profile-web');
+  await stageCloudflaredWindowsBinary();
   assertRuntimeEntrypoints();
 
   const stamp = {

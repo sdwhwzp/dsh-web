@@ -17,6 +17,12 @@
  * vs repository link) keep one verdict. Registry entries are deliberately
  * never unmarked — inlined children live for the page lifetime, and the
  * loader reloads the page on any plugin change.
+ *
+ * The boot payload's entries carry client-bundle package ids only (the host
+ * graphRow wire shape: id/url/rev per served bundle). Patch row ids such as
+ * `web-ui-market` never appear there, so boot entries cannot express per-row
+ * enable state — hiding UI for disabled family rows (#1372) needs a
+ * host-provided row-state signal, not this graph.
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { clientChildren } from './children.generated.ts'

@@ -12,7 +12,7 @@
  * quit, forced after 5s).
  */
 
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
 const { spawn, execFile } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -27,6 +27,9 @@ const {
   findHostPort,
   waitForGui,
   parseTokenUrlLine,
+  ensureProfileFallbacks,
+  checkVcRuntime,
+  isProgrammaticLaunch,
 } = require('./runtime.cjs');
 
 const READY_TIMEOUT_MS = 180000;
@@ -65,10 +68,18 @@ function setStatus(text) {
 }
 
 function startHost(runtime, home, port) {
+  const nodePaths = [
+    path.join(runtime.runtimeRoot, 'host', 'node_modules'),
+    path.join(home, 'profiles', 'node_modules'),
+  ];
+  if (process.platform === 'win32' && process.env.APPDATA) {
+    const globalNpm = path.join(process.env.APPDATA, 'npm', 'node_modules');
+    if (fs.existsSync(globalNpm)) nodePaths.push(globalNpm);
+  }
   const args = [runtime.hostBin, 'web', '--no-open', '--host', '127.0.0.1', '--port', String(port)];
   const child = spawn(runtime.nodeBin, args, {
     cwd: home,
-    env: childEnv(home, runtime.nodeHome),
+    env: childEnv(home, runtime.nodeHome, process.platform, process.env, nodePaths),
     detached: process.platform !== 'win32',
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -164,6 +175,25 @@ async function boot() {
   const home = resolveDshHome(process.env, os.homedir());
   pushLogLine('[desktop] dsh home: ' + home);
 
+  if (process.platform === 'win32' && !checkVcRuntime()) {
+    pushLogLine('[desktop] warning: Visual C++ runtime (vcruntime140.dll) is missing');
+    if (mainWindow !== null && !mainWindow.isDestroyed()) {
+      void dialog.showMessageBox(mainWindow, {
+        type: 'warning',
+        buttons: ['前往微软官网下载 (Download)', '稍后手动安装 (Later)'],
+        defaultId: 0,
+        cancelId: 1,
+        title: '缺少系统组件 (Prerequisite Missing)',
+        message: '检测到当前系统缺少微软 Visual C++ 运行库（vcruntime140.dll）。',
+        detail: '没有该运行库，后台 Node 宿主服务可能无法启动。建议立即安装后再使用。',
+      }).then((result) => {
+        if (result.response === 0) {
+          void shell.openExternal('https://aka.ms/vs/17/release/vc_redist.x64.exe');
+        }
+      });
+    }
+  }
+
   if (!fs.existsSync(runtime.nodeBin)) throw new Error('bundled Node runtime is missing: ' + runtime.nodeBin);
   if (!fs.existsSync(runtime.hostBin)) throw new Error('bundled dsh host is missing: ' + runtime.hostBin);
 
@@ -175,6 +205,12 @@ async function boot() {
     setStatus(action === 'seed' ? 'Installing the bundled web profile…' : 'Updating the bundled web profile…');
     pushLogLine('[desktop] profile action: ' + action + ' (' + stampText + ')');
     applyProfileSeed(runtime.profileSeed, profileDir, action, stampText, { appVersion: app.getVersion() });
+  }
+
+  try {
+    ensureProfileFallbacks(home, path.join(runtime.runtimeRoot, 'host'));
+  } catch (error) {
+    pushLogLine('[desktop] fallback healing warning: ' + String(error && error.message ? error.message : error));
   }
 
   setStatus('Starting the dsh host…');
@@ -215,7 +251,12 @@ const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
+  app.on('second-instance', (event, argv) => {
+    // Programmatic spawns of this executable (doctor supervisor and
+    // provisioning children, CLI helpers) must never raise the window: they
+    // are headless Node children that fail the single-instance lock on
+    // purpose, and focusing on every retry is the #1382 popup loop.
+    if (isProgrammaticLaunch(argv)) return;
     if (mainWindow !== null) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();

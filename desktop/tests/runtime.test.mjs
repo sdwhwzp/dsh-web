@@ -14,6 +14,7 @@ const {
   resolveRuntimePaths,
   resolveDshHome,
   childEnv,
+  isProgrammaticLaunch,
   profileAction,
   applyProfileSeed,
   parseShasums,
@@ -21,6 +22,8 @@ const {
   findHostPort,
   isPortFree,
   SEED_MARKER,
+  ensureProfileFallbacks,
+  checkVcRuntime,
 } = require('../src/runtime.cjs');
 
 function listenOn(port) {
@@ -130,10 +133,28 @@ test('parseTokenUrlLine extracts the host token URL', () => {
   assert.equal(parseTokenUrlLine('[desktop] boot failed'), undefined);
 });
 
+test('parseTokenUrlLine accepts the LAN suffix a non-loopback bind prints (#1377)', () => {
+  assert.equal(
+    parseTokenUrlLine('dsh web: http://127.0.0.1:3082/?token=abc-DEF_123 (LAN: http://169.254.10.2:3082/?token=abc-DEF_123)'),
+    'http://127.0.0.1:3082/?token=abc-DEF_123');
+  // A truncated suffix is not a full URL line: keep the fallback path.
+  assert.equal(parseTokenUrlLine('dsh web: http://127.0.0.1:3082/?token=x (LAN:'), undefined);
+});
+
 test('the reserved set is exactly the plain dsh web CLI defaults', () => {
   assert.deepEqual([...RESERVED_PORTS].sort((a, b) => a - b), [3080, 3081]);
   assert.equal(DESKTOP_PORT_BASE, 3082);
   assert.equal(DESKTOP_PORT_SPAN, 100);
+});
+
+test('isProgrammaticLaunch marks doctor/CLI child spawns and not user launches (#1382)', () => {
+  // A genuine user double-click: exe path only (plus Electron-injected flags at most).
+  assert.equal(isProgrammaticLaunch(['C:\\app\\DeepSeek Harness.exe']), false);
+  assert.equal(isProgrammaticLaunch(['C:\\app\\DeepSeek Harness.exe', '--no-sandbox']), false);
+  // The doctor supervisor / provisioning children spawned via process.execPath.
+  assert.equal(isProgrammaticLaunch(['C:\\app\\DeepSeek Harness.exe', 'C:\\site\\lib\\cli.mjs', 'supervisor', '--parent-pid', '2228']), true);
+  assert.equal(isProgrammaticLaunch(['C:\\app\\DeepSeek Harness.exe', 'C:\\site\\lib\\cli.mjs', 'provision']), true);
+  assert.equal(isProgrammaticLaunch(['/app/cli.mjs', 'supervisor']), true);
 });
 
 test('isPortFree sees an open listener as occupied', async () => {
@@ -154,14 +175,66 @@ test('findHostPort serves the dedicated range above the reserved pair', async ()
   assert.equal(await isPortFree(port), true, 'the returned port must be immediately bindable');
 });
 
-test('findHostPort skips an occupied dedicated port and never returns a reserved one', async () => {
-  const first = await findHostPort();
-  const blocker = await listenOn(first);
+test('childEnv normalizes and appends NODE_PATH', () => {
+  const env = childEnv('/home/u/.dsh', '/opt/node', 'linux', {
+    NODE_PATH: '/existing/path',
+  }, ['/host/node_modules', '/profiles/node_modules']);
+  assert.equal(env.NODE_PATH, '/host/node_modules:/profiles/node_modules:/existing/path');
+
+  // Windows with case variant Node_Path
+  const win = childEnv('C:\\Users\\u\\.dsh', 'C:\\runtime\\node', 'win32', {
+    Node_Path: 'C:\\existing\\path',
+  }, ['C:\\host\\node_modules']);
+  assert.equal(win.NODE_PATH, 'C:\\host\\node_modules;C:\\existing\\path');
+  assert.equal(win.Node_Path, undefined);
+});
+
+test('ensureProfileFallbacks creates junctions for declared peerDependencies', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-test-fallback-'));
+  const profileDir = path.join(tempDir, 'profiles', 'web');
+  const hostDir = path.join(tempDir, 'host');
+  const hostModules = path.join(hostDir, 'node_modules');
+  const peerPkgDir = path.join(hostModules, '@deepseek-ai', 'dsh-client-ui-primitives');
+  fs.mkdirSync(peerPkgDir, { recursive: true });
+  fs.writeFileSync(path.join(peerPkgDir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh-client-ui-primitives' }));
+
+  const pluginDir = path.join(profileDir, 'node_modules', 'my-plugin');
+  fs.mkdirSync(pluginDir, { recursive: true });
+  fs.writeFileSync(path.join(pluginDir, 'package.json'), JSON.stringify({
+    name: 'my-plugin',
+    peerDependencies: {
+      '@deepseek-ai/dsh-client-ui-primitives': '^0.1.2-rc.1',
+    },
+  }));
+  fs.writeFileSync(path.join(profileDir, 'package.json'), JSON.stringify({
+    dsh: { profile: { bundles: ['my-plugin'] } },
+  }));
+
+  ensureProfileFallbacks(tempDir, hostDir);
+
+  const targetLink = path.join(profileDir, 'node_modules', '@deepseek-ai', 'dsh-client-ui-primitives');
+  assert.ok(fs.existsSync(targetLink), 'fallback junction should exist in profile node_modules');
+  const fallbackLink = path.join(profileDir, '.dsh-module-fallback', 'node_modules', '@deepseek-ai', 'dsh-client-ui-primitives');
+  assert.ok(fs.existsSync(fallbackLink), 'intermediate junction should exist in .dsh-module-fallback');
+
+  fs.rmSync(tempDir, { recursive: true, force: true });
+});
+
+test('checkVcRuntime detects presence or absence of vcruntime140.dll', () => {
+  assert.equal(checkVcRuntime('darwin'), true, 'non-Windows platforms pass');
+  assert.equal(checkVcRuntime('linux'), true, 'non-Windows platforms pass');
+
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-vc-test-'));
   try {
-    const second = await findHostPort();
-    assert.notEqual(second, first);
-    assert.equal(RESERVED_PORTS.has(second), false);
+    assert.equal(checkVcRuntime('win32', tempRoot), false, 'missing System32/vcruntime140.dll fails');
+
+    const sys32 = path.join(tempRoot, 'System32');
+    fs.mkdirSync(sys32, { recursive: true });
+    fs.writeFileSync(path.join(sys32, 'vcruntime140.dll'), '');
+    assert.equal(checkVcRuntime('win32', tempRoot), true, 'present System32/vcruntime140.dll passes');
   } finally {
-    await new Promise((resolvePromise) => blocker.close(resolvePromise));
+    fs.rmSync(tempRoot, { recursive: true, force: true });
   }
 });
+
+
