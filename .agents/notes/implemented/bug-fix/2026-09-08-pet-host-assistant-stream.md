@@ -20,4 +20,4 @@ Project only durable messages: rejected because the Pet would lose live thinking
 
 ## Consequences
 
-Pet and its aggregate require Harness `>=0.1.3-alpha.1`; Pet declares the Host API through a direct `dsh-agent` development dependency. Tests cover live-to-durable settlement, duplicate turn completion, account isolation, enablement, and listener disposal.
+Pet and its aggregate require Harness `>=0.1.5-alpha.2`; The repository declares the Host API through its `dsh-agent` development dependency. Tests cover live-to-durable settlement, duplicate turn completion, account isolation, enablement, and listener disposal.

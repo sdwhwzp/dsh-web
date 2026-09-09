@@ -1,6 +1,6 @@
 /**
- * Host activity projection — pure. Maps durable DSH session events and
- * process-local assistant frames onto visual phases and carries a completed-
+ * Official session event projection — pure. Maps the durable DSH session
+ * vocabulary onto the pet's visual phases and carries an optional completed-
  * turn reward for the ledger. Holds no state of its own; callers keep a
  * {@link ProjectionRuntime} per session and feed events in arrival order.
  *
@@ -11,11 +11,17 @@
  * tool/result and turn/end — so the pet's inner voice always roughly knows
  * what is going on and never mis-fires on output text. The wall clock is
  * injected by the caller, keeping every projection reproducible.
+ *
+ * Since the 0.1.5-alpha.2 cohort the stream itself is no longer durable
+ * vocabulary: per-chunk phase input arrives through the process-local
+ * `agent/assistant-stream` publication ({@link projectAssistantStreamFrame}),
+ * while the durable log settles one `assistant/message` (or `assistant/attempt`)
+ * per attempt.
  * @module @linxin666/dsh-pet/event-projection
  */
 
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { PetStateInput } from './state.ts'
 import {
   StatusVoice,
@@ -81,37 +87,6 @@ function displayToolName(name: string): string {
 /** Whether a legacy phase is part of the pet's supported vocabulary. */
 export function isActivityPhase(phase: string): phase is PetStateInput['phase'] {
   return ['idle', 'waiting', 'thinking', 'tool', 'review', 'done', 'failed'].includes(phase)
-}
-
-/**
- * Project live assistant chunks into thinking and writing activity.
- * @param frame - one process-local assistant publication.
- * @param runtime - the session's status and whisper voices.
- * @param nowMs - injected wall clock for copy rotation and whisper pacing.
- * @returns a visual transition for nonempty reasoning or text deltas.
- */
-export function projectAssistantStreamFrame(
-  frame: AssistantStreamFrame,
-  runtime: ProjectionRuntime,
-  nowMs: number = Date.now(),
-): PetActivityTransition | undefined {
-  if (frame.type !== 'chunk') return undefined
-  const { chunk } = frame
-  if (chunk.type === 'reasoning-delta' && chunk.text.length > 0) {
-    const whisper = runtime.whispers.feed('thinking', nowMs)
-    return {
-      input: { phase: 'thinking', line: runtime.voice.scene('thinking', nowMs) },
-      ...(whisper === undefined ? {} : { whisper }),
-    }
-  }
-  if (chunk.type === 'text-delta' && chunk.text.length > 0) {
-    const whisper = runtime.whispers.feed('writing', nowMs)
-    return {
-      input: { phase: 'review', line: runtime.voice.scene('review', nowMs) },
-      ...(whisper === undefined ? {} : { whisper }),
-    }
-  }
-  return undefined
 }
 
 /**
@@ -220,4 +195,34 @@ export function projectOfficialEvent(
     default:
       return undefined
   }
+}
+
+/**
+ * Project one live `agent/assistant-stream` publication into the pet's visual
+ * phases. Chunk frames are the alpha.2 replacement for the retired durable
+ * `assistant/chunk` event: a reasoning delta keeps the pet thinking, a text
+ * delta moves it to review; start, end, and non-delta chunks change nothing.
+ */
+export function projectAssistantStreamFrame(
+  frame: AssistantStreamFrame,
+  runtime: ProjectionRuntime,
+  nowMs: number = Date.now(),
+): PetActivityTransition | undefined {
+  if (frame.type !== 'chunk') return undefined
+  const { chunk } = frame
+  if (chunk.type === 'reasoning-delta' && chunk.text.length > 0) {
+    const whisper = runtime.whispers.feed('thinking', nowMs)
+    return {
+      input: { phase: 'thinking', line: runtime.voice.scene('thinking', nowMs) },
+      ...(whisper === undefined ? {} : { whisper }),
+    }
+  }
+  if (chunk.type === 'text-delta' && chunk.text.length > 0) {
+    const whisper = runtime.whispers.feed('writing', nowMs)
+    return {
+      input: { phase: 'review', line: runtime.voice.scene('review', nowMs) },
+      ...(whisper === undefined ? {} : { whisper }),
+    }
+  }
+  return undefined
 }

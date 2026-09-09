@@ -13,6 +13,7 @@
  */
 
 import { Context, Service } from '@deepseek-ai/cordis'
+import type { AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
@@ -23,8 +24,8 @@ import type { TreatConfig } from './treats.ts'
 import {
   emptyProjectionRuntime,
   isActivityPhase,
-  projectOfficialEvent,
   projectAssistantStreamFrame,
+  projectOfficialEvent,
   type ActivityStatusEventLike,
   type ProjectionRuntime,
 } from './event-projection.ts'
@@ -601,8 +602,7 @@ export class PetService extends Service {
             this.rewardTurn(String(session.id), transition.completedTurn)
           }
         }),
-        this.ctx.on('agent/assistant-stream', ({ agent, frame }) => {
-          if (frame.type !== 'chunk') return
+        this.ctx.on('agent/assistant-stream', ({ agent, frame }: { agent: { session: Session }; frame: AssistantStreamFrame }) => {
           const session = agent.session
           const runtime = this.activityOf(session).runtime
           const transition = projectAssistantStreamFrame(frame, runtime)

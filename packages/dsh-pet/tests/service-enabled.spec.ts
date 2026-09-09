@@ -127,7 +127,7 @@ function assistantMessage(
     content: [{ type: 'text', text }],
   }
   return {
-    type: 'assistant/message', seq: SessionSeq(seq), time: seq,
+    type: 'assistant/message', seq: SessionSeq(seq), time: seq, surfaceOp: 'append',
     data: {
       turn, step, message,
       stream: [{ type: 'text-chunks', time0: seq, index: 0, dt: [0], texts: [text] }],
@@ -164,6 +164,7 @@ function toolResult(
     type: 'tool/result',
     seq: SessionSeq(seq),
     time: seq,
+    surfaceOp: 'append',
     data: {
       turn,
       step,

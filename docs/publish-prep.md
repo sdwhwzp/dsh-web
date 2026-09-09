@@ -56,8 +56,4 @@ pnpm build
 node scripts/verify-version.mjs 0.3.3
 ```
 
-The CI and release smoke lanes mount into `@deepseek-ai/dsh@0.1.2-rc.1`, the same host version the family requires through `dsh.engines.dsh >=0.1.2-rc.1`.
-
-## Internal Harness alpha.1 deployment
-
-The internal fork uses `0.3.18-dsh.20260908.1` for Pet and `dsh-web-all`, with Harness `>=0.1.3-alpha.1`. It is not an npm release or a public `vX.Y.Z` tag. The existing public release smoke still pins rc.1 and does not validate this deployment. The repository's public development lock remains on the old SDK cohort; it cannot reproduce the new Host streaming API. Deployment instead uses the audited alpha.1 runtime tarballs, explicit overrides, and a separately generated portable pnpm lock. See the [deployment record](archive/2026-09-08-harness-alpha1-fork-deployment.md) for the source and validation scope.
+The CI and release smoke lanes mount into `@deepseek-ai/dsh@0.1.5-alpha.2`, the same host version the family requires through `dsh.engines.dsh >=0.1.5-alpha.2`.
