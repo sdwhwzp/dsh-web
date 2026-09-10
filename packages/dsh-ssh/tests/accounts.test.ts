@@ -101,6 +101,9 @@ it('rejects Host credentials and foreign jump hosts even through direct mutation
     expect((await request('bob', 'hosts', 'POST', { alias: 'unsafe', host: 'example.com', user: 'root', auth })).status).toBe(400)
   }
   expect(() => store.update('prod', { proxyJump: ['legacy-alice'] })).toThrow('your SSH account')
+  expect(() => store.update('prod', { proxyCommand: 'sh -c whoami' })).toThrow('only to administrators')
+  expect((await request('bob', 'hosts', 'POST', { alias: 'unsafe-proxy', host: 'example.com', user: 'root',
+    auth: { kind: 'password', password: 'owned' }, proxyCommand: 'sh -c whoami' })).status).toBe(400)
   expect((await request('bob', 'hosts/import-ssh-config', 'POST', {})).status).toBe(500)
   expect((await request('bob', 'hosts')).body.capabilities).toEqual({ accountScoped: true, serverCredentials: false })
 })
@@ -114,6 +117,39 @@ it('authenticates a supplied private key without exposing it in list or create r
   const result = await request('bob', 'exec', 'POST', { alias: 'key-host', command: 'echo hello' })
   expect(result.body.result.stdout).toBe('hello\n')
   expect((statSync(accounts.resolve(bob).store.path).mode & 0o777)).toBe(0o600)
+})
+
+it('rejects persisted local commands and missing jumps before opening an account connection', async () => {
+  const store = accounts.resolve(bob).store
+  const payload = { host: '127.0.0.1', port: ssh.port, user: TEST_USER,
+    auth: { kind: 'password' as const, password: TEST_PASSWORD } }
+  const raw = new HostStore(store.path)
+  raw.create({ ...payload, alias: 'blocked-proxy', proxyCommand: 'sh -c whoami' })
+  store.create({ ...payload, alias: 'temporary-jump' })
+  store.create({ ...payload, alias: 'dependent-host', proxyJump: ['temporary-jump'] })
+  try {
+    expect(store.list().some(host => host.alias === 'blocked-proxy')).toBe(true)
+    expect(() => store.find('blocked-proxy')).toThrow('only to administrators')
+    store.update('blocked-proxy', { proxyCommand: '' })
+    expect(store.find('blocked-proxy')?.proxyCommand).toBeUndefined()
+    store.delete('temporary-jump')
+    expect(() => store.find('dependent-host')).toThrow('your SSH account')
+    const result = await request('bob', 'exec', 'POST', { alias: 'dependent-host', command: 'echo hello' })
+    expect(result.body.error).toContain('your SSH account')
+  } finally {
+    store.delete('blocked-proxy')
+    store.delete('dependent-host')
+  }
+  const adminStore = accounts.resolve(admin).store
+  adminStore.create({ ...payload, alias: 'admin-proxy', proxyCommand: 'sh -c whoami' })
+  adminStore.create({ ...payload, alias: 'admin-jump', proxyJump: ['root@example.com:2222'] })
+  try {
+    expect(adminStore.find('admin-proxy')?.proxyCommand).toBe('sh -c whoami')
+    expect(adminStore.find('admin-jump')?.proxyJump).toEqual(['root@example.com:2222'])
+  } finally {
+    adminStore.delete('admin-proxy')
+    adminStore.delete('admin-jump')
+  }
 })
 
 it('keeps tunnels and cluster selectors within one engine', async () => {

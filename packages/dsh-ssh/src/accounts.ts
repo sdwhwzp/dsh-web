@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { SshEngine } from './engine.ts'
-import { HostStore, storePath } from './store.ts'
+import { HostStore, storePath, normalizeProxyCommand } from './store.ts'
 import type { HostPayload, SshHostEntry } from './protocol.ts'
 
 /** Identity supplied by the Host transport or the logged tool execution. */
@@ -41,15 +41,22 @@ class AccountHostStore extends HostStore {
     }
   }
 
+  private checkProxyCommand(command: string | undefined): void {
+    if (this.restricted && normalizeProxyCommand(command) !== undefined) {
+      throw new Error('ProxyCommand runs on the server and is available only to administrators')
+    }
+  }
+
   override find(alias: string): SshHostEntry | undefined {
     const entry = super.find(alias)
-    this.checkAuth(entry?.auth)
+    if (entry !== undefined) this.checkPayload(entry)
     return entry
   }
 
   private checkPayload(payload: Partial<HostPayload>): void {
     this.checkAuth(payload.auth)
-    if (payload.proxyJump !== undefined && (!Array.isArray(payload.proxyJump) ||
+    this.checkProxyCommand(payload.proxyCommand)
+    if (this.restricted && payload.proxyJump !== undefined && (!Array.isArray(payload.proxyJump) ||
       payload.proxyJump.some(alias => typeof alias !== 'string' || super.find(alias) === undefined))) {
       throw new Error('Every jump host must be configured in your SSH account')
     }

@@ -8,8 +8,8 @@ Built on the capability list of [badseal/ssh-skill](https://github.com/badseal/s
 
 | Capability | Description |
 | --- | --- |
-| Host management | CRUD, search, connection test; collapsible grouping by environment / tags with per-group batch test; config stored in `~/.dsh/dsh-ssh.json`; supports key / password / ssh-agent auth (OpenSSH agent / Pageant), passphrase keys, ProxyJump jump hosts (multi-level) |
-| Config import | One-click parse of a standard `~/.ssh/config` (Host/HostName/User/Port/IdentityFile/IdentityAgent/ProxyJump etc.); existing aliases are skipped |
+| Host management | CRUD, search, connection test; collapsible grouping by environment / tags with per-group batch test; config stored in `~/.dsh/dsh-ssh.json`; supports key / password / ssh-agent auth (OpenSSH agent / Pageant), passphrase keys, ProxyJump jump hosts (multi-level) and OpenSSH `ProxyCommand` transports (bastion clients) |
+| Config import | One-click parse of a standard `~/.ssh/config` (Host/HostName/User/Port/IdentityFile/IdentityAgent/ProxyJump/ProxyCommand, `Include` files, blocks without HostName); skipped blocks are listed with their reason (wildcard pattern, existing alias, Match block, invalid fields) |
 | Persistent connection pool | Reuses a long-lived connection per host (opposite of the ssh-skill daemon), automatically disconnects after 30 minutes idle, auto-reconnects on disconnect (up to 3 times) |
 | Command execution | exec with a timeout (default 60s), stdout/stderr separated, output truncation guard (2MB) |
 | Web terminal | xterm.js + WebSocket PTY terminal, auto-sizing, real-time output |
@@ -24,7 +24,8 @@ Built on the capability list of [badseal/ssh-skill](https://github.com/badseal/s
 - Passwords / key passphrases are stored in plain text in `~/.dsh/dsh-ssh.json`, file mode 0600, directory 0700 (the same trust model as ssh-skill writing passwords into ssh-config comments).
 - ssh-agent auth stores only the agent socket path (or the special value `pageant`); it never reads or stores private-key material.
 - Tunnels only listen on `127.0.0.1`.
-- Deleting a host or changing its connection fields (host / port / user / auth / proxyJump) immediately closes that alias's pooled connection and tunnels; later operations reconnect with the new configuration and never reuse a connection authenticated with the old credentials.
+- Deleting a host or changing its connection fields (host / port / user / auth / proxyJump / proxyCommand) immediately closes that alias's pooled connection and tunnels; later operations reconnect with the new configuration and never reuse a connection authenticated with the old credentials.
+- A `proxyCommand` value is a shell command executed by the DSH host process with its privileges — exactly the trust `ssh(1)` gives the same line in `~/.ssh/config`. It can only come from the user's own 0600 store file: the Agent cannot create or edit hosts, and `ssh_list` reports only whether a host has one, never the command text.
 - Before the Agent uses a tool, the host must first be configured in the GUI (or imported from ~/.ssh/config).
 - For administrators and local single-user installations, `ssh_upload` / `ssh_download` read/write arbitrary local paths on this machine with host-process privileges (not through the bash sandbox) — same host-local-path semantics as ssh-skill, be aware of that permission surface.
 - Agent transfer tools move files only between this machine and a remote SSH host; local-file reads and writes must use the local file tools (read / write / edit / bash), never the `ssh_*` tools.
@@ -55,7 +56,7 @@ Set the Host plugin's `accountIsolation: true` together with `TENANT_SSH_ENABLED
 
 The settings panel (plugin config) toggles `announceToAgent` (whether to announce the plugin to the Agent; off by default so system prompts stay clean) and `enabled` (master switch), and sets `terminalFontFamily` (the web terminal font; empty defers to the CSS chain: `--dsh-ssh-terminal-font` → the official `--ds-font-family-code` token → the built-in monospace stack). The terminal font is fixed in the xterm constructor, so a plain stylesheet cannot override it; to render powerline / Nerd Font glyphs, enter a Nerd Font stack here (e.g. `"SauceCodePro Nerd Font", monospace`). Changes re-apply to open terminals live, no reconnect needed.
 
-In account mode, ordinary users authenticate with a password or pasted private key. Host key paths, Host SSH agents and importing the server's `~/.ssh/config` are administrator-only. Existing account entries using those credentials remain listed but require replacement credentials before connecting. GUI transfers use the browser file picker; ordinary accounts cannot use `ssh_upload` or `ssh_download` with arbitrary Host filesystem paths.
+In account mode, ordinary users authenticate with a password or pasted private key. Host key paths, Host SSH agents, local `ProxyCommand` execution and importing the server's `~/.ssh/config` are administrator-only. Existing account entries using those credentials or a `ProxyCommand` remain listed but require editing before connecting. GUI transfers use the browser file picker; ordinary accounts cannot use `ssh_upload` or `ssh_download` with arbitrary Host filesystem paths.
 
 Account engines recheck permission every 30 seconds and close pooled connections and tunnels when access is revoked. The gateway closes revoked browser terminals immediately.
 
@@ -81,7 +82,10 @@ pnpm --filter @linxin666/dsh-ssh build   # tsc types + tsdown dual-half artifact
 - The remote target path of an upload must be an absolute path (relative paths are rejected).
 - Download does not support a whole directory yet (download files individually); upload supports recursive directories (walks the local directory and transfers file by file).
 - exec auto-reconnect on disconnect (up to 3 times) may re-execute non-idempotent commands — watch out for side effects on long commands.
-- Every hop of a ProxyJump jump host must be a host alias already configured in this plugin.
+- A ProxyJump hop is either a host alias configured in this plugin or an OpenSSH `[user@]host[:port]` address; an address hop has no stored credentials, so it reuses the target host's authentication (configure a host entry when the hop needs its own).
+- `proxyCommand` and `proxyJump` cannot be combined on one host (OpenSSH resolves them by "whichever appears first in the config"; a stored entry has no order, so the plugin rejects the pair), and only the first hop of a chain may declare a ProxyCommand.
+- A ProxyCommand is executed through the user's shell, so it inherits the DSH process's `PATH` and environment. On Windows the shell is killed without its process group, so a client it spawned may outlive the transport.
+- The ssh_config import expands `Include` (globs, `~`, several pathnames, relative to the config directory) but not environment variables or `%` tokens, and a multi-pattern `Host a b` line still imports only its first pattern.
 - Resume (broken-transfer continuation) is not implemented yet.
 - The transfer of Agent tools is a host-machine local path (same semantics as ssh-skill).
 

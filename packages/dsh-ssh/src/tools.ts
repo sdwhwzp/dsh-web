@@ -7,7 +7,7 @@
 import { defineTool, type ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SshEngine } from './engine.ts'
-import type { ClusterResult, ExecResult, SshHostSummary, TunnelInfo } from './protocol.ts'
+import type { ClusterResult, ExecResult, SshAuthKind, SshHostSummary, TunnelInfo } from './protocol.ts'
 
 /** A fixed local engine or an account resolver evaluated for each tool execution. */
 export type SshToolEngine = SshEngine | ((execution: ToolRunContext) => SshEngine)
@@ -21,8 +21,36 @@ function text(value: string): ContentBlock[] {
   return [{ type: 'text', text: value }]
 }
 
+/**
+ * One host row for the agent surface. The ProxyCommand STRING is deliberately
+ * projected to a boolean: the command may embed credentials for a bastion
+ * client, and the model only needs to know that the host goes through one.
+ */
+export interface AgentHostRow {
+  alias: string
+  host: string
+  port: number
+  user: string
+  auth: SshAuthKind
+  keyReady: boolean
+  proxyJump: string[]
+  proxyCommandConfigured: boolean
+  description?: string
+  environment?: string
+  tags: string[]
+  location?: string
+  createdAt: number
+  updatedAt: number
+}
+
+/** Project one summary onto the agent-facing row shape. */
+export function toAgentHostRow(host: SshHostSummary): AgentHostRow {
+  const { proxyCommand, ...rest } = host
+  return { ...rest, proxyCommandConfigured: proxyCommand !== undefined }
+}
+
 /** Host table render shared by list surfaces. */
-function renderHosts(hosts: SshHostSummary[]): string {
+function renderHosts(hosts: AgentHostRow[]): string {
   if (hosts.length === 0) return 'no hosts configured'
   const rows = hosts.map(host => [
     host.alias,
@@ -30,11 +58,12 @@ function renderHosts(hosts: SshHostSummary[]): string {
     String(host.port),
     host.user,
     host.auth,
+    host.proxyJump.length > 0 ? 'jump:' + host.proxyJump.join(',') : host.proxyCommandConfigured ? 'proxy-command' : '-',
     host.environment ?? '-',
     (host.tags.length > 0 ? host.tags.join(',') : '-'),
     host.description ?? '',
   ].join(' | '))
-  return ['alias | host | port | user | auth | environment | tags | description', '--- | --- | --- | --- | --- | --- | --- | ---', ...rows].join('\n')
+  return ['alias | host | port | user | auth | proxy | environment | tags | description', '--- | --- | --- | --- | --- | --- | --- | --- | ---', ...rows].join('\n')
 }
 
 /** Render one exec result (mirrors the bash-tool exit-code convention). */
@@ -93,6 +122,7 @@ export function sshListTool(source: SshToolEngine) {
                 auth: { type: 'string', enum: ['key', 'password', 'agent'], required: true },
                 keyReady: { type: 'boolean', required: true },
                 proxyJump: { type: 'array', items: { type: 'string' }, required: true },
+                proxyCommandConfigured: { type: 'boolean', required: true },
                 description: { type: 'string' },
                 environment: { type: 'string' },
                 tags: { type: 'array', items: { type: 'string' }, required: true },
@@ -104,11 +134,11 @@ export function sshListTool(source: SshToolEngine) {
           },
         },
       },
-      render: (_args, value: { hosts?: SshHostSummary[] }) => text(renderHosts(value.hosts ?? [])),
+      render: (_args, value: { hosts?: AgentHostRow[] }) => text(renderHosts(value.hosts ?? [])),
     },
     async execute(args, execution) {
       const engine = resolveEngine(source, execution)
-      return { hosts: engine.list(args.query) }
+      return { hosts: engine.list(args.query).map(toAgentHostRow) }
     },
   })
 }

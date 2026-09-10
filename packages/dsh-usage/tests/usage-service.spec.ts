@@ -134,6 +134,42 @@ describe('session fold → overview', () => {
     expect(service.overview().usage.today.totals.calls).toBe(0)
     service.stop()
   })
+
+  it('serves the whole-ledger aggregate beyond the 30-day trend window', async () => {
+    const dayAt = (daysAgo: number): Date => {
+      const date = new Date()
+      date.setDate(date.getDate() - daysAgo)
+      date.setHours(12, 0, 0, 0)
+      return date
+    }
+    // 34 pre-today days (inside the trend window) plus one day older than
+    // the 30-entry trend cap: only the whole-ledger aggregate sees it.
+    const doc = createLedgerDocument()
+    foldUsage(doc, dayAt(40).getTime(), 'deepseek', 'm', { ...emptyTotals(), inputTokens: 500, calls: 1 })
+    for (let offset = 1; offset <= 34; offset += 1) {
+      foldUsage(doc, dayAt(offset).getTime(), 'deepseek', 'm', { ...emptyTotals(), inputTokens: 10, calls: 1 })
+    }
+    writeLedgerFile(JSON.parse(JSON.stringify(doc)).days)
+
+    const { ctx, fireSessionEvent } = makeCtx()
+    const service = new UsageService(ctx, OPTIONS)
+    service.start()
+    const session = {}
+    fireSessionEvent(session, requestHeaderEvent('deepseek', 'm'))
+    fireSessionEvent(session, usageEvent(50, 0))
+    await sleep(30)
+
+    const usage = service.overview().usage
+    // The trend window caps at the last 30 recorded days; the whole-ledger
+    // aggregate reaches back to the oldest retained day (the voucher's
+    // minted total).
+    expect(usage.all?.from).toBe(localDateKey(dayAt(40).getTime()))
+    expect(usage.all?.to).toBe(localDateKey(Date.now()))
+    expect(usage.all?.totals.inputTokens).toBe(890)
+    expect(usage.range?.totals.inputTokens).toBe(340)
+    expect(usage.all?.providers.map((row) => row.provider)).toEqual(['deepseek'])
+    await service.stop()
+  })
 })
 
 describe('probes and per-fact errors', () => {
@@ -200,6 +236,47 @@ describe('probes and per-fact errors', () => {
     expect(provider?.credential).toBe('none')
     expect(provider?.balance).toBeUndefined()
     expect(provider?.error).toBeUndefined()
+    service.stop()
+  })
+})
+
+describe('DeepSeek real-spend watch', () => {
+  it('accrues observed balance decreases, skips top-ups, and survives a restart', async () => {
+    const fetchMock = stubFetch(() => jsonResponse(BALANCE_BODY))
+    const { ctx } = makeCtx({ llm: LLM_DEEPSEEK, credentials: CREDENTIALS_ENV })
+    const service = new UsageService(ctx, OPTIONS)
+    service.start()
+    await sleep(30)
+    await service.refresh()
+    // The first observation only anchors the series; nothing accrued yet.
+    expect(service.overview().usage.observedSpend).toBeUndefined()
+
+    fetchMock.mockImplementation(async () => jsonResponse({ balance_infos: [{ currency: 'CNY', total_balance: '108.50' }] }))
+    await service.refresh()
+    const observed = service.overview().usage.observedSpend
+    expect(observed?.cny).toBeCloseTo(1.5)
+    expect(observed?.since).toBeGreaterThan(0)
+
+    // A balance rise is a top-up: it neither accrues nor resets the figure.
+    fetchMock.mockImplementation(async () => jsonResponse({ balance_infos: [{ currency: 'CNY', total_balance: '200.00' }] }))
+    await service.refresh()
+    expect(service.overview().usage.observedSpend?.cny).toBeCloseTo(1.5)
+    await service.stop()
+
+    // The accrual persists with the provider snapshots and revives on load.
+    const revived = new UsageService(ctx, OPTIONS)
+    revived.start()
+    await sleep(30)
+    expect(revived.overview().usage.observedSpend?.cny).toBeCloseTo(1.5)
+    await revived.stop()
+  })
+
+  it('keeps no observed spend for families without an official CNY balance', async () => {
+    stubFetch(() => jsonResponse({ error: 'no balance endpoint here' }, 404))
+    const { ctx } = makeCtx({ llm: LLM_KIMI, credentials: CREDENTIALS_KIMI_KEY })
+    const service = new UsageService(ctx, OPTIONS)
+    await service.refresh()
+    expect(service.overview().usage.observedSpend).toBeUndefined()
     service.stop()
   })
 })

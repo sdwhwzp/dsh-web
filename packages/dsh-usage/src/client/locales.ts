@@ -12,6 +12,7 @@ export const zh = {
   'usage.title': '使用统计',
   'usage.tab.usage': '用量',
   'usage.tab.plans': '个人套餐',
+  'usage.tab.bank': 'Token 银行',
   'usage.refresh': '刷新',
   'usage.refreshing': '刷新中…',
   'usage.updated': '更新于 {time}',
@@ -50,6 +51,16 @@ export const zh = {
   'usage.config.bubbleMode.always': '常驻显示',
   'usage.config.bubbleMode.change': '仅变化时',
   'usage.config.bubbleMode.off': '关闭',
+  'usage.bank.title': '鲸元券',
+  'usage.bank.hint': '官方 API 每消耗 1000 tokens 铸造 1 鲸元；保存或分享这张票券。',
+  'usage.bank.noUsage': '暂无 DeepSeek 官方用量数据（统计自插件启用起）',
+  'usage.bank.minted': '累计铸造 {minted} 鲸元（{tokens} tokens）',
+  'usage.bank.spend.observed': '官方余额实测花费 ¥{cost}（自 {since} 起）',
+  'usage.bank.spend.estimated': '消费估算：约 ¥{cost}',
+  'usage.bank.window': '统计窗口 {from} ~ {to}',
+  'usage.bank.save': '保存图片',
+  'usage.bank.share': '分享',
+  'usage.bank.drawError': '票券生成失败：{error}',
 }
 
 /** English mirror; every zh key present. */
@@ -57,6 +68,7 @@ export const en: Record<UsageKey, string> = {
   'usage.title': 'Usage Statistics',
   'usage.tab.usage': 'Usage',
   'usage.tab.plans': 'Plans',
+  'usage.tab.bank': 'Token Bank',
   'usage.refresh': 'Refresh',
   'usage.refreshing': 'Refreshing…',
   'usage.updated': 'Updated {time}',
@@ -95,6 +107,16 @@ export const en: Record<UsageKey, string> = {
   'usage.config.bubbleMode.always': 'Always visible',
   'usage.config.bubbleMode.change': 'On change',
   'usage.config.bubbleMode.off': 'Off',
+  'usage.bank.title': 'Whale-yuan voucher',
+  'usage.bank.hint': 'Every 1,000 tokens spent on the official API mint one whale yuan; save or share the note.',
+  'usage.bank.noUsage': 'No official DeepSeek usage yet (counting starts when the plugin is enabled)',
+  'usage.bank.minted': 'Minted {minted} whale yuan ({tokens} tokens)',
+  'usage.bank.spend.observed': 'Spent ¥{cost} observed on the official balance (watching since {since})',
+  'usage.bank.spend.estimated': 'Estimated spend: about ¥{cost}',
+  'usage.bank.window': 'Window {from} - {to}',
+  'usage.bank.save': 'Save image',
+  'usage.bank.share': 'Share',
+  'usage.bank.drawError': 'Failed to render the voucher: {error}',
 }
 
 export type UsageKey = keyof typeof zh
