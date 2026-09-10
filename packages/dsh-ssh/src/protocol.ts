@@ -22,6 +22,8 @@ export interface SshHostEntry {
     kind: SshAuthKind
     /** Absolute path to the private key for 'key' auth. */
     keyPath?: string
+    /** User-supplied private key text; never included in public summaries. */
+    privateKey?: string
     /** Passphrase for an encrypted key. */
     passphrase?: string
     /** Password for 'password' auth. */

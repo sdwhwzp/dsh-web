@@ -16,7 +16,7 @@
 | 文件传输 | SFTP 上传（浏览器选文件，NDJSON 进度流）、下载（进度条 + 浏览器保存）；远程目录浏览 |
 | 端口转发 | 本地端口转发隧道（仅监听 127.0.0.1），访问远程数据库 / 内网服务，支持列表 / 停止 |
 | 集群执行 | 一条命令并发跑多台主机（按别名 / 环境 / 标签过滤，默认并发 8） |
-| Agent 工具 | `ssh_list` / `ssh_exec` / `ssh_upload` / `ssh_download` / `ssh_tunnel` / `ssh_cluster`，GUI 与 Agent 共享同一份主机配置 |
+| Agent 工具 | `ssh_list` / `ssh_exec` / `ssh_upload` / `ssh_download` / `ssh_tunnel` / `ssh_cluster`，账号隔离部署中，GUI 与 Agent 共享当前认证账号的主机配置 |
 
 ## 安全模型
 
@@ -26,7 +26,7 @@
 - 隧道只监听 `127.0.0.1`。
 - 删除主机或修改其连接字段（host / port / user / auth / proxyJump）会立即断开该别名的池化连接与隧道，后续操作按新配置重新建连，不会复用旧凭据的已认证连接。
 - Agent 使用工具前，主机需先在 GUI 中配置（或从 ~/.ssh/config 导入）。
-- `ssh_upload` / `ssh_download` 以宿主进程权限直接读写本机任意路径（不经 bash 沙箱）——与 ssh-skill 的宿主本地路径语义一致，注意该权限面。
+- 对于管理员和本地单用户安装，`ssh_upload` / `ssh_download` 以宿主进程权限直接读写本机任意路径（不经 bash 沙箱）——与 ssh-skill 的宿主本地路径语义一致，注意该权限面。
 - Agent 传输工具只在本机与远程 SSH 主机之间移动文件；本机文件的读写一律使用本地文件工具（read / write / edit / bash），不要使用 `ssh_*` 工具。
 - exec / cluster 的远程输出原样返回（不脱敏），命令如 `env` 可能把远端环境中的密钥带回对话记录。
 
@@ -50,9 +50,20 @@ dsh plugin --profile web add link:$(pwd)/packages/dsh-ssh
 
 ## 配置
 
+在 Host 插件配置中设置 `accountIsolation: true`，同时在 dsh-passwords 中设置 `TENANT_SSH_ENABLED=true`，两项须一起部署。具有 SSH 权限的认证账号可以管理自己的主机、终端、浏览器文件传输、隧道和集群执行；其他账号可以使用相同别名。网关保留上传/下载权限和私网目标限制。缺失或已撤销的账号身份会被拒绝，Agent 工具调用也适用。单用户本地安装可以保持 `accountIsolation` 关闭。
+
+
 设置面板（插件配置）可开关 `announceToAgent`（是否向 Agent 宣告插件；默认关闭，保持系统提示词干净）与 `enabled`（总开关），并可设置 `terminalFontFamily`（Web 终端字体，留空则按 CSS 链解析：`--dsh-ssh-terminal-font` → 官方 `--ds-font-family-code` token → 内置 monospace 栈）。终端字体写死在 xterm 构造参数里，CSS 无法直接覆盖；要渲染 powerline / Nerd Font 图标，请在此填入对应 Nerd Font 栈（如 `"SauceCodePro Nerd Font", monospace`），修改对已打开的终端即时生效，无需重连。
 
+账号模式下，普通用户通过密码或粘贴自己的私钥认证。Host 私钥路径、Host SSH agent 和导入服务器 `~/.ssh/config` 仅供管理员使用。使用这些凭据的旧账号连接仍会列出，但连接前须更换凭据。GUI 传输使用浏览器文件选择器；普通账号不能通过 `ssh_upload` 或 `ssh_download` 操作任意 Host 文件路径。
+
+账号引擎每 30 秒重新检查权限，撤权后关闭连接池和隧道。网关会立即关闭已撤权的浏览器终端。
+
 ## 数据
+
+- 账号配置：`$DSH_HOME/dsh-ssh-accounts/<sha256(source:id)>/hosts.json`（目录 0700、文件 0600、原子写入）。密码、粘贴的私钥和密钥口令保存在私有文件中，API 摘要不会返回这些内容。
+- 首次访问仅导入 dsh-passwords 分配给该账号的旧连接别名。未认领的旧连接归最早创建的管理员。旧文件保留为备份；删除账号连接后不会再次导入。
+
 
 - 主机配置：`~/.dsh/dsh-ssh.json`（版本化 JSON，原子写入）
 - 传输暂存：`os.tmpdir()/dsh-ssh-uploads/`（目录 0700，传输中的文件 0600）

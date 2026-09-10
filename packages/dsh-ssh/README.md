@@ -16,7 +16,7 @@ Built on the capability list of [badseal/ssh-skill](https://github.com/badseal/s
 | File transfer | SFTP upload (browser file picker, NDJSON progress stream), download (progress bar + browser save); remote directory browsing |
 | Port forwarding | Local port-forward tunnel (listens on 127.0.0.1 only) to reach a remote database / intranet service; list / stop supported |
 | Cluster execution | One command run concurrently across many hosts (filter by alias / environment / tag, default concurrency 8) |
-| Agent tools | `ssh_list` / `ssh_exec` / `ssh_upload` / `ssh_download` / `ssh_tunnel` / `ssh_cluster`; GUI and Agent share the same host config |
+| Agent tools | `ssh_list` / `ssh_exec` / `ssh_upload` / `ssh_download` / `ssh_tunnel` / `ssh_cluster`; GUI and Agent share the authenticated account's host config in account-isolated deployments |
 
 ## Security model
 
@@ -26,7 +26,7 @@ Built on the capability list of [badseal/ssh-skill](https://github.com/badseal/s
 - Tunnels only listen on `127.0.0.1`.
 - Deleting a host or changing its connection fields (host / port / user / auth / proxyJump) immediately closes that alias's pooled connection and tunnels; later operations reconnect with the new configuration and never reuse a connection authenticated with the old credentials.
 - Before the Agent uses a tool, the host must first be configured in the GUI (or imported from ~/.ssh/config).
-- `ssh_upload` / `ssh_download` read/write arbitrary local paths on this machine with host-process privileges (not through the bash sandbox) — same host-local-path semantics as ssh-skill, be aware of that permission surface.
+- For administrators and local single-user installations, `ssh_upload` / `ssh_download` read/write arbitrary local paths on this machine with host-process privileges (not through the bash sandbox) — same host-local-path semantics as ssh-skill, be aware of that permission surface.
 - Agent transfer tools move files only between this machine and a remote SSH host; local-file reads and writes must use the local file tools (read / write / edit / bash), never the `ssh_*` tools.
 - The remote output of exec / cluster is returned verbatim (not sanitized); a command like `env` may bring secrets from the remote environment back into the conversation log.
 
@@ -50,9 +50,20 @@ After installing, **restart `dsh web`**: a "SSH" entry appears in the sidebar; t
 
 ## Configuration
 
+Set the Host plugin's `accountIsolation: true` together with `TENANT_SSH_ENABLED=true` in dsh-passwords. Both changes must be deployed together. A verified account with SSH permission can manage its own hosts, terminal, browser transfers, tunnels and cluster execution; other accounts can use the same aliases. The gateway retains upload/download permissions and private-network target restrictions. Missing or revoked account identities are rejected, including Agent tool calls. Single-user local installations may leave `accountIsolation` disabled.
+
+
 The settings panel (plugin config) toggles `announceToAgent` (whether to announce the plugin to the Agent; off by default so system prompts stay clean) and `enabled` (master switch), and sets `terminalFontFamily` (the web terminal font; empty defers to the CSS chain: `--dsh-ssh-terminal-font` → the official `--ds-font-family-code` token → the built-in monospace stack). The terminal font is fixed in the xterm constructor, so a plain stylesheet cannot override it; to render powerline / Nerd Font glyphs, enter a Nerd Font stack here (e.g. `"SauceCodePro Nerd Font", monospace`). Changes re-apply to open terminals live, no reconnect needed.
 
+In account mode, ordinary users authenticate with a password or pasted private key. Host key paths, Host SSH agents and importing the server's `~/.ssh/config` are administrator-only. Existing account entries using those credentials remain listed but require replacement credentials before connecting. GUI transfers use the browser file picker; ordinary accounts cannot use `ssh_upload` or `ssh_download` with arbitrary Host filesystem paths.
+
+Account engines recheck permission every 30 seconds and close pooled connections and tunnels when access is revoked. The gateway closes revoked browser terminals immediately.
+
 ## Data
+
+- Account config: `$DSH_HOME/dsh-ssh-accounts/<sha256(source:id)>/hosts.json` (0700 directory, 0600 file, atomic writes). Passwords, pasted private keys and passphrases remain private file contents and are never included in API summaries.
+- First access imports only aliases assigned to that account by dsh-passwords. Unclaimed legacy entries go to the earliest administrator. The legacy file is retained as a backup; a deleted account connection is never imported again.
+
 
 - Host config: `~/.dsh/dsh-ssh.json` (versioned JSON, atomic write)
 - Transfer staging: `os.tmpdir()/dsh-ssh-uploads/` (0700 directory, 0600 in-flight files)

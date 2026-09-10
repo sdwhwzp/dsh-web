@@ -15,7 +15,9 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import { SshEngine } from './engine.ts'
-import { makeRoutes } from './routes.ts'
+import { makeAccountRoutes } from './account-routes.ts'
+import { SshAccounts, type SshPrincipal } from './accounts.ts'
+import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import { HostStore } from './store.ts'
 import { sshClusterTool, sshDownloadTool, sshExecTool, sshListTool, sshTunnelTool, sshUploadTool } from './tools.ts'
 import { mountOnce } from './mount-once.ts'
@@ -42,6 +44,8 @@ export interface Config {
   announceToAgent?: boolean
   /** Master switch for the plugin (routes, tools, prompt section). */
   enabled?: boolean
+  /** Require dsh-passwords identities and keep each account's hosts and connections separate. */
+  accountIsolation?: boolean
   /**
    * xterm `fontFamily` for the web terminal (issue #577). Empty (default)
    * defers to the CSS chain: `--dsh-ssh-terminal-font`, then the official
@@ -54,6 +58,7 @@ export interface Config {
 export const Config: z<Config> = z.object({
   announceToAgent: z.boolean().default(false),
   enabled: z.boolean().default(true),
+  accountIsolation: z.boolean().default(false),
   terminalFontFamily: z.string().default(''),
 })
 
@@ -81,7 +86,8 @@ function applyImpl(ctx: Context, config?: Config): void {
 
   const store = new HostStore()
   const engine = new SshEngine(store)
-  ctx.effect(() => () => { engine.dispose() }, 'dsh-ssh: engine')
+  const accounts = new SshAccounts(ctx)
+  ctx.effect(() => () => { engine.dispose(); accounts.dispose() }, 'dsh-ssh: engine')
 
   const resolve = (): Config => {
     const value = current()
@@ -100,17 +106,31 @@ function applyImpl(ctx: Context, config?: Config): void {
   }
 
   // The /api/dsh-ssh route family + terminal upgrade.
-  const { routes, upgrade } = makeRoutes({ store, engine })
+  const isolated = (): boolean => current().accountIsolation === true
+  const { routes, upgrade } = makeAccountRoutes(accounts, { store, engine }, isolated)
   let disposeRoutes: (() => void) | undefined
 
   // Agent tools + their prompt sections.
+  const toolEngine = (execution: ToolRunContext): SshEngine => {
+    if (!isolated()) {
+      if (ctx.get('requestPrincipal', false) !== undefined) throw new Error('Enable SSH accountIsolation before using an authenticated gateway')
+      return engine
+    }
+    // Personal Harness builds carry the transport-verified principal through tool dispatch.
+    // The public SDK does not declare that deployment extension.
+    const scope = accounts.resolve((execution as ToolRunContext & { principal?: SshPrincipal }).principal)
+    if (scope.restricted && (execution.name === 'ssh_upload' || execution.name === 'ssh_download')) {
+      throw new Error('Use the SSH web Transfer tab for account file transfers; Host filesystem paths are administrator-only')
+    }
+    return scope.engine
+  }
   const tools = [
-    sshListTool(engine),
-    sshExecTool(engine),
-    sshUploadTool(engine),
-    sshDownloadTool(engine),
-    sshTunnelTool(engine),
-    sshClusterTool(engine),
+    sshListTool(toolEngine),
+    sshExecTool(toolEngine),
+    sshUploadTool(toolEngine),
+    sshDownloadTool(toolEngine),
+    sshTunnelTool(toolEngine),
+    sshClusterTool(toolEngine),
   ]
   let disposeTools: (() => void) | undefined
 
@@ -134,6 +154,7 @@ function applyImpl(ctx: Context, config?: Config): void {
       disposeTools()
       disposeTools = undefined
     }
+    if (!value.enabled || !isolated()) accounts.clear()
     if (!value.enabled) return
     if (value.announceToAgent) {
       disposeSection = ctx.systemPrompt.section({

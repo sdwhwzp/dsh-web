@@ -41,8 +41,9 @@ export function validateHostPayload(payload: unknown): string | undefined {
   if (auth !== undefined) {
     if (typeof auth !== 'object' || auth === null) return 'auth must be an object'
     if (auth.kind !== 'key' && auth.kind !== 'password' && auth.kind !== 'agent') return 'auth.kind must be key, password or agent'
-    if (auth.kind === 'key' && (typeof auth.keyPath !== 'string' || auth.keyPath.trim() === '')) {
-      return 'auth.keyPath is required for key auth'
+    if (auth.kind === 'key' && (typeof auth.keyPath !== 'string' || auth.keyPath.trim() === '') &&
+      (typeof auth.privateKey !== 'string' || auth.privateKey.trim() === '')) {
+      return 'auth.keyPath or auth.privateKey is required for key auth'
     }
     if (auth.kind === 'password' && auth.password !== undefined && typeof auth.password !== 'string') {
       return 'auth.password must be a string when provided'
@@ -104,7 +105,7 @@ export class HostStore {
   /** Secret-free projection for the browser and agent surfaces. */
   summarize(entry: SshHostEntry): SshHostSummary {
     let keyReady = true
-    if (entry.auth.kind === 'key' && entry.auth.keyPath) {
+    if (entry.auth.kind === 'key' && entry.auth.keyPath && !entry.auth.privateKey) {
       keyReady = existsSync(expandHome(entry.auth.keyPath))
     } else if (entry.auth.kind === 'agent') {
       keyReady = false
@@ -147,7 +148,8 @@ export class HostStore {
       user: payload.user.trim(),
       auth: {
         kind: payload.auth.kind,
-        keyPath: payload.auth.kind === 'key' ? expandHome(payload.auth.keyPath?.trim() ?? '') : undefined,
+        keyPath: payload.auth.kind === 'key' && payload.auth.keyPath ? expandHome(payload.auth.keyPath.trim()) : undefined,
+        privateKey: payload.auth.kind === 'key' ? payload.auth.privateKey : undefined,
         passphrase: payload.auth.kind === 'key' ? payload.auth.passphrase ?? undefined : undefined,
         password: payload.auth.kind === 'password' ? payload.auth.password : undefined,
         agentPath: payload.auth.kind === 'agent' ? normalizeAgentPath(payload.auth.agentPath) : undefined,
@@ -193,8 +195,9 @@ export class HostStore {
     if (patch.auth !== undefined) {
       const auth = patch.auth
       if (auth.kind !== 'key' && auth.kind !== 'password' && auth.kind !== 'agent') throw new Error('auth.kind must be key, password or agent')
-      if (auth.kind === 'key' && (typeof auth.keyPath !== 'string' || auth.keyPath.trim() === '')) {
-        throw new Error('auth.keyPath is required for key auth')
+      if (auth.kind === 'key' && (typeof auth.keyPath !== 'string' || auth.keyPath.trim() === '') &&
+        (typeof auth.privateKey !== 'string' || auth.privateKey.trim() === '')) {
+        throw new Error('auth.keyPath or auth.privateKey is required for key auth')
       }
       if (auth.kind === 'password' && auth.password !== undefined && typeof auth.password !== 'string') {
         throw new Error('auth.password must be a string when provided')
@@ -204,12 +207,12 @@ export class HostStore {
       }
       // A changed key path with no passphrase means the new key has none;
       // only keep the old passphrase when the key path is unchanged.
-      const keyChanged = auth.kind === 'key'
-        && auth.keyPath !== undefined
-        && expandHome(auth.keyPath.trim()) !== entry.auth.keyPath
+      const keyChanged = auth.kind === 'key' && (auth.privateKey !== entry.auth.privateKey ||
+        (auth.keyPath !== undefined && expandHome(auth.keyPath.trim()) !== entry.auth.keyPath))
       entry.auth = {
         kind: auth.kind,
-        keyPath: auth.kind === 'key' ? expandHome(auth.keyPath?.trim() ?? '') : undefined,
+        keyPath: auth.kind === 'key' && auth.keyPath ? expandHome(auth.keyPath.trim()) : undefined,
+        privateKey: auth.kind === 'key' ? auth.privateKey : undefined,
         passphrase: auth.kind === 'key'
           ? (auth.passphrase !== undefined ? auth.passphrase : (keyChanged ? undefined : entry.auth.passphrase))
           : undefined,

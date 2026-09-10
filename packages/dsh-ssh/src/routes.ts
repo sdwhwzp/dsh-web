@@ -45,6 +45,10 @@ function queryParam(url: URL, name: string): string | undefined {
 
 /** Route family dependencies. */
 export interface SshRoutesDeps {
+  /** Whether this route family belongs to a verified account. */
+  accountScoped?: boolean
+  /** Whether Host credentials and config import are unavailable to this account. */
+  restricted?: boolean
   /** The host store (CRUD). */
   store: HostStore
   /** The engine (ops). */
@@ -98,7 +102,9 @@ const maxUploadBytes = deps.maxUploadBytes ?? MAX_UPLOAD_BYTES
         }
         const url = new URL(req.url ?? '/', 'http://localhost')
         if (method === 'GET') {
-          writeJson(res, 200, { hosts: engine.list(queryParam(url, 'query')) })
+          writeJson(res, 200, { hosts: engine.list(queryParam(url, 'query')), capabilities: {
+            accountScoped: deps.accountScoped === true, serverCredentials: deps.restricted !== true,
+          } })
           return
         }
         if (method === 'POST') {

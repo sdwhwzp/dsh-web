@@ -27,6 +27,7 @@ interface FormState {
   user: string
   authKind: SshAuthKind
   keyPath: string
+  privateKey: string
   passphrase: string
   password: string
   agentPath: string
@@ -51,6 +52,7 @@ function blankOf(editing: SshHostSummary | null | undefined): FormState {
     user: editing?.user ?? '',
     authKind: editing?.auth ?? 'key',
     keyPath: '',
+    privateKey: '',
     passphrase: '',
     password: '',
     agentPath: '',
@@ -106,14 +108,14 @@ export function HostFormDialog({ api, editing, onClose, onSaved }: HostFormDialo
     const secretEmpty = form.authKind === 'password'
       ? form.password === ''
       : form.authKind === 'key'
-        ? form.keyPath.trim() === ''
+        ? form.keyPath.trim() === '' && form.privateKey.trim() === ''
         : form.agentPath.trim() === ''
     const auth: HostPayload['auth'] = editing != null && secretEmpty
       ? undefined
       : form.authKind === 'password'
         ? { kind: 'password', password: form.password }
         : form.authKind === 'key'
-          ? { kind: 'key', keyPath: form.keyPath.trim(), passphrase: form.passphrase === '' ? undefined : form.passphrase }
+          ? { kind: 'key', ...(form.privateKey.trim() !== '' ? { privateKey: form.privateKey } : { keyPath: form.keyPath.trim() }), passphrase: form.passphrase === '' ? undefined : form.passphrase }
           : { kind: 'agent', agentPath: form.agentPath.trim() === '' ? undefined : form.agentPath.trim() }
     const payload: HostPayload = {
       host,
@@ -175,19 +177,24 @@ export function HostFormDialog({ api, editing, onClose, onSaved }: HostFormDialo
               <input type="radio" name="dsh-ssh-auth" checked={form.authKind === 'password'} onChange={() => { set('authKind', 'password') }} />
               {tt('form.auth.password')}
             </label>
-            <label className={css.radioLabel}>
+            {api.capabilities?.serverCredentials !== false && <label className={css.radioLabel}>
               <input type="radio" name="dsh-ssh-auth" checked={form.authKind === 'agent'} onChange={() => { set('authKind', 'agent') }} />
               {tt('form.auth.agent')}
-            </label>
+            </label>}
           </div>
           {editing != null && <span className={css.hint}>{tt('form.authKeepHint')}</span>}
         </div>
         {form.authKind === 'key' ? (
           <div className={css.formRow}>
-            <label className={css.field}>
+            {api.capabilities?.serverCredentials !== false && <label className={css.field}>
               <span className={css.fieldLabel}>{tt('form.keyPath')}</span>
               <input className={css.input} value={form.keyPath} onChange={event => { set('keyPath', event.target.value) }} />
               <span className={css.hint}>{tt('form.keyPathHint')}</span>
+            </label>}
+            <label className={css.field}>
+              <span className={css.fieldLabel}>{tt('form.privateKey')}</span>
+              <textarea className={css.input} rows={5} value={form.privateKey} autoComplete="off" spellCheck={false} onChange={event => { set('privateKey', event.target.value) }} />
+              <span className={css.hint}>{tt('form.privateKeyHint')}</span>
             </label>
             <label className={css.field}>
               <span className={css.fieldLabel}>{tt('form.passphrase')}</span>

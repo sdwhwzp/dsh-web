@@ -231,12 +231,13 @@ export function HostsTab({ api, onConnect }: HostsTabProps) {
         </select>
         <div className={css.toolbarSpacer} />
         <button type="button" className={css.primaryButton} onClick={() => { setDialog({ mode: 'create' }) }}>{tt('hosts.add')}</button>
-        <button type="button" className={css.ghostButton} disabled={importing} onClick={() => { void importConfig() }}>{importing ? tt('common.loading') : tt('hosts.import')}</button>
+        {api.capabilities?.serverCredentials !== false && <button type="button" className={css.ghostButton} disabled={importing} onClick={() => { void importConfig() }}>{importing ? tt('common.loading') : tt('hosts.import')}</button>}
       </div>
       {notice !== null && <div className={css.banner} data-kind="ok">{notice}</div>}
+      {api.capabilities?.accountScoped && <p className={css.hint}>{tt('hosts.accountScope')}</p>}
       {error !== null && <div className={css.banner} data-kind="error">{tt('common.error', { error })}</div>}
       {hosts === null && error === null && <div className={css.loading}>{tt('common.loading')}</div>}
-      {hosts !== null && hosts.length === 0 && <div className={css.empty}>{tt('hosts.empty')}</div>}
+      {hosts !== null && hosts.length === 0 && <div className={css.empty}>{tt(api.capabilities?.serverCredentials === false ? 'hosts.accountEmpty' : 'hosts.empty')}</div>}
       {hosts !== null && hosts.length > 0 && groupBy === 'none' && (
         <div className={css.tableWrap}>
           {renderHostTable(hosts)}

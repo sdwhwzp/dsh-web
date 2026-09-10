@@ -82,11 +82,15 @@ export function buildConnectConfig(entry: SshHostEntry, sock: ConnectConfig['soc
     }
     config.agent = agentPath
   } else {
-    const keyPath = entry.auth.keyPath === undefined ? undefined : expandHome(entry.auth.keyPath)
-    if (keyPath === undefined || !existsSync(keyPath)) {
-      throw new Error('private key not found: ' + (entry.auth.keyPath ?? '(unset)'))
+    if (entry.auth.privateKey !== undefined) {
+      config.privateKey = entry.auth.privateKey
+    } else {
+      const keyPath = entry.auth.keyPath === undefined ? undefined : expandHome(entry.auth.keyPath)
+      if (keyPath === undefined || !existsSync(keyPath)) {
+        throw new Error('private key not found: ' + (entry.auth.keyPath ?? '(unset)'))
+      }
+      config.privateKey = readFileSync(keyPath, 'utf8')
     }
-    config.privateKey = readFileSync(keyPath, 'utf8')
     if (entry.auth.passphrase !== undefined && entry.auth.passphrase !== '') {
       config.passphrase = entry.auth.passphrase
     }

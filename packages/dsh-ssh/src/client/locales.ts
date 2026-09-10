@@ -14,6 +14,10 @@ export const zh = {
   'tab.cluster': '集群',
   // hosts
   'hosts.empty': '尚未配置主机。点击「新增主机」添加，或从 ~/.ssh/config 导入。',
+  'hosts.accountScope': '连接、凭据、终端和隧道仅属于当前登录账号。其他账号可以使用相同的连接别名。',
+  'hosts.accountEmpty': '尚未配置主机。点击「新增主机」添加你自己的 SSH 连接。',
+  'form.privateKey': '私钥内容',
+  'form.privateKeyHint': '粘贴你自己的完整私钥；保存后不会回显。留空可保留已保存的凭据。',
   'hosts.add': '新增主机',
   'hosts.import': '导入 ~/.ssh/config',
   'hosts.search': '搜索别名 / 描述 / 标签…',
@@ -158,6 +162,10 @@ export const zh = {
 } as const
 
 export const en: Record<keyof typeof zh, string> = {
+  'hosts.accountScope': 'Connections, credentials, terminals and tunnels belong to your signed-in account. Other accounts can use the same aliases.',
+  'hosts.accountEmpty': 'No hosts configured. Add your own SSH connection with Add host.',
+  'form.privateKey': 'Private key contents',
+  'form.privateKeyHint': 'Paste your complete private key. Saved keys are never returned; leave blank to preserve existing credentials.',
   'entry.label': 'SSH',
   'entry.tooltip': 'Remote SSH operations panel',
   'panel.title': 'Remote SSH',

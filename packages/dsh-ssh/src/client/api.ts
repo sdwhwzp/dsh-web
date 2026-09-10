@@ -98,10 +98,13 @@ export interface TerminalConnection {
 
 /** The browser half's only data entry point. */
 export class SshApi {
+  /** Capabilities returned with the authenticated host list. */
+  capabilities = { accountScoped: false, serverCredentials: true }
   // -------------------------------------------------------------- hosts
   async listHosts(queryText?: string): Promise<SshHostSummary[]> {
     const response = await fetch(SSH_API.hosts + query({ query: queryText }))
-    const body = await readJson<{ hosts: SshHostSummary[] }>(response)
+    const body = await readJson<{ hosts: SshHostSummary[]; capabilities?: { accountScoped: boolean; serverCredentials: boolean } }>(response)
+    if (body.capabilities !== undefined) this.capabilities = body.capabilities
     return body.hosts
   }
 
