@@ -57,6 +57,8 @@ export interface ShellConfig {
   plugin: string
   /** Config forwarded verbatim to the real plugin. */
   config?: unknown
+  /** Mount browser UI only when a deployment supplies the plugin's authenticated Host API separately. */
+  clientOnly?: boolean
 }
 
 /** Loopback-fenced degraded-state route (installed once per shell context). */
@@ -198,6 +200,10 @@ const RETIRED_PLUGINS = new Set([
 export async function apply(ctx: Context, config: ShellConfig | undefined): Promise<void> {
   holdHealthRoutes(ctx)
   const spec = config?.plugin
+  if (config?.clientOnly !== undefined && typeof config.clientOnly !== 'boolean') {
+    recordDegraded(typeof spec === 'string' ? spec : '(no plugin)', 'shape', new Error('clientOnly must be a boolean'))
+    return
+  }
   if (typeof spec === 'string' && RETIRED_PLUGINS.has(spec)) {
     // Stale row from an older profile whose plugin has been retired. Mount empty quietly.
     return
@@ -231,6 +237,7 @@ export async function apply(ctx: Context, config: ShellConfig | undefined): Prom
   ctx.effect(() => () => {
     removeActiveRow(spec)
   }, 'dsh-web-all: active row ledger')
+  if (config?.clientOnly === true) return
   let mod: unknown
   try {
     mod = await import(/* @vite-ignore */ spec)

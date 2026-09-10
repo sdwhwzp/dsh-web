@@ -1,32 +1,4 @@
-//#region src/state.ts
-const KEY = Symbol.for("dsh-web-all.shell-state");
-/** The process-wide shared shell state (one instance across module copies). */
-function shellState() {
-	const registry = globalThis;
-	return registry[KEY] ??= {
-		activeRows: /* @__PURE__ */ new Set(),
-		degraded: /* @__PURE__ */ new Map(),
-		healthRoutes: { count: 0 }
-	};
-}
-//#endregion
-//#region src/degraded.ts
-/** Record (or refresh) one plugin's degraded state. Errors are logged here once. */
-function recordDegraded(plugin, stage, error) {
-	const message = error instanceof Error ? error.stack ?? error.message : String(error);
-	console.error(`[dsh-web-all] plugin degraded (${stage}): ${plugin}\n${message}`);
-	shellState().degraded.set(plugin, {
-		plugin,
-		stage,
-		message,
-		at: (/* @__PURE__ */ new Date()).toISOString()
-	});
-}
-/** Snapshot of all currently degraded plugins. */
-function listDegraded() {
-	return [...shellState().degraded.values()];
-}
-//#endregion
+import { i as shellState, n as listDegraded, r as recordDegraded } from "./degraded-CA6yzGPr.js";
 //#region src/rows.ts
 /**
 * Active-row ledger for the dsh-web-all fault-isolation shell. Each family
@@ -62,6 +34,8 @@ function listActiveRows() {
 }
 //#endregion
 //#region src/shell.ts
+/** Required services: none — the shell must activate before anything else. */
+const inject = [];
 /** Loopback-fenced degraded-state route (installed once per shell context). */
 function makeDegradedRoute() {
 	return {
@@ -111,6 +85,25 @@ function makeRowsRoute() {
 			}));
 		}
 	};
+}
+/**
+* Route registration state lives in the process-wide shared state
+* (src/state.ts): multiple shell entries (the self row plus one per family
+* plugin) mount sequentially under the aggregate, AND the bundler splits the
+* two entry artifacts (lib/index.js vs lib/shells/shell.js) into separate
+* module copies — module-local state would double-register the routes. Both
+* health routes are singletons on the host webServer; ref-counting registers
+* them exactly once on the first shell entry and tears them down with the
+* last.
+*/
+/** For test teardown and test isolation only. */
+function _resetDegradedRouteForTest() {
+	const routes = shellState().healthRoutes;
+	routes.count = 0;
+	try {
+		routes.unregister?.();
+	} catch {}
+	routes.unregister = void 0;
 }
 /**
 * Hold both health routes (degraded + rows) for this shell entry's lifetime.
@@ -174,7 +167,7 @@ function isOverrideShape(config) {
 */
 const RETIRED_PLUGINS = /* @__PURE__ */ new Set(["@linxin666/dsh-perf", "@linxin666/dsh-desktop-launcher"]);
 /** Apply one shell entry: mount the configured real plugin behind an isolation boundary. */
-async function apply$1(ctx, config) {
+async function apply(ctx, config) {
 	holdHealthRoutes(ctx);
 	const spec = config?.plugin;
 	if (config?.clientOnly !== void 0 && typeof config.clientOnly !== "boolean") {
@@ -215,12 +208,6 @@ async function apply$1(ctx, config) {
 	}
 }
 //#endregion
-//#region src/index.ts
-/** Required services: none — the shell must activate before anything else. */
-const inject = [];
-/** Host plugin body: mount the configured real plugin behind the shell boundary. */
-function apply(ctx, config) {
-	return apply$1(ctx, config);
-}
-//#endregion
-export { apply, inject };
+export { apply as n, inject as r, _resetDegradedRouteForTest as t };
+
+//# sourceMappingURL=shell-BAS-aqX_.js.map

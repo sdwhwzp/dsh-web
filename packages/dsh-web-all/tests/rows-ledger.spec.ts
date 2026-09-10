@@ -8,6 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { apply, _resetDegradedRouteForTest } from '../src/shell.ts'
 import { _resetActiveRowsForTest, listActiveRows, recordActiveRow, removeActiveRow } from '../src/rows.ts'
+import { listDegraded, clearDegraded } from '../src/degraded.ts'
 
 function fakeRes() {
   const res = {
@@ -56,6 +57,7 @@ function mockHost() {
 }
 
 function resetAll(): void {
+  listDegraded().forEach((entry) => clearDegraded(entry.plugin))
   _resetDegradedRouteForTest()
   _resetActiveRowsForTest()
 }
@@ -76,6 +78,30 @@ describe('active-row ledger', () => {
 describe('shell row-state surface', () => {
   beforeEach(resetAll)
   afterEach(resetAll)
+
+  it('keeps browser-only UI active without importing or mounting a shared Host', async () => {
+    const host = mockHost()
+    const ctx = host.createCtx()
+    const plugin = '@test/missing-host-implementation'
+    await apply(ctx as never, { plugin, clientOnly: true })
+    host.provideWebServer()
+    expect(listActiveRows()).toEqual([plugin])
+    expect(listDegraded()).toEqual([])
+    expect(ctx.plugin).not.toHaveBeenCalled()
+    const response = fakeRes()
+    await host.routes.get('/api/dsh-web-all/rows')!(fakeReq(), response)
+    expect(response.body).toContain(plugin)
+    for (const dispose of host.effects) dispose()
+    expect(listActiveRows()).toEqual([])
+    expect(host.routes.size).toBe(0)
+  })
+
+  it('rejects a malformed client-only config without activating the row', async () => {
+    const host = mockHost()
+    await apply(host.createCtx() as never, { plugin: 'node:events', clientOnly: 'true' } as never)
+    expect(listActiveRows()).toEqual([])
+    expect(listDegraded()).toHaveLength(1)
+  })
 
   it('a family row apply records the real plugin and registers both routes', async () => {
     const host = mockHost()

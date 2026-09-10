@@ -67,6 +67,8 @@ dsh plugin --profile web add link:$(pwd)/packages/dsh-web-all
 
 参见 [issue #513](https://github.com/zhu1090093659/dsh-web/issues/513)。
 
+部署已单独提供鉴权 Host API 时，可在家族行的 `config.plugin` 包名旁设置 `config.clientOnly: true`。该行继续参与浏览器入口发现和生命周期清理，聚合包不会导入或启动该插件的共享 Host。部署必须提供界面所需的全部 API；此选项本身不实现账号隔离。整行停用时仍会隐藏界面。
+
 ## 已知限制
 
 - 各子插件随本包一起激活；若只需要其中一部分，请直接安装对应子插件包。

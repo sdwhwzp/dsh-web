@@ -67,6 +67,8 @@ The group moved to a first-level `settings.section` registration in 0.1.18 and s
 
 See [issue #513](https://github.com/zhu1090093659/dsh-web/issues/513).
 
+For deployments that provide an authenticated Host API separately, a family row can set `config.clientOnly: true` alongside its `config.plugin` package name. The row remains active for browser entry discovery and lifecycle disposal, while the aggregate does not import or start that plugin’s shared Host. The deployment must supply every API needed by its UI; this option does not implement account isolation. An entirely disabled row still hides the UI.
+
 ## Known limitations
 
 - Every sub-plugin activates together. For only a subset, install that sub-plugin package directly.
