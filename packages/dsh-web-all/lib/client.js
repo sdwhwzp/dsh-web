@@ -578,7 +578,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$11() {
 			try {
-				return "0.3.19";
+				return "0.3.20";
 			} catch {
 				return;
 			}
@@ -1983,7 +1983,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$10() {
 			try {
-				return "0.3.19";
+				return "0.3.20";
 			} catch {
 				return;
 			}
@@ -4446,7 +4446,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$9() {
 			try {
-				return "0.3.19";
+				return "0.3.20";
 			} catch {
 				return;
 			}
@@ -9178,7 +9178,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$8() {
 			try {
-				return "0.3.19";
+				return "0.3.20";
 			} catch {
 				return;
 			}
@@ -11040,7 +11040,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$7() {
 			try {
-				return "0.3.19";
+				return "0.3.20";
 			} catch {
 				return;
 			}
@@ -13395,7 +13395,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$6() {
 			try {
-				return "0.3.19";
+				return "0.3.20";
 			} catch {
 				return;
 			}
@@ -16632,40 +16632,72 @@ window.__ModuleLoader__.load({
 				}
 				const decoding = /* @__PURE__ */ new Map();
 				const decodedAll = [];
-				const loadFrame = (url) => {
+				const FRAME_POOL_LIMIT = 8;
+				const frameQueue = [];
+				let activeFrames = 0;
+				const decodeFrame = async (url) => {
+					try {
+						const response = await fetch(url);
+						if (!response.ok) throw new Error("http " + response.status);
+						const bitmap = await createImageBitmap(await response.blob());
+						return {
+							source: bitmap,
+							width: bitmap.width,
+							height: bitmap.height
+						};
+					} catch {
+						return await new Promise((resolve) => {
+							try {
+								const pre = new Image();
+								pre.onload = () => {
+									resolve(pre.naturalWidth > 0 ? {
+										source: pre,
+										width: pre.naturalWidth,
+										height: pre.naturalHeight
+									} : void 0);
+								};
+								pre.onerror = () => resolve(void 0);
+								pre.src = url;
+							} catch {
+								resolve(void 0);
+							}
+						});
+					}
+				};
+				const pumpFrames = () => {
+					while (activeFrames < FRAME_POOL_LIMIT && frameQueue.length > 0) {
+						const queued = frameQueue.shift();
+						activeFrames += 1;
+						queued.release();
+					}
+				};
+				const loadFrame = (url, jump = false) => {
+					if (jump) {
+						const index = frameQueue.findIndex((queued) => queued.url === url);
+						if (index > 0) frameQueue.unshift(frameQueue.splice(index, 1)[0]);
+					}
 					const cached = decoding.get(url);
 					if (cached !== void 0) return cached;
-					const job = (async () => {
-						try {
-							const response = await fetch(url);
-							if (!response.ok) throw new Error("http " + response.status);
-							const bitmap = await createImageBitmap(await response.blob());
-							return {
-								source: bitmap,
-								width: bitmap.width,
-								height: bitmap.height
-							};
-						} catch {
-							return await new Promise((resolve) => {
-								try {
-									const pre = new Image();
-									pre.onload = () => {
-										resolve(pre.naturalWidth > 0 ? {
-											source: pre,
-											width: pre.naturalWidth,
-											height: pre.naturalHeight
-										} : void 0);
-									};
-									pre.onerror = () => resolve(void 0);
-									pre.src = url;
-								} catch {
-									resolve(void 0);
-								}
-							});
-						}
-					})();
+					let release;
+					const job = new Promise((resolve) => {
+						release = resolve;
+					}).then(() => disposed ? void 0 : decodeFrame(url));
+					job.then((frame) => {
+						if (frame === void 0) decoding.delete(url);
+					}, () => decoding.delete(url));
+					job.finally(() => {
+						activeFrames -= 1;
+						pumpFrames();
+					});
 					decoding.set(url, job);
 					decodedAll.push(job.then(() => void 0, () => void 0));
+					const entry = {
+						url,
+						release
+					};
+					if (jump) frameQueue.unshift(entry);
+					else frameQueue.push(entry);
+					pumpFrames();
 					return job;
 				};
 				let disposed = false;
@@ -16688,7 +16720,7 @@ window.__ModuleLoader__.load({
 				const paintCanvas = (url) => {
 					if (context2d === null || canvas === null) return;
 					const myToken = ++drawToken;
-					loadFrame(url).then((frame) => {
+					loadFrame(url, true).then((frame) => {
 						if (disposed || frame === void 0 || myToken !== drawToken) return;
 						if (lastDrawnUrl === url) return;
 						lastDrawnUrl = url;
@@ -16758,7 +16790,11 @@ window.__ModuleLoader__.load({
 					const expected = (def.durations[frameIndex] ?? 200) + WATCHDOG_MS;
 					if (Date.now() - lastAdvance > expected) tick();
 				}, WATCHDOG_MS);
-				for (const warmTrack of Object.values(config.tracks)) for (const warmUrl of warmTrack.frames) loadFrame(warmUrl);
+				const warmTrackIds = [.../* @__PURE__ */ new Set([...Object.values(config.phases), config.phases.idle])];
+				for (const warmTrack of [...warmTrackIds, ...Object.keys(config.tracks)].map((id) => config.tracks[id])) {
+					if (warmTrack === void 0) continue;
+					for (const warmUrl of warmTrack.frames) loadFrame(warmUrl);
+				}
 				play(track);
 				let disposedOnce = false;
 				const dispose = () => {
@@ -16768,6 +16804,7 @@ window.__ModuleLoader__.load({
 					unsubscribe();
 					if (timer !== void 0) clearTimeout(timer);
 					if (watchdog !== void 0) clearInterval(watchdog);
+					for (const queued of frameQueue.splice(0)) queued.release();
 					Promise.allSettled(decodedAll).then(() => {
 						for (const job of decoding.values()) job.then((frame) => {
 							try {
@@ -18265,7 +18302,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$5() {
 			try {
-				return "0.3.19";
+				return "0.3.20";
 			} catch {
 				return;
 			}
@@ -34744,7 +34781,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$4() {
 			try {
-				return "0.3.19";
+				return "0.3.20";
 			} catch {
 				return;
 			}
@@ -37148,7 +37185,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$3() {
 			try {
-				return "0.3.19";
+				return "0.3.20";
 			} catch {
 				return;
 			}
@@ -38356,7 +38393,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$2() {
 			try {
-				return "0.3.19";
+				return "0.3.20";
 			} catch {
 				return;
 			}
@@ -41752,7 +41789,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$1() {
 			try {
-				return "0.3.19";
+				return "0.3.20";
 			} catch {
 				return;
 			}
@@ -52395,7 +52432,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion() {
 			try {
-				return "0.3.19";
+				return "0.3.20";
 			} catch {
 				return;
 			}
