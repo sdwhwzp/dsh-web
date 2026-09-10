@@ -18668,6 +18668,10 @@ window.__ModuleLoader__.load({
 			"tab.tunnels": "隧道",
 			"tab.cluster": "集群",
 			"hosts.empty": "尚未配置主机。点击「新增主机」添加，或从 ~/.ssh/config 导入。",
+			"hosts.accountScope": "连接、凭据、终端和隧道仅属于当前登录账号。其他账号可以使用相同的连接别名。",
+			"hosts.accountEmpty": "尚未配置主机。点击「新增主机」添加你自己的 SSH 连接。",
+			"form.privateKey": "私钥内容",
+			"form.privateKeyHint": "粘贴你自己的完整私钥；保存后不会回显。留空可保留已保存的凭据。",
 			"hosts.add": "新增主机",
 			"hosts.import": "导入 ~/.ssh/config",
 			"hosts.search": "搜索别名 / 描述 / 标签…",
@@ -18805,6 +18809,10 @@ window.__ModuleLoader__.load({
 			"error.disabled": "SSH 插件在宿主端未启用。请前往「设置 → Web 插件 → SSH」打开 enabled 开关。"
 		};
 		const en$8 = {
+			"hosts.accountScope": "Connections, credentials, terminals and tunnels belong to your signed-in account. Other accounts can use the same aliases.",
+			"hosts.accountEmpty": "No hosts configured. Add your own SSH connection with Add host.",
+			"form.privateKey": "Private key contents",
+			"form.privateKeyHint": "Paste your complete private key. Saved keys are never returned; leave blank to preserve existing credentials.",
 			"entry.label": "SSH",
 			"entry.tooltip": "Remote SSH operations panel",
 			"panel.title": "Remote SSH",
@@ -19063,8 +19071,15 @@ window.__ModuleLoader__.load({
 		}
 		/** The browser half's only data entry point. */
 		var SshApi = class {
+			/** Capabilities returned with the authenticated host list. */
+			capabilities = {
+				accountScoped: false,
+				serverCredentials: true
+			};
 			async listHosts(queryText) {
-				return (await readJson(await fetch(SSH_API.hosts + query({ query: queryText })))).hosts;
+				const body = await readJson(await fetch(SSH_API.hosts + query({ query: queryText })));
+				if (body.capabilities !== void 0) this.capabilities = body.capabilities;
+				return body.hosts;
 			}
 			async createHost(payload) {
 				return (await readJson(await fetch(SSH_API.hosts, {
@@ -19599,6 +19614,7 @@ window.__ModuleLoader__.load({
 				user: editing?.user ?? "",
 				authKind: editing?.auth ?? "key",
 				keyPath: "",
+				privateKey: "",
 				passphrase: "",
 				password: "",
 				agentPath: "",
@@ -19646,7 +19662,7 @@ window.__ModuleLoader__.load({
 					setError(tt$1("form.passwordRequired"));
 					return;
 				}
-				const secretEmpty = form.authKind === "password" ? form.password === "" : form.authKind === "key" ? form.keyPath.trim() === "" : form.agentPath.trim() === "";
+				const secretEmpty = form.authKind === "password" ? form.password === "" : form.authKind === "key" ? form.keyPath.trim() === "" && form.privateKey.trim() === "" : form.agentPath.trim() === "";
 				const payload = {
 					host,
 					port,
@@ -19656,7 +19672,7 @@ window.__ModuleLoader__.load({
 						password: form.password
 					} : form.authKind === "key" ? {
 						kind: "key",
-						keyPath: form.keyPath.trim(),
+						...form.privateKey.trim() !== "" ? { privateKey: form.privateKey } : { keyPath: form.keyPath.trim() },
 						passphrase: form.passphrase === "" ? void 0 : form.passphrase
 					} : {
 						kind: "agent",
@@ -19794,7 +19810,7 @@ window.__ModuleLoader__.load({
 												}
 											}), tt$1("form.auth.password")]
 										}),
-										/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+										api.capabilities?.serverCredentials !== false && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
 											className: panel_module_css_default.radioLabel,
 											children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
 												type: "radio",
@@ -19815,39 +19831,65 @@ window.__ModuleLoader__.load({
 						}),
 						form.authKind === "key" ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 							className: panel_module_css_default.formRow,
-							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
-								className: panel_module_css_default.field,
-								children: [
-									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							children: [
+								api.capabilities?.serverCredentials !== false && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+									className: panel_module_css_default.field,
+									children: [
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+											className: panel_module_css_default.fieldLabel,
+											children: tt$1("form.keyPath")
+										}),
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+											className: panel_module_css_default.input,
+											value: form.keyPath,
+											onChange: (event) => {
+												set("keyPath", event.target.value);
+											}
+										}),
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+											className: panel_module_css_default.hint,
+											children: tt$1("form.keyPathHint")
+										})
+									]
+								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+									className: panel_module_css_default.field,
+									children: [
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+											className: panel_module_css_default.fieldLabel,
+											children: tt$1("form.privateKey")
+										}),
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("textarea", {
+											className: panel_module_css_default.input,
+											rows: 5,
+											value: form.privateKey,
+											autoComplete: "off",
+											spellCheck: false,
+											onChange: (event) => {
+												set("privateKey", event.target.value);
+											}
+										}),
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+											className: panel_module_css_default.hint,
+											children: tt$1("form.privateKeyHint")
+										})
+									]
+								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+									className: panel_module_css_default.field,
+									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 										className: panel_module_css_default.fieldLabel,
-										children: tt$1("form.keyPath")
-									}),
-									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+										children: tt$1("form.passphrase")
+									}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
 										className: panel_module_css_default.input,
-										value: form.keyPath,
+										type: "password",
+										value: form.passphrase,
 										onChange: (event) => {
-											set("keyPath", event.target.value);
+											set("passphrase", event.target.value);
 										}
-									}),
-									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-										className: panel_module_css_default.hint,
-										children: tt$1("form.keyPathHint")
-									})
-								]
-							}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
-								className: panel_module_css_default.field,
-								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-									className: panel_module_css_default.fieldLabel,
-									children: tt$1("form.passphrase")
-								}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
-									className: panel_module_css_default.input,
-									type: "password",
-									value: form.passphrase,
-									onChange: (event) => {
-										set("passphrase", event.target.value);
-									}
-								})]
-							})]
+									})]
+								})
+							]
 						}) : form.authKind === "agent" ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
 							className: panel_module_css_default.field,
 							children: [
@@ -20284,7 +20326,7 @@ window.__ModuleLoader__.load({
 								},
 								children: tt$1("hosts.add")
 							}),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							api.capabilities?.serverCredentials !== false && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 								type: "button",
 								className: panel_module_css_default.ghostButton,
 								disabled: importing,
@@ -20300,6 +20342,10 @@ window.__ModuleLoader__.load({
 						"data-kind": "ok",
 						children: notice
 					}),
+					api.capabilities?.accountScoped && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+						className: panel_module_css_default.hint,
+						children: tt$1("hosts.accountScope")
+					}),
 					error !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 						className: panel_module_css_default.banner,
 						"data-kind": "error",
@@ -20311,7 +20357,7 @@ window.__ModuleLoader__.load({
 					}),
 					hosts !== null && hosts.length === 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 						className: panel_module_css_default.empty,
-						children: tt$1("hosts.empty")
+						children: tt$1(api.capabilities?.serverCredentials === false ? "hosts.accountEmpty" : "hosts.empty")
 					}),
 					hosts !== null && hosts.length > 0 && groupBy === "none" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 						className: panel_module_css_default.tableWrap,
