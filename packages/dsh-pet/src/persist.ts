@@ -75,6 +75,12 @@ export interface PetPersist {
    * to its manifest displayName, so only user renames are stored here.
    */
   names: Record<string, string>
+  /**
+   * Per-pet selected frames2d skin id (keyed by pet id). Skin ids are manifest
+   * data, so a stale entry (skin renamed or removed, pet swapped) is ignored
+   * when the state view is built instead of pinning an unresolvable track.
+   */
+  skins: Record<string, string>
   affinity: AffinityState
   /** Treat (小鱼干) stock ledger. */
   treats: TreatLedger
@@ -93,6 +99,7 @@ export function emptyPersist(): PetPersist {
     settingsOverrides: [],
     petId: DEFAULT_PET_ID,
     names: {},
+    skins: {},
     affinity: emptyAffinity(),
     treats: emptyTreatLedger(),
     display: { ...defaultDisplayConfig },
@@ -130,6 +137,19 @@ function loadPetNames(parsed: PetPersistDocument): Record<string, string> {
   return names
 }
 
+/** Sanitize the per-pet skin selection map (string keys, non-empty trimmed values). */
+function loadPetSkins(parsed: PetPersistDocument): Record<string, string> {
+  const skins: Record<string, string> = {}
+  if (typeof parsed.skins !== 'object' || parsed.skins === null) return skins
+  for (const [id, value] of Object.entries(parsed.skins as Record<string, unknown>)) {
+    if (id === '' || typeof value !== 'string') continue
+    const skin = value.trim()
+    if (skin === '') continue
+    skins[id] = skin
+  }
+  return skins
+}
+
 /** Clamp one count/score into [0, max]. */
 function clamp(value: number, max: number): number {
   return Math.min(max, Math.max(0, value))
@@ -160,12 +180,19 @@ function loadGameplay(parsed: PetPersistDocument): Record<string, PetGameplaySta
         currencies[key] = Math.min(GAMEPLAY_LOAD_CURRENCY_CAP, Math.max(0, Math.floor(value)))
       }
     }
-    result[petId] = {
+    const item: PetGameplayState = {
       stats,
       currencies,
       mode: record.mode === 'work' || record.mode === 'sleep' ? record.mode : null,
       settledAt: clamp(finiteNum(record.settledAt, 0), Number.MAX_SAFE_INTEGER),
     }
+    if (typeof record.incomeCarryMs === 'number' && Number.isFinite(record.incomeCarryMs)) {
+      item.incomeCarryMs = Math.max(0, record.incomeCarryMs)
+    }
+    if (typeof record.restoreCarryMs === 'number' && Number.isFinite(record.restoreCarryMs)) {
+      item.restoreCarryMs = Math.max(0, record.restoreCarryMs)
+    }
+    result[petId] = item
   }
   return result
 }
@@ -222,6 +249,7 @@ export function loadPetPersist(dir: string = petHomeDir()): PetPersist {
         : [],
       petId,
       names,
+      skins: loadPetSkins(parsed),
       affinity,
       treats,
       display,

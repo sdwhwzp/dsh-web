@@ -111,9 +111,12 @@ export function shellRenderingCss(): string {
     /* #1117: The upstream recommended badge pairs two background-fill tokens
        as bg + text — in dark mode, skins like Blue Fantasy collapse them to
        near-identical dark navy values (contrast ~1:1). Override the text
-       color to a readable foreground and tweak the background for contrast. */
-    body[data-ds-dark-theme] ${scoped('[data-question-key] [class*="_badge"]')},
-    body[data-ds-dark-theme] ${scoped('[data-question-scroll] [class*="_badge"]')} {
+       color to a readable foreground and tweak the background for contrast.
+       The dark-theme attribute lives on <body>, so it belongs inside the
+       scoped selector: prefixing the already-scoped list produced
+       "body ... html ...", a descendant chain that can never match (#1490). */
+    ${scoped('body[data-ds-dark-theme] [data-question-key] [class*="_badge"]')},
+    ${scoped('body[data-ds-dark-theme] [data-question-scroll] [class*="_badge"]')} {
       color: var(--dsw-alias-label-primary, #ffffff) !important;
       background: var(--dsw-alias-interactive-bg-active, color-mix(in srgb, var(--dsw-alias-button-info-fill, #4a5fa8) 50%, transparent)) !important;
     }
@@ -133,28 +136,59 @@ export function installShellRenderingAdapter(doc: Document): () => void {
 
   const win = doc.defaultView
   try { win?.scrollTo?.(0, 0) } catch {}
+  const composerSelector = COMPOSER_SEAT_SELECTORS.join(', ')
   let resizeObserver: ResizeObserver | null = null
   let mutationObserver: MutationObserver | null = null
   let observedComposer: Element | null = null
+  let appliedHeight = ''
+  let scheduledFrame: number | null = null
+  let disposed = false
+
+  // The shell mounts one composer seat per conversation; keep the resolved
+  // element while it stays connected instead of re-querying the body for every
+  // mutation batch (issue #954 follow-up: streaming produced many queries/s).
+  const resolveComposer = (): Element | null => {
+    if (observedComposer !== null && observedComposer.isConnected) return observedComposer
+    return doc.body === null ? null : doc.body.querySelector(composerSelector)
+  }
 
   const syncHeight = (): void => {
     if (doc.body === null) return
-    const composer = doc.body.querySelector(COMPOSER_SEAT_SELECTORS.join(', '))
-    if (composer !== null) {
-      if (observedComposer !== composer) {
-        if (observedComposer !== null && resizeObserver !== null) {
-          resizeObserver.unobserve(observedComposer)
-        }
-        observedComposer = composer
-        if (resizeObserver !== null) {
-          resizeObserver.observe(composer)
-        }
+    const composer = resolveComposer()
+    if (composer === null) return
+    if (observedComposer !== composer) {
+      if (observedComposer !== null && resizeObserver !== null) {
+        resizeObserver.unobserve(observedComposer)
       }
-      const rect = composer.getBoundingClientRect()
-      if (rect.height > 0) {
-        doc.documentElement?.style.setProperty('--dsh-composer-height', `${Math.ceil(rect.height)}px`)
+      observedComposer = composer
+      if (resizeObserver !== null) {
+        resizeObserver.observe(composer)
       }
     }
+    const rect = composer.getBoundingClientRect()
+    if (rect.height <= 0) return
+    const root = doc.documentElement
+    const next = `${Math.ceil(rect.height)}px`
+    // Skip the custom-property write (and its forced style invalidation) while
+    // the measured height still matches what is already applied.
+    if (next === appliedHeight || root === null) return
+    appliedHeight = next
+    root.style.setProperty('--dsh-composer-height', next)
+  }
+
+  // Coalesce mutation bursts into at most one measure/write per frame; the
+  // disposer cancels whatever is still scheduled.
+  const scheduleSync = (): void => {
+    if (scheduledFrame !== null || disposed) return
+    if (win === null || typeof win.requestAnimationFrame !== 'function') {
+      syncHeight()
+      return
+    }
+    scheduledFrame = win.requestAnimationFrame(() => {
+      scheduledFrame = null
+      if (disposed) return
+      syncHeight()
+    })
   }
 
   if (win !== null && typeof win.ResizeObserver === 'function') {
@@ -162,16 +196,19 @@ export function installShellRenderingAdapter(doc: Document): () => void {
   }
 
   if (win !== null && typeof win.MutationObserver === 'function' && doc.body !== null) {
-    mutationObserver = new win.MutationObserver(() => syncHeight())
+    mutationObserver = new win.MutationObserver(() => scheduleSync())
     mutationObserver.observe(doc.body, { childList: true, subtree: true })
   }
 
   syncHeight()
 
-  let disposed = false
   return () => {
     if (disposed) return
     disposed = true
+    if (scheduledFrame !== null) {
+      if (win !== null && typeof win.cancelAnimationFrame === 'function') win.cancelAnimationFrame(scheduledFrame)
+      scheduledFrame = null
+    }
     if (resizeObserver !== null) {
       resizeObserver.disconnect()
       resizeObserver = null
@@ -181,6 +218,7 @@ export function installShellRenderingAdapter(doc: Document): () => void {
       mutationObserver = null
     }
     observedComposer = null
+    appliedHeight = ''
     doc.documentElement?.style.removeProperty('--dsh-composer-height')
     style.remove()
   }

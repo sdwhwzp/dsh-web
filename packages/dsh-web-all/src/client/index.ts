@@ -18,6 +18,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import { mountClientChildren } from './mount-children.ts'
+import { subscribeBodyInvalidations } from './body-mutations.ts'
 
 /** Column shims: element selector → attribute to stamp. */
 const COLUMN_SHIMS: ReadonlyArray<readonly [selector: string, attribute: string]> = [
@@ -206,6 +207,14 @@ export const RESPONSIVE_CSS = `
   [data-dsh-frame][data-sidebar-collapsed] [data-pane="sidebar"] [data-dsh-responsive-part="sidebar-toggle"] {
     pointer-events: auto;
     display: inline-flex !important;
+  }
+  /* The official settings dialog renders inside the sidebar foot, so collapsing
+     the rail would both hide it (the rule above) and freeze it (a collapsed pane
+     sets pointer-events: none). Restore only the subtree that actually carries an
+     open dialog; with no dialog open the collapsed rail is unchanged (issue #1510). */
+  [data-dsh-frame][data-sidebar-collapsed] [data-pane="sidebar"] > [data-slot="sidebar"] > :first-child > :not(:first-child):has([role="dialog"], [aria-modal="true"]) {
+    display: flex !important;
+    pointer-events: auto;
   }
   /* Center-view plugins own this marker; the aggregate shell owns its mobile offset. */
   [data-dsh-frame][data-sidebar-collapsed] [data-dsh-center-view-back] {
@@ -468,27 +477,6 @@ function applyShims(): boolean {
   return changed
 }
 
-/**
- * Coalesce mutation bursts into one pass per frame. React renders burst
- * dozens of subtree mutations per commit; stamping on every single mutation
- * callback turned each render into many querySelector sweeps. A scheduled
- * rAF plus a done flag folds the whole burst into a single pass, and the
- * idempotence check stops the work entirely once every attribute is set.
- */
-function schedulePass(): void {
-  if (shimScheduled) return
-  shimScheduled = true
-  requestAnimationFrame(() => {
-    shimScheduled = false
-    applyShims()
-    shimAfterPass?.()
-  })
-}
-
-/** True while a coalesced pass is pending. */
-let shimScheduled = false
-let shimAfterPass: (() => void) | undefined
-
 function installBootShield(): { dismiss: () => void; remove: () => void } {
   if (typeof document === 'undefined') return { dismiss: () => {}, remove: () => {} }
   let splash = document.querySelector<HTMLElement>('div[data-dsh-boot-splash]')
@@ -540,42 +528,39 @@ export function apply(ctx: Context): void {
     applyShims()
     let removeMobileDismiss = (): void => {}
     let dismissFrame: HTMLElement | null = null
+    let resolvedFrame: HTMLElement | null = null
     const ensureMobileDismiss = (): void => {
-      const frame = document.querySelector<HTMLElement>('[data-dsh-frame]')
-      if (frame !== null) {
-        bootShield.dismiss()
-      }
-      if (frame === null || frame === dismissFrame) return
+      // The frame element is stable for the page lifetime; re-query only when
+      // the cached one is gone. A document.querySelector per mutation batch
+      // was paid for every streaming commit even though the answer never
+      // changed.
+      if (resolvedFrame !== null && !resolvedFrame.isConnected) resolvedFrame = null
+      const frame = resolvedFrame ?? document.querySelector<HTMLElement>('[data-dsh-frame]')
+      resolvedFrame = frame
+      if (frame === null) return
+      bootShield.dismiss()
+      if (frame === dismissFrame) return
       removeMobileDismiss()
       removeMobileDismiss = installMobileSidebarDismiss(frame)
       dismissFrame = frame
     }
-    const ensureCompatActions = (): void => {
+    ensureMobileDismiss()
+    syncUniversalDownloadActions(ctx)
+    // The shell renders after boot settlement and React can re-create the
+    // columns on re-render. The hub already coalesces callbacks per frame;
+    // scheduling another frame here would delay hooks and leave work alive
+    // after this effect is disposed. Attribute writes remain idempotent.
+    const unsubscribeBody = subscribeBodyInvalidations(() => {
+      applyShims()
       ensureMobileDismiss()
       syncUniversalDownloadActions(ctx)
-    }
-    ensureCompatActions()
-    shimAfterPass = ensureCompatActions
-    // The shell renders after boot settlement and React can re-create the
-    // columns on re-render; re-stamp on any DOM mutation. The callback only
-    // schedules a coalesced pass — mutations never run the sweep inline, and
-    // the pass short-circuits once every attribute is in place. Writes only
-    // the same attribute values. The download action is idempotent and owns
-    // a unique marker, so a React-created replacement header gets one fresh
-    // action while host-owned children remain untouched.
-    const observer = new MutationObserver(() => {
-      schedulePass()
-      ensureMobileDismiss()
     })
-    observer.observe(document.body, { childList: true, subtree: true })
     return () => {
-      observer.disconnect()
+      unsubscribeBody()
       bootShield.remove()
       responsiveStyle.remove()
       removeMobileDismiss()
       document.querySelectorAll(`a[${DOWNLOAD_MARKER}]`).forEach(anchor => anchor.remove())
-      shimAfterPass = undefined
-      shimScheduled = false
     }
   })
 }

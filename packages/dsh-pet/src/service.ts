@@ -207,6 +207,12 @@ export interface PetStateView {
   }
   /** The selected pet's display name (user rename or manifest default). */
   name: string
+  /**
+   * The selected frames2d skin id for this pet (absent = the pet's default
+   * look). Persisted host-side, so a page reload or client restart restores
+   * the user's last choice instead of falling back to the default look.
+   */
+  skin?: string
   /** Treat (小鱼干) stock snapshot. */
   treats: {
     /** Stocked treats now. */
@@ -870,6 +876,39 @@ export class PetService extends Service {
     return { ok: true, display: account.ledger.snapshot.display }
   }
 
+  /**
+   * The persisted skin for one entry, when the manifest still declares it: a
+   * stale id (skin removed from the manifest, pet swapped) reads as "default"
+   * rather than pinning a track the browser half cannot resolve.
+   */
+  private persistedSkin(entry: NonNullable<PetRegistry['entries'][number]>, scope?: PetAccountScope): string | undefined {
+    const stored = this.account(scope).ledger.petSkin(entry.id)
+    if (stored === undefined) return undefined
+    return entry.frames2d?.skins?.some(skin => skin.id === stored) === true ? stored : undefined
+  }
+
+  /**
+   * RPC: select the current pet's frames2d skin (`undefined` restores the
+   * pet's default look). The choice is stored per pet, so every later state
+   * view (reload, client restart, pet re-selection) serves it back.
+   */
+  async setSkin(skin: string | undefined, scope?: PetAccountScope): Promise<{ ok: true; skin?: string } | { ok: false; error: string }> {
+    const account = this.account(scope)
+    const entry = this.activeEntry(scope)
+    const declared = entry.frames2d?.skins ?? []
+    if (skin === undefined) {
+      account.ledger.setPetSkin(entry.id, undefined)
+      account.revision += 1
+      this.flush(account)
+      return { ok: true }
+    }
+    if (!declared.some(candidate => candidate.id === skin)) return { ok: false, error: 'unknown-skin' }
+    account.ledger.setPetSkin(entry.id, skin)
+    account.revision += 1
+    this.flush(account)
+    return { ok: true, skin }
+  }
+
   /** RPC: update display config (size / position). Values are clamped to whole pixels. */
   async setConfig(
     patch: Partial<PetDisplayConfig>,
@@ -1091,6 +1130,7 @@ export class PetService extends Service {
     const announcement = this.announcement !== undefined && announcementFresh(this.announcement, Date.now())
       ? this.announcement
       : undefined
+    const skin = this.persistedSkin(entry, scope)
     return {
       animation: snapshot.animation,
       ...(snapshot.bubble === undefined ? {} : { bubble: snapshot.bubble }),
@@ -1107,6 +1147,7 @@ export class PetService extends Service {
         description: entry.description,
       },
       name: this.petName(undefined, scope),
+      ...(skin === undefined ? {} : { skin }),
       treats: {
         stocked: account.ledger.snapshot.treats.treats,
         max: account.ledger.treatMax,

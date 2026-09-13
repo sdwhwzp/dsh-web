@@ -1,7 +1,7 @@
 {
   "name": "@linxin666/dsh-remote-web-ui",
   "description": "Loopback-controlled remote access for the dsh web GUI: issued pairing links open the same official interface on phones and PCs through revocable device sessions, with portrait-touch adaptation, a LAN bind toggle, optional Cloudflare tunnel, and no desktop footer actions",
-  "version": "0.3.20",
+  "version": "0.3.21-dsh.20260913.1",
   "type": "module",
   "packageManager": "pnpm@11.7.0",
   "engines": {
