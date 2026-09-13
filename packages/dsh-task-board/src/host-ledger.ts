@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { chmodSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { dshHome } from './dsh-home.ts'
+import { parseTaskPrincipals, principalKey, type TaskBoardPrincipal } from './host-accounts.ts'
 import { isValidCron, nextRunAtMs } from './core/schedule.ts'
 import { isTaskRecord, parseLedger } from './core/store.ts'
 import { canMoveManually, retainRecentExecutions, settleExecution, startExecution, withStatus, type ExecutionRecord, type TaskRecord } from './core/tasks.ts'
@@ -32,6 +33,8 @@ interface LedgerDocument {
   tasks: TaskRecord[]
   scheduler: PersistedScheduler
   recentRequests: PersistedRequest[]
+  /** Host-only bindings, excluded from browser snapshots and imports. */
+  taskPrincipals?: Record<string, TaskBoardPrincipal>
 }
 
 export interface LedgerState {
@@ -43,6 +46,7 @@ export interface LedgerState {
 export interface OpenedRun {
   task: TaskRecord
   execution: ExecutionRecord
+  principal?: TaskBoardPrincipal
 }
 
 /** Minimal value copy used by the Host session monitor. */
@@ -51,6 +55,7 @@ export interface OpenExecutionReference {
   readonly executionId: string
   readonly sessionId: string | undefined
   readonly startedAt: number
+  readonly principal?: TaskBoardPrincipal
 }
 
 /** Minimal value copy used by the Host scheduler. */
@@ -345,15 +350,29 @@ export class HostTaskLedger {
       if (task.archivedAt === undefined && task.schedule?.enabled === true) armedSchedules += 1
       for (const execution of task.executions) {
         if (execution.endedAt !== undefined) continue
+        const principal = this.taskPrincipal(task.id)
         openExecutions.push({
           taskId: task.id,
           executionId: execution.id,
           sessionId: execution.sessionId,
           startedAt: execution.startedAt,
+          ...(principal === undefined ? {} : { principal }),
         })
       }
     }
     return { armedSchedules, openExecutions }
+  }
+
+  /** Detached identity belonging to a task, retained across scheduler restarts. */
+  taskPrincipal(taskId: string): TaskBoardPrincipal | undefined {
+    const bindings = this.document.taskPrincipals
+    const principal = bindings !== undefined && Object.hasOwn(bindings, taskId) ? bindings[taskId] : undefined
+    return principal === undefined ? undefined : { ...principal }
+  }
+
+  /** Unique persisted owners whose account-scoped rosters the Host may inspect. */
+  principals(): TaskBoardPrincipal[] {
+    return [...new Map(Object.values(this.document.taskPrincipals ?? {}).map(principal => [principalKey(principal), { ...principal }])).values()]
   }
 
   /** Count armed, non-archived schedules without cloning task histories. */
@@ -399,8 +418,9 @@ export class HostTaskLedger {
     requestId: string,
     action: TaskBoardAction,
     initiator?: string,
+    principal?: TaskBoardPrincipal,
   ): { state: LedgerState; run?: OpenedRun } {
-    const fingerprint = createHash('sha256').update(JSON.stringify(action)).digest('hex')
+    const fingerprint = createHash('sha256').update(JSON.stringify(principal === undefined ? action : [action, principal])).digest('hex')
     const cached = this.requestCache.get(requestId)
     if (cached !== undefined) {
       if (cached.fingerprint !== fingerprint) throw new Error('request id was reused with a different action')
@@ -413,7 +433,7 @@ export class HostTaskLedger {
     while (this.requestCache.size > MAX_REQUEST_CACHE) this.requestCache.delete(this.requestCache.keys().next().value as string)
     this.syncRecentRequests()
     try {
-      return this.apply(action, initiator)
+      return this.apply(action, initiator, principal)
     } catch (error) {
       this.requestCache.delete(requestId)
       this.syncRecentRequests()
@@ -441,7 +461,8 @@ export class HostTaskLedger {
     this.document.tasks = this.document.tasks.map(item => item.id === taskId ? opened.task : item)
     this.document.tasks = [...applyScheduleNextRun(this.document.tasks, taskId, nextRunAt, triggeredAt, triggeredAt)]
     this.commit()
-    return opened
+    const principal = this.taskPrincipal(taskId)
+    return { ...opened, ...(principal === undefined ? {} : { principal }) }
   }
 
   skipMissed(now: number): void {
@@ -494,8 +515,12 @@ export class HostTaskLedger {
     this.commit()
   }
 
-  private apply(action: TaskBoardAction, initiator?: string): { state: LedgerState; run?: OpenedRun } {
+  private apply(action: TaskBoardAction, initiator?: string, principal?: TaskBoardPrincipal): { state: LedgerState; run?: OpenedRun } {
     const now = this.now()
+    const taskId = action.kind === 'import' ? undefined : action.kind === 'create' ? action.id : action.taskId
+    const owner = taskId === undefined ? undefined : this.taskPrincipal(taskId)
+    if (owner !== undefined && principalKey(owner) !== principalKey(principal)) throw new Error('task belongs to another account')
+    if (action.kind === 'import' && action.tasks.some(task => this.taskPrincipal(task.id) !== undefined)) throw new Error('import cannot replace account-owned tasks')
     let run: OpenedRun | undefined
     switch (action.kind) {
       case 'import': {
@@ -609,6 +634,14 @@ export class HostTaskLedger {
         break
       }
     }
+    if (taskId !== undefined) {
+      if (action.kind === 'delete') {
+        if (this.document.taskPrincipals !== undefined) delete this.document.taskPrincipals[taskId]
+      } else if (principal !== undefined && (action.kind === 'create' || action.kind === 'run' || action.kind === 'rerun' || action.kind === 'set-schedule')) {
+        this.document.taskPrincipals = { ...this.document.taskPrincipals, [taskId]: { ...principal } }
+      }
+    }
+    if (run !== undefined && principal !== undefined) run = { ...run, principal: { ...principal } }
     this.commit()
     return { state: this.state(), ...(run === undefined ? {} : { run }) }
   }
@@ -669,6 +702,7 @@ export class HostTaskLedger {
     } catch (error) {
       return this.recoverCorrupt(dir, existed, error)
     }
+    if (typeof parsed === 'object' && parsed !== null) parseTaskPrincipals(parsed.taskPrincipals)
     if (parsed.schemaVersion === TASK_BOARD_LEGACY_SCHEMA_VERSION) {
       try {
         return this.migrateLegacyDocument(parsed)
@@ -708,6 +742,7 @@ export class HostTaskLedger {
       schemaVersion: TASK_BOARD_SCHEMA_VERSION,
       revision: Number.isSafeInteger(parsed.revision) && (parsed.revision as number) >= 0 ? parsed.revision as number : 0,
       tasks,
+      ...(parsed.taskPrincipals === undefined ? {} : { taskPrincipals: parseTaskPrincipals(parsed.taskPrincipals) }),
       scheduler: {
         timeZone: timeZone(),
         ledgerId: typeof parsed.scheduler?.ledgerId === 'string' && parsed.scheduler.ledgerId !== '' ? parsed.scheduler.ledgerId : crypto.randomUUID(),

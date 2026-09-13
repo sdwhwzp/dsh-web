@@ -16,6 +16,7 @@ import type {} from '@deepseek-ai/dsh-api-gateway'
 import type {} from '@deepseek-ai/dsh-workspace'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { TaskBoardHostService } from './host-service.ts'
+import { TaskBoardAccounts } from './host-accounts.ts'
 import { TASK_PERMISSIONS, type TaskPermission } from './core/tasks.ts'
 import { DEFAULT_SESSION_PERMISSION } from './core/handover.ts'
 import { makeTaskBoardRoutes } from './host-routes.ts'
@@ -99,7 +100,9 @@ const DEFAULT_ANNOUNCE = false
 export const apply = mountOnce('@linxin666/dsh-client-ui-task-board', applyImpl)
 
 function applyImpl(ctx: Context, config?: Config): void {
+  const accounts = new TaskBoardAccounts(ctx)
   const host = new TaskBoardHostService(ctx.typertGateway, {
+    accounts,
     workspaceRegistry: ctx.workspaceRegistry,
     sessionDefaultPermission: config?.sessionDefaultPermission ?? DEFAULT_SESSION_PERMISSION,
     commandDispatcher: {
@@ -115,7 +118,7 @@ function applyImpl(ctx: Context, config?: Config): void {
   ctx.effect(() => {
     const disposers: Array<() => void> = []
     try {
-      for (const route of makeTaskBoardRoutes(host, resolveProxyAccess(config))) disposers.push(ctx.webServer.register(route))
+      for (const route of makeTaskBoardRoutes(host, { ...resolveProxyAccess(config), authenticate: req => accounts.request(req), assertPrincipal: principal => accounts.assert(principal) })) disposers.push(ctx.webServer.register(route))
     } catch (error) {
       for (const dispose of disposers) dispose()
       host.dispose()

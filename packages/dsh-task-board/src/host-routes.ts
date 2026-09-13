@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import type { TaskBoardHostService } from './host-service.ts'
+import type { TaskBoardPrincipal } from './host-accounts.ts'
 import { writeJson } from './http.ts'
 import { isLoopbackAddress, isLoopbackRequest } from './loopback.ts'
 import { parseActionEnvelope, TASK_BOARD_API_PREFIX } from './protocol.ts'
@@ -17,6 +18,8 @@ export const TASK_BOARD_PROXY_TOKEN_HEADER = 'x-dsh-task-board-proxy-token'
 export interface TaskBoardRouteAccess {
   trustedProxyHosts?: readonly string[]
   proxyToken?: string
+  authenticate?: (req: IncomingMessage) => Promise<TaskBoardPrincipal | undefined>
+  assertPrincipal?: (principal: TaskBoardPrincipal | undefined) => void
 }
 
 interface ResolvedRouteAccess {
@@ -121,17 +124,26 @@ async function readBody(req: IncomingMessage): Promise<{ raw: string; value: unk
 
 export function makeTaskBoardRoutes(service: TaskBoardHostService, access: TaskBoardRouteAccess = {}): WebRoute[] {
   const resolvedAccess = resolveAccess(access)
-  const guard = (req: IncomingMessage, res: ServerResponse): boolean => {
-    if (isTrustedTaskBoardRequest(req, resolvedAccess)) return true
+  const guard = async (req: IncomingMessage, res: ServerResponse): Promise<{ principal?: TaskBoardPrincipal } | undefined> => {
+    if (isTrustedTaskBoardRequest(req, resolvedAccess)) {
+      try {
+        const principal = await access.authenticate?.(req)
+        service.observePrincipal?.(principal)
+        return principal === undefined ? {} : { principal }
+      } catch {
+        // Authentication/provider refusal cannot fall back to loopback authority.
+      }
+    }
     writeJson(res, 403, { ok: false, error: 'forbidden' }, { 'cache-control': 'no-store' })
-    return false
+    return undefined
   }
   const state: WebRoute = {
     kind: 'exact',
     path: `${TASK_BOARD_API_PREFIX}/state`,
-    handler: (req, res): void => {
+    handler: async (req, res): Promise<void> => {
       if (req.method !== 'GET') return writeJson(res, 405, { ok: false, error: 'method-not-allowed' }, { 'cache-control': 'no-store' })
-      if (!guard(req, res)) return
+      const authorization = await guard(req, res)
+      if (authorization === undefined) return
       writeJson(res, 200, service.snapshot(), { 'cache-control': 'no-store' })
     },
   }
@@ -140,7 +152,8 @@ export function makeTaskBoardRoutes(service: TaskBoardHostService, access: TaskB
     path: `${TASK_BOARD_API_PREFIX}/action`,
     handler: async (req, res): Promise<void> => {
       if (req.method !== 'POST') return writeJson(res, 405, { ok: false, error: 'method-not-allowed' }, { 'cache-control': 'no-store' })
-      if (!guard(req, res)) return
+      const authorization = await guard(req, res)
+      if (authorization === undefined) return
       if (!(req.headers['content-type'] ?? '').toLowerCase().startsWith('application/json')) {
         return writeJson(res, 415, { ok: false, error: 'json-required' }, { 'cache-control': 'no-store' })
       }
@@ -151,7 +164,7 @@ export function makeTaskBoardRoutes(service: TaskBoardHostService, access: TaskB
         if (parsed.action.kind !== 'import' && Buffer.byteLength(body.raw) > ACTION_LIMIT) {
           return writeJson(res, 413, { ok: false, error: 'body-too-large' }, { 'cache-control': 'no-store' })
         }
-        writeJson(res, 200, service.apply(parsed.requestId, parsed.action, parsed.initiator), { 'cache-control': 'no-store' })
+        writeJson(res, 200, service.apply(parsed.requestId, parsed.action, parsed.initiator, authorization.principal), { 'cache-control': 'no-store' })
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         writeJson(res, message === 'body-too-large' ? 413 : 400, { ok: false, error: message }, { 'cache-control': 'no-store' })
@@ -161,24 +174,33 @@ export function makeTaskBoardRoutes(service: TaskBoardHostService, access: TaskB
   const events: WebRoute = {
     kind: 'exact',
     path: `${TASK_BOARD_API_PREFIX}/events`,
-    handler: (req, res): void => {
+    handler: async (req, res): Promise<void> => {
       if (req.method !== 'GET') {
         res.writeHead(405)
         res.end()
         return
       }
-      if (!guard(req, res)) return
+      const authorization = await guard(req, res)
+      if (authorization === undefined) return
       res.writeHead(200, {
         'content-type': 'text/event-stream; charset=utf-8',
         'cache-control': 'no-cache',
         connection: 'keep-alive',
       })
+      const stillAuthorized = (): boolean => {
+        try { access.assertPrincipal?.(authorization.principal); return true } catch {
+          // Close an established stream when its account is revoked or the provider disappears.
+          res.end()
+          return false
+        }
+      }
       const push = (): void => {
+        if (!stillAuthorized()) return
         const payload = service.eventPayload()
         res.write(`data: ${JSON.stringify(payload)}\n\n`)
       }
       const unsubscribe = service.subscribe(push)
-      const heartbeat = setInterval(() => { res.write(': ping\n\n') }, HEARTBEAT_MS)
+      const heartbeat = setInterval(() => { if (stillAuthorized()) res.write(': ping\n\n') }, HEARTBEAT_MS)
       const close = (): void => {
         clearInterval(heartbeat)
         unsubscribe()

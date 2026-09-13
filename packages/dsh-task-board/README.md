@@ -82,6 +82,9 @@ On macOS the backend starts `/usr/bin/caffeinate -i -w <host-pid>` and never req
 
 ## Security model
 
+- When a deployment provides account authentication, every route requires a transport-verified, active administrator. Standalone Hosts without account providers retain local access. Account identities come from the Host Connection or signed-principal provider, never from the action body or its audit-only `initiator`.
+- The Host atomically stores each task's owner alongside the ledger, outside browser snapshots and imports. Creating a card, or explicitly running or setting a schedule on an unowned card, binds it to the authenticated administrator; only that owner may mutate it. Imports cannot replace owned cards. Other administrators may view the shared board.
+- Manual runs, cron, session reuse, and restart recovery pass the saved owner to every Session gateway operation. The Host rechecks the active account before each operation and permission change, and closes SSE streams after access is revoked. Unowned scheduled cards fail before creating a session until an administrator explicitly binds them.
 - The plugin stays inside the existing DSH Web deployment and network boundary and emits no permissive CORS headers. State, action, and SSE routes share the same access fence; bare local command-line requests are not accepted as browser requests.
 - All mutation payloads use a strict, versioned discriminated union; schedule-owned timestamps and execution outcomes cannot be written by the browser.
 - Workspace, preset, permission, cron, task status, and imported records are validated again on the Host.

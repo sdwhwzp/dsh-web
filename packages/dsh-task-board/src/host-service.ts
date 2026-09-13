@@ -6,6 +6,7 @@ import { HostExecutionRunner, SessionLaunchError, type SessionCommandDispatcher,
 import { PowerInhibitor } from './power-inhibitor.ts'
 import { TASK_BOARD_SCHEMA_VERSION, type TaskBoardAction, type TaskBoardEventPayload, type TaskBoardSnapshot } from './protocol.ts'
 import type { TaskPermission } from './core/handover.ts'
+import { principalKey, type TaskBoardAccounts, type TaskBoardPrincipal } from './host-accounts.ts'
 
 const SESSION_POLL_MS = 5_000
 const SCHEDULE_TICK_MS = 30_000
@@ -28,7 +29,9 @@ export class TaskBoardHostService {
    * evidence, so a launch before the first successful poll mints a fresh
    * conversation instead of prompting into a session it cannot see.
    */
-  private idleSessionIds: ReadonlySet<string> | undefined
+  private readonly accountIdleSessionIds = new Map<string, ReadonlySet<string>>()
+  private observerPrincipal: TaskBoardPrincipal | undefined
+  private readonly accounts: TaskBoardAccounts | undefined
   private preventIdleSleep = false
   private lastPowerJson = ''
   private readonly now: () => number
@@ -40,9 +43,11 @@ export class TaskBoardHostService {
     commandDispatcher?: SessionCommandDispatcher
     workspaceRegistry?: TaskBoardWorkspaceRegistry
     sessionDefaultPermission?: TaskPermission
+    accounts?: TaskBoardAccounts
   } = {}) {
     this.ledger = options.ledger ?? new HostTaskLedger(undefined, undefined, { sessionDefaultPermission: options.sessionDefaultPermission })
-    this.runner = new HostExecutionRunner(gateway, options.commandDispatcher, options.workspaceRegistry)
+    this.accounts = options.accounts
+    this.runner = new HostExecutionRunner(gateway, options.commandDispatcher, options.workspaceRegistry, undefined, principal => this.accounts?.assert(principal))
     this.power = options.power ?? new PowerInhibitor()
     this.now = options.now ?? Date.now
     installStreamErrorGuards()
@@ -113,9 +118,16 @@ export class TaskBoardHostService {
     return () => { this.listeners.delete(listener) }
   }
 
-  apply(requestId: string, action: TaskBoardAction, initiator?: string): TaskBoardSnapshot {
+  /** Retain only a transport-authenticated observer for the next roster poll. */
+  observePrincipal(principal: TaskBoardPrincipal | undefined): void {
+    this.accounts?.assert(principal)
+    this.observerPrincipal = principal
+  }
+
+  apply(requestId: string, action: TaskBoardAction, initiator?: string, principal?: TaskBoardPrincipal): TaskBoardSnapshot {
     if (!this.active) throw new Error('task board is disabled')
-    const result = this.ledger.applyRequest(requestId, action, initiator)
+    this.accounts?.assert(principal)
+    const result = this.ledger.applyRequest(requestId, action, initiator, principal)
     if (result.run !== undefined) this.scheduleLaunch(result.run)
     return {
       schemaVersion: TASK_BOARD_SCHEMA_VERSION,
@@ -136,8 +148,9 @@ export class TaskBoardHostService {
 
   private async launch(opened: OpenedRun): Promise<void> {
     try {
-      const reuseSessionId = reusableSessionId(opened.task, this.idleSessionIds)
-      const sessionId = await this.runner.launch(opened.task, reuseSessionId === undefined ? {} : { reuseSessionId })
+      const idleIds = this.accountIdleSessionIds.get(principalKey(opened.principal))
+      const reuseSessionId = reusableSessionId(opened.task, idleIds)
+      const sessionId = await this.runner.launch(opened.task, { ...(reuseSessionId === undefined ? {} : { reuseSessionId }), ...(opened.principal === undefined ? {} : { principal: opened.principal }) })
       this.ledger.attachSession(opened.task.id, opened.execution.id, sessionId)
     } catch (error) {
       if (error instanceof SessionLaunchError) {
@@ -150,29 +163,33 @@ export class TaskBoardHostService {
   private async pollSessions(): Promise<void> {
     if (this.disposed) return
     if (!this.active && this.ledger.runtimeView().openExecutions.length === 0) return
-    const running = await this.runner.listRunning()
+    const principals = new Map<string, TaskBoardPrincipal | undefined>(this.ledger.principals().map(principal => [principalKey(principal), principal]))
+    if (this.observerPrincipal !== undefined) principals.set(principalKey(this.observerPrincipal), this.observerPrincipal)
+    if (principals.size === 0) principals.set('local', undefined)
+    const rosters = new Map<string, readonly SessionSummary[]>()
+    let known = true
+    this.accountIdleSessionIds.clear()
+    for (const [key, principal] of principals) {
+      const running = await this.runner.listRunning(principal)
+      if (!running.known) { known = false; continue }
+      rosters.set(key, running.items)
+      this.accountIdleSessionIds.set(key, new Set(running.items.filter(item => !item.running).map(item => item.sessionId)))
+    }
     const previous = this.power.snapshot()
-    if (!running.known) {
-      this.idleSessionIds = undefined
-      this.power.updateReasons({
-        runningSessions: previous.runningSessions,
-        armedSchedules: this.ledger.armedScheduleCount(),
-        sessionStateKnown: false,
-      })
+    if (rosters.size === 0) {
+      this.power.updateReasons({ runningSessions: previous.runningSessions, armedSchedules: this.armedSchedules(), sessionStateKnown: false })
       return
     }
-    this.idleSessionIds = new Set(running.items.filter(item => !item.running).map(item => item.sessionId))
-    // Read after the RPC so executions attached while it was in flight are
-    // included in this pass, matching the former full-state snapshot timing.
+    const sessions = new Map([...rosters.values()].flatMap(items => items.map(item => [item.sessionId, item] as const)))
     const runtime = this.ledger.runtimeView()
     this.power.updateReasons({
-      runningSessions: running.count,
+      runningSessions: known ? [...sessions.values()].filter(item => item.running).length : previous.runningSessions,
       armedSchedules: runtime.armedSchedules,
-      sessionStateKnown: true,
+      sessionStateKnown: known,
     })
-    // No unconditional emit here: real changes already emit through the
-    // ledger subscription (settles) and the gated power listener above.
-    await this.reconcileExecutions(running.items, runtime.openExecutions)
+    for (const [key, items] of rosters) {
+      await this.reconcileExecutions(items, runtime.openExecutions.filter(execution => principalKey(execution.principal) === key))
+    }
   }
 
   /** Reuse the session list this poll already fetched: one list RPC per tick, not 1 + E. */
@@ -183,7 +200,7 @@ export class TaskBoardHostService {
     for (const execution of executions) {
       if (execution.sessionId === undefined) continue
       try {
-        const result = await this.runner.inspect(execution.sessionId, execution.startedAt, sessions)
+        const result = await this.runner.inspect(execution.sessionId, execution.startedAt, sessions, execution.principal)
         if (result.outcome === 'pending') continue
         this.ledger.settle(execution.taskId, execution.executionId, result.outcome, 'error' in result ? result.error : undefined)
       } catch {

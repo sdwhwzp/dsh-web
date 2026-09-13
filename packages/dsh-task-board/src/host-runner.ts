@@ -2,6 +2,7 @@ import type { TypertGateway } from '@deepseek-ai/dsh-api-gateway'
 import type { SessionAddress, SessionHistoryRecord, SessionListValue, SessionPage, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { CommandResult } from '@deepseek-ai/dsh-commands/types'
 import type { Workspace } from '@deepseek-ai/dsh-workspace/types'
+import type { TaskBoardPrincipal } from './host-accounts.ts'
 import type { TaskPermission, TaskRecord } from './core/tasks.ts'
 
 /** Host services needed to validate a task's workspace before creating a session. */
@@ -14,6 +15,7 @@ interface GatewayRequest {
   method: string
   args: Record<string, unknown>
   signal?: AbortSignal
+  principal?: TaskBoardPrincipal
 }
 
 interface SessionGateway {
@@ -191,18 +193,21 @@ export class HostExecutionRunner {
     private readonly commands?: SessionCommandDispatcher,
     private readonly workspaceRegistry?: TaskBoardWorkspaceRegistry,
     unavailableRetry?: { attempts?: number; backoffMs?: number },
+    private readonly assertPrincipal?: (principal: TaskBoardPrincipal | undefined) => void,
   ) {
     this.unavailableAttempts = unavailableRetry?.attempts ?? SERVICE_UNAVAILABLE_ATTEMPTS
     this.unavailableBackoffMs = unavailableRetry?.backoffMs ?? SERVICE_UNAVAILABLE_BACKOFF_MS
   }
 
-  private invoke(namespace: string, method: string, request: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
-    return this.gateway.invoke({ namespace, method, args: invokeWireArgs(namespace, method, request), ...(signal === undefined ? {} : { signal }) })
+  private invoke(namespace: string, method: string, request: Record<string, unknown>, principal?: TaskBoardPrincipal, signal?: AbortSignal): Promise<unknown> {
+    this.assertPrincipal?.(principal)
+    return this.gateway.invoke({ namespace, method, args: invokeWireArgs(namespace, method, request), ...(principal === undefined ? {} : { principal }), ...(signal === undefined ? {} : { signal }) })
   }
 
-  private stream(namespace: string, method: string, request: Record<string, unknown>, signal?: AbortSignal): Promise<AsyncIterable<unknown>> {
+  private stream(namespace: string, method: string, request: Record<string, unknown>, principal?: TaskBoardPrincipal, signal?: AbortSignal): Promise<AsyncIterable<unknown>> {
+    this.assertPrincipal?.(principal)
     if (!('stream' in this.gateway) || this.gateway.stream === undefined) throw new Error('gateway stream is unavailable')
-    return this.gateway.stream({ namespace, method, args: { request }, ...(signal === undefined ? {} : { signal }) })
+    return this.gateway.stream({ namespace, method, args: { request }, ...(principal === undefined ? {} : { principal }), ...(signal === undefined ? {} : { signal }) })
   }
 
   /**
@@ -212,10 +217,12 @@ export class HostExecutionRunner {
    * keeps its title and history, the pinned permission/model are re-asserted so
    * the task's execution contract still holds, and the prompt is queued.
    * @param task - the task to run.
-   * @param options - optional session to continue in.
+   * @param options - optional session to continue in and its Host-verified account.
    * @returns the session id the execution runs in.
    */
-  async launch(task: TaskRecord, options: { reuseSessionId?: string } = {}): Promise<string> {
+  async launch(task: TaskRecord, options: { reuseSessionId?: string; principal?: TaskBoardPrincipal } = {}): Promise<string> {
+    const principal = options.principal
+    this.assertPrincipal?.(principal)
     // A handover bundle overrides the legacy pin fields: the bundle is the
     // authoritative execution triplet for a continuation card (issue #5).
     const workspaceId = task.handover?.workspaceId ?? task.workspaceId
@@ -228,7 +235,7 @@ export class HostExecutionRunner {
       }
     }
     if (mode !== undefined) {
-      const presets = await this.invoke('agentPresets', 'list', {}) as { presets?: readonly { id: string; broken?: string }[] }
+      const presets = await this.invoke('agentPresets', 'list', {}, principal) as { presets?: readonly { id: string; broken?: string }[] }
       const preset = presets.presets?.find(item => item.id === mode)
       if (preset === undefined) throw new Error('agent preset not found: ' + mode)
       if (preset.broken !== undefined) throw new Error('agent preset is unavailable: ' + preset.broken)
@@ -238,7 +245,7 @@ export class HostExecutionRunner {
     const reused = options.reuseSessionId as ExecutionSessionId | undefined
     if (reused !== undefined) {
       try {
-        await this.pinAndPrompt(reused, task, permission)
+        await this.pinAndPrompt(reused, task, permission, principal)
       } catch (error) {
         throw new SessionLaunchError(reused, error)
       }
@@ -247,11 +254,11 @@ export class HostExecutionRunner {
     const created = await this.invoke('session', 'create', {
       ...(workspaceId === undefined ? {} : { workspaceId }),
       ...(mode === undefined ? {} : { agentPreset: mode }),
-    }) as { sessionId: ExecutionSessionId }
+    }, principal) as { sessionId: ExecutionSessionId }
     const sessionId = created.sessionId
     try {
-      await this.invoke('session', 'rename', { sessionId, title: task.title })
-      await this.pinAndPrompt(sessionId, task, permission)
+      await this.invoke('session', 'rename', { sessionId, title: task.title }, principal)
+      await this.pinAndPrompt(sessionId, task, permission, principal)
     } catch (error) {
       throw new SessionLaunchError(sessionId, error)
     }
@@ -263,9 +270,10 @@ export class HostExecutionRunner {
    * prompt. Shared by the fresh-session and reuse paths so both apply exactly
    * the same permission/model pins before the prompt.
    */
-  private async pinAndPrompt(sessionId: ExecutionSessionId, task: TaskRecord, permission: TaskPermission | undefined): Promise<void> {
+  private async pinAndPrompt(sessionId: ExecutionSessionId, task: TaskRecord, permission: TaskPermission | undefined, principal?: TaskBoardPrincipal): Promise<void> {
     if (permission !== undefined) {
       if (this.commands === undefined) throw new Error('permission command dispatcher is unavailable')
+      this.assertPrincipal?.(principal)
       const command = await this.commands.execute(sessionId, '/permission ' + permission, AbortSignal.timeout(30_000))
       if (command === undefined) throw new Error('permission command was not acknowledged')
       if (command.kind !== 'success') throw new Error(command.text ?? 'permission command failed')
@@ -280,7 +288,7 @@ export class HostExecutionRunner {
           sessionId,
           ...(provider ? { provider } : {}),
           model: modelId,
-        })
+        }, principal)
       } catch (modelError) {
         console.warn(`[dsh-task-board] failed to select model "${task.model}" for session ${sessionId}, falling back to default:`, modelError)
       }
@@ -290,13 +298,13 @@ export class HostExecutionRunner {
       requestId: 'task-board-' + crypto.randomUUID(),
       mode: 'queue' as const,
       content: [{ type: 'text' as const, text: promptText(task) }],
-    })
+    }, principal)
   }
 
-  async listRunning(): Promise<{ known: true; count: number; items: SessionSummary[] } | { known: false }> {
+  async listRunning(principal?: TaskBoardPrincipal): Promise<{ known: true; count: number; items: SessionSummary[] } | { known: false }> {
     for (let attempt = 1; ; attempt++) {
       try {
-        const response = await this.invoke('session', 'list', {}) as SessionListValue
+        const response = await this.invoke('session', 'list', {}, principal) as SessionListValue
         return { known: true, count: response.items.filter(item => item.running).length, items: response.items as SessionSummary[] }
       } catch (error) {
         if (isInvocationUnavailable(error)) {
@@ -323,14 +331,15 @@ export class HostExecutionRunner {
   }
 
   /** Resolve an execution outcome from the session list and bounded history pages. */
-  async inspect(sessionId: string, startedAt = 0, sessions?: readonly SessionSummary[]): Promise<ExecutionInspection> {
+  async inspect(sessionId: string, startedAt = 0, sessions?: readonly SessionSummary[], principal?: TaskBoardPrincipal): Promise<ExecutionInspection> {
+    this.assertPrincipal?.(principal)
     let items: readonly SessionSummary[]
     if (sessions !== undefined) {
       items = sessions
     } else {
       let response: SessionListValue
       try {
-        response = await this.invoke('session', 'list', {}) as SessionListValue
+        response = await this.invoke('session', 'list', {}, principal) as SessionListValue
       } catch (error) {
         if (isInvocationUnavailable(error)) {
           if (!this.unsupportedSessionListWarned) {
@@ -360,7 +369,7 @@ export class HostExecutionRunner {
 
     let opening: { cursor: number; records: readonly SessionHistoryRecord[]; hasMore: boolean }
     try {
-      const stream = await this.stream('session', 'follow', { address: sessionAddress(sessionId), maxMessages: 1 })
+      const stream = await this.stream('session', 'follow', { address: sessionAddress(sessionId), maxMessages: 1 }, principal)
       const iterator = stream[Symbol.asyncIterator]()
       const next = await iterator.next()
       if (typeof iterator.return === 'function') await iterator.return()
@@ -387,7 +396,7 @@ export class HostExecutionRunner {
           throughSeq: opening.cursor,
           maxMessages: 100,
           ...(beforeSeq === undefined ? {} : { beforeSeq }),
-        }) as SessionPage
+        }, principal) as SessionPage
       } catch (error) {
         console.warn('[dsh-task-board] session/page failed during execution inspection; keeping the outcome pending', error)
         return { outcome: 'pending' }
