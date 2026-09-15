@@ -115,6 +115,7 @@ export function installToolVisibility(ctx: Context, resolveRoute: RouteCapabilit
 
   ctx.on('agent/created', ({ agent }: { agent: AgentFace }) => {
     evaluateResting(agent)
+    return undefined
   })
 
   ctx.on('agent/disposed', ({ agent }: { agent: AgentFace }) => {

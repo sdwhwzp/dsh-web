@@ -122,6 +122,7 @@ export async function parseTaskDraft(
   if (text === '') throw new TaskParseError('parse-failed', 'there is nothing to parse')
   const route = splitModelRoute(request.model)
   if (route === undefined) throw new TaskParseError('no-model', 'no model route was selected for parsing')
+  if (signal?.aborted === true) throw new TaskParseError('timeout', 'task parsing was cancelled')
   const timeout = new AbortController()
   const timer = setTimeout(() => { timeout.abort() }, TASK_PARSE_TIMEOUT_MS)
   const abortFromCaller = (): void => { timeout.abort() }
@@ -137,7 +138,11 @@ export async function parseTaskDraft(
     let reply = ''
     for await (const chunk of llm.stream(options)) {
       if (chunk.type === 'text-delta') reply += chunk.text
+      if (chunk.type === 'finish' && (chunk.reason.kind === 'error' || chunk.reason.kind === 'aborted')) {
+        throw new TaskParseError(chunk.reason.kind === 'aborted' ? 'timeout' : 'model-error', chunk.reason.failure.message)
+      }
     }
+    if (timeout.signal.aborted) throw new TaskParseError('timeout', 'task parsing was cancelled')
     return draftFromReply(reply, text)
   } catch (error) {
     if (error instanceof TaskParseError) throw error

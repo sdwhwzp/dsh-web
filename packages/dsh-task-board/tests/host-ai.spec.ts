@@ -103,6 +103,29 @@ describe('task parse through the llm service', () => {
     expect((failure as TaskParseError).message).toContain('NO_ADAPTER')
   })
 
+  it.each(['error', 'aborted'] as const)('rejects a terminal %s chunk even after partial text', async (kind) => {
+    const llm = { async *stream(): AsyncIterable<StreamChunk> {
+      yield { type: 'text-delta', index: 0, text: 'partial answer' }
+      yield { type: 'finish', reason: { kind, failure: { code: 'provider-failure', message: 'provider stopped' } } }
+    } } as unknown as LlmRuntime
+    await expect(parseTaskDraft(llm, { text: 'hello', model: 'p/m' })).rejects.toMatchObject({ code: kind === 'error' ? 'model-error' : 'timeout', message: 'provider stopped' })
+  })
+
+  it('does not call a model for an already-cancelled request', async () => {
+    const calls: GenerateOptions[] = []
+    await expect(parseTaskDraft(fakeLlm(['{}'], calls), { text: 'hello', model: 'p/m' }, AbortSignal.abort())).rejects.toMatchObject({ code: 'timeout' })
+    expect(calls).toHaveLength(0)
+  })
+
+  it('rejects a cancellation even when the model ends the stream without throwing', async () => {
+    const controller = new AbortController()
+    const llm = { async *stream(): AsyncIterable<StreamChunk> {
+      yield { type: 'text-delta', index: 0, text: 'partial answer' }
+      controller.abort()
+    } } as unknown as LlmRuntime
+    await expect(parseTaskDraft(llm, { text: 'hello', model: 'p/m' }, controller.signal)).rejects.toMatchObject({ code: 'timeout' })
+  })
+
   it('gives up on a model that never answers', async () => {
     vi.useFakeTimers()
     try {
