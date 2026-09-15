@@ -578,7 +578,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$11() {
 			try {
-				return "0.3.22-dsh.20260915.1";
+				return "0.3.22-dsh.20260916.1";
 			} catch {
 				return;
 			}
@@ -2029,7 +2029,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$10() {
 			try {
-				return "0.3.22-dsh.20260915.1";
+				return "0.3.22-dsh.20260916.1";
 			} catch {
 				return;
 			}
@@ -4520,7 +4520,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$9() {
 			try {
-				return "0.3.22-dsh.20260915.1";
+				return "0.3.22-dsh.20260916.1";
 			} catch {
 				return;
 			}
@@ -10049,7 +10049,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$8() {
 			try {
-				return "0.3.22-dsh.20260915.1";
+				return "0.3.22-dsh.20260916.1";
 			} catch {
 				return;
 			}
@@ -11961,7 +11961,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$7() {
 			try {
-				return "0.3.22-dsh.20260915.1";
+				return "0.3.22-dsh.20260916.1";
 			} catch {
 				return;
 			}
@@ -13933,7 +13933,9 @@ window.__ModuleLoader__.load({
 			],
 			deviceHeader: REMOTE_DEVICE_HEADER,
 			deviceKey: "dsh-remote-device",
-			deviceQuery: REMOTE_DEVICE_QUERY
+			deviceQuery: REMOTE_DEVICE_QUERY,
+			uploadPath: "/api/session/uploadFileBinary",
+			uploadHookGlobal: "__DSH_FILE_UPLOAD__"
 		};
 		/** The window global the boot patch publishes its seat under. */
 		const REMOTE_CHANNEL_BOOT_GLOBAL = "__DSH_REMOTE_CHANNEL_BOOT__";
@@ -14081,6 +14083,7 @@ window.__ModuleLoader__.load({
 			const originalFetch = window.fetch;
 			const OriginalWebSocket = window.WebSocket;
 			const OriginalEventSource = window.EventSource;
+			const restoreUploadHook = installFileUploadHook(window);
 			const sameOrigin = (url) => url.origin === window.location.origin;
 			const rewrite = (raw) => rewriteRawUrl(raw, window.location.href, window.location.origin);
 			const device = (() => {
@@ -14166,6 +14169,46 @@ window.__ModuleLoader__.load({
 				window.WebSocket = OriginalWebSocket;
 				if (OriginalEventSource !== void 0) window.EventSource = OriginalEventSource;
 				for (const restore of restoreSrc) restore();
+				restoreUploadHook();
+			};
+		}
+		/**
+		* Publish the official pre-Cordis upload hook so background uploads keep
+		* riding the patched main-thread fetch (issue #1580).
+		*
+		* `@deepseek-ai/dsh-client-file-upload` reads `globalThis.__DSH_FILE_UPLOAD__`
+		* once when its runtime is constructed; without it the carrier is a Web
+		* Worker, whose own globals no main-thread patch reaches. That worker's XHR
+		* goes straight to `<origin>/api/session/uploadFileBinary` with neither the
+		* `/remote` rewrite nor the cookieless device credential, so the harness
+		* browser-auth fence answers 401 and every upload from a paired browser
+		* fails. Rewriting the worker URL cannot fix it: a worker context carries
+		* neither the pairing cookie nor the device header.
+		*
+		* The hook hands the runtime the same transport the rest of the page uses -
+		* the boot script publishes an identical one (remote-channel-boot.ts), and
+		* this is the fallback for pages served without it.
+		*
+		* @param window - the browser window (or a test double), BEFORE the channel patch.
+		* @returns a function retiring the hook (a pre-existing one is left alone).
+		*/
+		function installFileUploadHook(window) {
+			if (window.__DSH_FILE_UPLOAD__ !== void 0) return () => {};
+			const originalFetch = window.fetch;
+			const hook = { fetch: (input, init) => {
+				const raw = typeof input === "string" ? input : input.href;
+				let url;
+				try {
+					url = new URL(raw, window.location.href);
+				} catch {
+					return originalFetch.call(window, input, init);
+				}
+				if (url.origin === window.location.origin && url.pathname === RULES.uploadPath) return window.fetch.call(window, raw, init);
+				return originalFetch.call(window, input, init);
+			} };
+			window.__DSH_FILE_UPLOAD__ = hook;
+			return () => {
+				if (window.__DSH_FILE_UPLOAD__ === hook) delete window.__DSH_FILE_UPLOAD__;
 			};
 		}
 		/**
@@ -14316,7 +14359,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$6() {
 			try {
-				return "0.3.22-dsh.20260915.1";
+				return "0.3.22-dsh.20260916.1";
 			} catch {
 				return;
 			}
@@ -19380,7 +19423,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$5() {
 			try {
-				return "0.3.22-dsh.20260915.1";
+				return "0.3.22-dsh.20260916.1";
 			} catch {
 				return;
 			}
@@ -36128,7 +36171,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$4() {
 			try {
-				return "0.3.22-dsh.20260915.1";
+				return "0.3.22-dsh.20260916.1";
 			} catch {
 				return;
 			}
@@ -38559,7 +38602,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$3() {
 			try {
-				return "0.3.22-dsh.20260915.1";
+				return "0.3.22-dsh.20260916.1";
 			} catch {
 				return;
 			}
@@ -40482,7 +40525,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$2() {
 			try {
-				return "0.3.22-dsh.20260915.1";
+				return "0.3.22-dsh.20260916.1";
 			} catch {
 				return;
 			}
@@ -43878,7 +43921,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$1() {
 			try {
-				return "0.3.22-dsh.20260915.1";
+				return "0.3.22-dsh.20260916.1";
 			} catch {
 				return;
 			}
@@ -55036,7 +55079,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion() {
 			try {
-				return "0.3.22-dsh.20260915.1";
+				return "0.3.22-dsh.20260916.1";
 			} catch {
 				return;
 			}
