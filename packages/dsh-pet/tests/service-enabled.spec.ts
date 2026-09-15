@@ -1427,7 +1427,7 @@ describe('account-scoped pet persistence', () => {
       const service = new PetService(new Context(), { persistDir: dir, registry: fixtureRegistry() })
       await service.setPetId('otter', alice)
       await service.setName('阿獭', alice)
-      await service.setConfig({ size: 222, right: 71, bottom: 93 }, alice)
+      await service.setConfig({ size: 222, right: 71, bottom: 93, bubbleScale: 1.6 }, alice)
       await service.interact('pet', alice)
       service.mutateAccountSettings([
         { op: 'set', path: ['enabled'], value: false },
@@ -1444,7 +1444,7 @@ describe('account-scoped pet persistence', () => {
       expect(aliceView).toMatchObject({
         pet: { id: 'otter' },
         name: '阿獭',
-        display: { size: 222, right: 71, bottom: 93 },
+        display: { size: 222, right: 71, bottom: 93, bubbleScale: 1.6 },
         affinity: { points: 1, pets: 1 },
       })
       expect(service.accountSettings(alice).value).toMatchObject({ enabled: false, decorationEnabled: false })
@@ -1452,12 +1452,12 @@ describe('account-scoped pet persistence', () => {
       expect(await service.state(bob)).toMatchObject({
         pet: { id: 'whale-girl' },
         name: '鲸鱼娘',
-        display: { visible: true, size: 160 },
+        display: { visible: true, size: 160, bubbleScale: 1 },
         affinity: { points: 0, pets: 0 },
       })
       expect(await service.state()).toMatchObject({
         pet: { id: 'whale-girl' },
-        display: { visible: true, size: 160 },
+        display: { visible: true, size: 160, bubbleScale: 1 },
         affinity: { points: 0, pets: 0 },
       })
 
@@ -1465,7 +1465,7 @@ describe('account-scoped pet persistence', () => {
       expect(await reloaded.state(alice)).toMatchObject({
         pet: { id: 'otter' },
         name: '阿獭',
-        display: { size: 222, right: 71, bottom: 93 },
+        display: { size: 222, right: 71, bottom: 93, bubbleScale: 1.6 },
         affinity: { points: 1, pets: 1 },
       })
       expect(reloaded.accountSettings(alice).value.enabled).toBe(false)

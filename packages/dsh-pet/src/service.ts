@@ -34,6 +34,8 @@ import {
   DEFAULT_PET_NAME,
   DISPLAY_INSET_MAX,
   DISPLAY_SIZE_MAX,
+  BUBBLE_SCALE_MAX,
+  BUBBLE_SCALE_MIN,
   DISPLAY_SIZE_MIN,
   PET_NAME_MAX_LENGTH,
   emptyPersist,
@@ -116,6 +118,8 @@ export interface PetSettingsSection {
   right: number
   /** Vertical inset from the viewport bottom edge, px. */
   bottom: number
+  /** Bubble typography multiplier (#1549); see PetDisplayConfig. */
+  bubbleScale?: number
   /** Master switch for this account's browser companion. */
   enabled?: boolean
   /**
@@ -416,6 +420,7 @@ export class PetService extends Service {
       size: defaults.display.size,
       right: defaults.display.right,
       bottom: defaults.display.bottom,
+      bubbleScale: defaults.display.bubbleScale,
       petId: this.registry.defaultEntry().id,
     }
   }
@@ -430,6 +435,7 @@ export class PetService extends Service {
       size: snapshot.display.size,
       right: snapshot.display.right,
       bottom: snapshot.display.bottom,
+      bubbleScale: snapshot.display.bubbleScale,
       petId: snapshot.petId,
     }
   }
@@ -909,7 +915,7 @@ export class PetService extends Service {
     return { ok: true, skin }
   }
 
-  /** RPC: update display config (size / position). Values are clamped to whole pixels. */
+  /** RPC: update display config (size / position / bubble scale). Pixel values are clamped to whole pixels. */
   async setConfig(
     patch: Partial<PetDisplayConfig>,
     scope?: PetAccountScope,
@@ -919,12 +925,14 @@ export class PetService extends Service {
     next.size = Math.round(Math.min(DISPLAY_SIZE_MAX, Math.max(DISPLAY_SIZE_MIN, next.size)))
     next.right = Math.round(Math.min(DISPLAY_INSET_MAX, Math.max(0, next.right)))
     next.bottom = Math.round(Math.min(DISPLAY_INSET_MAX, Math.max(0, next.bottom)))
+    next.bubbleScale = Math.min(BUBBLE_SCALE_MAX, Math.max(BUBBLE_SCALE_MIN, next.bubbleScale))
     account.ledger.setDisplay(next)
     const overrides = new Set(account.ledger.snapshot.settingsOverrides)
     if (patch.visible !== undefined) overrides.add('visible')
     if (patch.size !== undefined) overrides.add('size')
     if (patch.right !== undefined) overrides.add('right')
     if (patch.bottom !== undefined) overrides.add('bottom')
+    if (patch.bubbleScale !== undefined) overrides.add('bubbleScale')
     account.ledger.setSettingsOverrides([...overrides])
     account.revision += 1
     this.flush(account)
@@ -971,6 +979,7 @@ export class PetService extends Service {
     next.size = Math.round(Math.min(DISPLAY_SIZE_MAX, Math.max(DISPLAY_SIZE_MIN, section.size)))
     next.right = Math.round(Math.min(DISPLAY_INSET_MAX, Math.max(0, section.right)))
     next.bottom = Math.round(Math.min(DISPLAY_INSET_MAX, Math.max(0, section.bottom)))
+    next.bubbleScale = Math.min(BUBBLE_SCALE_MAX, Math.max(BUBBLE_SCALE_MIN, section.bubbleScale ?? 1))
     account.ledger.setDisplay(next)
     this.flush(account)
     account.revision += 1
@@ -1012,7 +1021,7 @@ export class PetService extends Service {
       if (field === 'enabled' || field === 'decorationEnabled' || field === 'visible') {
         if (typeof value !== 'boolean') throw new Error(`invalid-${field}`)
         next[field] = value
-      } else if (field === 'size' || field === 'right' || field === 'bottom') {
+      } else if (field === 'size' || field === 'right' || field === 'bottom' || field === 'bubbleScale') {
         if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error(`invalid-${field}`)
         next[field] = value
       } else if (field === 'petId') {
@@ -1034,6 +1043,7 @@ export class PetService extends Service {
       size: Math.round(Math.min(DISPLAY_SIZE_MAX, Math.max(DISPLAY_SIZE_MIN, next.size))),
       right: Math.round(Math.min(DISPLAY_INSET_MAX, Math.max(0, next.right))),
       bottom: Math.round(Math.min(DISPLAY_INSET_MAX, Math.max(0, next.bottom))),
+      bubbleScale: Math.min(BUBBLE_SCALE_MAX, Math.max(BUBBLE_SCALE_MIN, next.bubbleScale ?? 1)),
     })
     account.revision += 1
     this.flush(account)
@@ -1057,6 +1067,7 @@ export class PetService extends Service {
       size: snapshot.display.size,
       right: snapshot.display.right,
       bottom: snapshot.display.bottom,
+      bubbleScale: snapshot.display.bubbleScale,
       petId: snapshot.petId,
     }).catch(() => {
       // A settings write failure must not break the pet's own persistence.

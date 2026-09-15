@@ -249,6 +249,7 @@ const PET_SETTINGS_FIELDS = new Set<keyof PetSettingsSection>([
   'size',
   'right',
   'bottom',
+  'bubbleScale',
   'petId',
 ])
 
@@ -708,6 +709,7 @@ export function makePetRoutes(deps: { service: PetService; ctx: Context; assetCa
       ...(typeof body.size === 'number' ? { size: body.size } : {}),
       ...(typeof body.right === 'number' ? { right: body.right } : {}),
       ...(typeof body.bottom === 'number' ? { bottom: body.bottom } : {}),
+      ...(typeof body.bubbleScale === 'number' ? { bubbleScale: body.bubbleScale } : {}),
       ...(typeof body.visible === 'boolean' ? { visible: body.visible } : {}),
     }, scope)),
     postRoute(ctx, PET_API_PREFIX + '/set-name', (body, scope) => {

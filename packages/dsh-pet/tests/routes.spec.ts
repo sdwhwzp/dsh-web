@@ -301,6 +301,7 @@ describe('pet routes', () => {
           expectedRevision: 0,
           ops: [
             { op: 'set', path: ['petId'], value: 'otter' },
+            { op: 'set', path: ['bubbleScale'], value: 1.7 },
             { op: 'set', path: ['enabled'], value: false },
           ],
         }),
@@ -310,12 +311,12 @@ describe('pet routes', () => {
       const alice = await fetch(accountUrl('/api/pet/settings'), {
         headers: principalHeaders('2'),
       }).then(response => response.json()) as { value: { enabled: boolean; petId: string } }
-      expect(alice.value).toMatchObject({ enabled: false, petId: 'otter' })
+      expect(alice.value).toMatchObject({ enabled: false, petId: 'otter', bubbleScale: 1.7 })
 
       const bob = await fetch(accountUrl('/api/pet/settings'), {
         headers: principalHeaders('3'),
       }).then(response => response.json()) as { value: { enabled: boolean; petId: string } }
-      expect(bob.value).toMatchObject({ enabled: false, petId: 'whale-girl' })
+      expect(bob.value).toMatchObject({ enabled: false, petId: 'whale-girl', bubbleScale: 1 })
 
       const rejected = await fetch(accountUrl('/api/pet/state'), {
         headers: {

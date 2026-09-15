@@ -5,7 +5,14 @@ import type { TaskBoardHostService } from './host-service.ts'
 import type { TaskBoardPrincipal } from './host-accounts.ts'
 import { writeJson } from './http.ts'
 import { isLoopbackAddress, isLoopbackRequest } from './loopback.ts'
-import { parseActionEnvelope, TASK_BOARD_API_PREFIX } from './protocol.ts'
+import { TaskParseError, TASK_PARSE_MAX_INPUT } from './host-ai.ts'
+import {
+  parseActionEnvelope,
+  parseTaskParseRequest,
+  TASK_BOARD_API_PREFIX,
+  type TaskBoardParseDraft,
+  type TaskBoardParseRequest,
+} from './protocol.ts'
 
 const ACTION_LIMIT = 64 * 1024
 const IMPORT_LIMIT = 2 * 1024 * 1024
@@ -20,6 +27,16 @@ export interface TaskBoardRouteAccess {
   proxyToken?: string
   authenticate?: (req: IncomingMessage) => Promise<TaskBoardPrincipal | undefined>
   assertPrincipal?: (principal: TaskBoardPrincipal | undefined) => void
+}
+
+/**
+ * Host faces the routes need beyond the ledger service. The parse face is
+ * resolved lazily by the caller, so a deployment without an llm service still
+ * registers the route and answers with a typed "no model" failure instead of
+ * leaving the panel with an unmounted path (issue #1540).
+ */
+export interface TaskBoardRouteOptions {
+  parseTask?: (request: TaskBoardParseRequest, signal: AbortSignal) => Promise<TaskBoardParseDraft>
 }
 
 interface ResolvedRouteAccess {
@@ -122,7 +139,11 @@ async function readBody(req: IncomingMessage): Promise<{ raw: string; value: unk
   return { raw, value: JSON.parse(raw) }
 }
 
-export function makeTaskBoardRoutes(service: TaskBoardHostService, access: TaskBoardRouteAccess = {}): WebRoute[] {
+export function makeTaskBoardRoutes(
+  service: TaskBoardHostService,
+  access: TaskBoardRouteAccess = {},
+  options: TaskBoardRouteOptions = {},
+): WebRoute[] {
   const resolvedAccess = resolveAccess(access)
   const guard = async (req: IncomingMessage, res: ServerResponse): Promise<{ principal?: TaskBoardPrincipal } | undefined> => {
     if (isTrustedTaskBoardRequest(req, resolvedAccess)) {
@@ -210,5 +231,50 @@ export function makeTaskBoardRoutes(service: TaskBoardHostService, access: TaskB
       push()
     },
   }
-  return [state, action, events]
+  const parse: WebRoute = {
+    kind: 'exact',
+    path: `${TASK_BOARD_API_PREFIX}/parse`,
+    handler: async (req, res): Promise<void> => {
+      if (req.method !== 'POST') return writeJson(res, 405, { ok: false, error: 'method-not-allowed' }, { 'cache-control': 'no-store' })
+      const authorization = await guard(req, res)
+      if (authorization === undefined) return
+      if (!(req.headers['content-type'] ?? '').toLowerCase().startsWith('application/json')) {
+        return writeJson(res, 415, { ok: false, error: 'json-required' }, { 'cache-control': 'no-store' })
+      }
+      let body: { raw: string; value: unknown }
+      try {
+        body = await readBody(req)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        return writeJson(res, message === 'body-too-large' ? 413 : 400, { ok: false, error: message }, { 'cache-control': 'no-store' })
+      }
+      const request = parseTaskParseRequest(body.value)
+      if (request === undefined) return writeJson(res, 400, { ok: false, error: 'invalid-parse-request' }, { 'cache-control': 'no-store' })
+      if (Buffer.byteLength(request.text, 'utf8') > TASK_PARSE_MAX_INPUT) {
+        return writeJson(res, 413, { ok: false, error: 'text-too-large' }, { 'cache-control': 'no-store' })
+      }
+      const parseTask = options.parseTask
+      if (parseTask === undefined) {
+        return writeJson(res, 503, { ok: false, code: 'no-model', error: 'task-board parsing is unavailable' }, { 'cache-control': 'no-store' })
+      }
+      // The model call outlives a closed tab: stop it when the response goes
+      // away instead of holding the provider request open for the full timeout.
+      const controller = new AbortController()
+      const onClose = (): void => { controller.abort() }
+      res.once('close', onClose)
+      try {
+        const draft = await parseTask(request, controller.signal)
+        writeJson(res, 200, { ok: true, draft }, { 'cache-control': 'no-store' })
+      } catch (error) {
+        const failure = error instanceof TaskParseError
+          ? error
+          : new TaskParseError('model-error', error instanceof Error ? error.message : String(error))
+        const status = failure.code === 'no-model' ? 503 : failure.code === 'timeout' ? 504 : 502
+        writeJson(res, status, { ok: false, code: failure.code, error: failure.message }, { 'cache-control': 'no-store' })
+      } finally {
+        res.off('close', onClose)
+      }
+    },
+  }
+  return [state, action, events, parse]
 }
