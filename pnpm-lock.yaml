@@ -11,7 +11,7 @@ importers:
   .:
     dependencies:
       '@linxin666/dsh-web-all':
-        specifier: 0.3.22-dsh.20260916.1
+        specifier: 0.3.23-dsh.20260918.1
         version: link:packages/dsh-web-all
     devDependencies:
       '@deepseek-ai/cordis':
@@ -76,10 +76,7 @@ importers:
         version: 1.63.0
       tsdown:
         specifier: ^0.22.2
-        version: 0.22.2(typescript@6.0.3)(unrun@0.3.1)
-      unrun:
-        specifier: ^0.3.1
-        version: 0.3.1
+        version: 0.22.2(typescript@6.0.3)
 
   packages/dsh-community-plugins:
     dependencies:
@@ -146,7 +143,7 @@ importers:
         version: 18.3.1(react@18.3.1)
       tsdown:
         specifier: 0.22.2
-        version: 0.22.2(typescript@5.7.3)(unrun@0.3.1)
+        version: 0.22.2(typescript@5.7.3)
       typescript:
         specifier: ~5.7.2
         version: 5.7.3
@@ -225,7 +222,7 @@ importers:
         version: 18.3.1(react@18.3.1)
       tsdown:
         specifier: ^0.22.2
-        version: 0.22.2(typescript@6.0.3)(unrun@0.3.1)
+        version: 0.22.2(typescript@6.0.3)
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -322,7 +319,7 @@ importers:
         version: 18.3.1(react@18.3.1)
       tsdown:
         specifier: ^0.22.2
-        version: 0.22.2(typescript@6.0.3)(unrun@0.3.1)
+        version: 0.22.2(typescript@6.0.3)
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -343,7 +340,7 @@ importers:
         version: 0.1.5-rc.1(@deepseek-ai/cordis@4.0.2)
       tsdown:
         specifier: 0.22.2
-        version: 0.22.2(typescript@5.7.3)(unrun@0.3.1)
+        version: 0.22.2(typescript@5.7.3)
       typescript:
         specifier: ~5.7.2
         version: 5.7.3
@@ -387,6 +384,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-renderer':
         specifier: ^0.1.5-rc.1
         version: 0.1.5-rc.1(@deepseek-ai/cordis@4.0.2)
+      '@deepseek-ai/dsh-client-ui-settings':
+        specifier: ^0.1.5-rc.1
+        version: 0.1.5-rc.1(@deepseek-ai/cordis@4.0.2)
       '@deepseek-ai/dsh-client-ui-slots':
         specifier: ^0.1.5-rc.1
         version: 0.1.5-rc.1(@deepseek-ai/cordis@4.0.2)
@@ -396,6 +396,9 @@ importers:
       '@deepseek-ai/dsh-system-prompt':
         specifier: ^0.1.5-rc.1
         version: 0.1.5-rc.1(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.5-rc.1(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-llm@0.1.5-rc.1(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-scope@0.1.5-rc.1(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.5-rc.1(@deepseek-ai/cordis@4.0.2)))
+      '@testing-library/react':
+        specifier: ^16.1.0
+        version: 16.3.3(@testing-library/dom@10.4.1)(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@types/node':
         specifier: ^22.20.0
         version: 22.20.1
@@ -416,7 +419,7 @@ importers:
         version: 18.3.1(react@18.3.1)
       tsdown:
         specifier: 0.22.2
-        version: 0.22.2(typescript@5.7.3)(unrun@0.3.1)
+        version: 0.22.2(typescript@5.7.3)
       typescript:
         specifier: ~5.7.2
         version: 5.7.3
@@ -492,7 +495,7 @@ importers:
         version: 18.3.1(react@18.3.1)
       tsdown:
         specifier: 0.22.2
-        version: 0.22.2(typescript@5.7.3)(unrun@0.3.1)
+        version: 0.22.2(typescript@5.7.3)
       typescript:
         specifier: ~5.7.2
         version: 5.7.3
@@ -562,7 +565,7 @@ importers:
         version: 18.3.1(react@18.3.1)
       tsdown:
         specifier: 0.22.2
-        version: 0.22.2(typescript@5.7.3)(unrun@0.3.1)
+        version: 0.22.2(typescript@5.7.3)
       typescript:
         specifier: ~5.7.2
         version: 5.7.3
@@ -650,7 +653,7 @@ importers:
         version: 18.3.1(react@18.3.1)
       tsdown:
         specifier: ^0.22.2
-        version: 0.22.2(typescript@6.0.3)(unrun@0.3.1)
+        version: 0.22.2(typescript@6.0.3)
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -723,7 +726,7 @@ importers:
         version: 18.3.1(react@18.3.1)
       tsdown:
         specifier: 0.22.2
-        version: 0.22.2(typescript@5.7.3)(unrun@0.3.1)
+        version: 0.22.2(typescript@5.7.3)
       typescript:
         specifier: ~5.7.2
         version: 5.7.3
@@ -784,7 +787,7 @@ importers:
         version: 18.3.1(react@18.3.1)
       tsdown:
         specifier: 0.22.2
-        version: 0.22.2(typescript@5.7.3)(unrun@0.3.1)
+        version: 0.22.2(typescript@5.7.3)
       typescript:
         specifier: ~5.7.2
         version: 5.7.3
@@ -887,7 +890,7 @@ importers:
         version: 18.3.1(react@18.3.1)
       tsdown:
         specifier: ^0.22.2
-        version: 0.22.2(typescript@6.0.3)(unrun@0.3.1)
+        version: 0.22.2(typescript@6.0.3)
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -966,7 +969,7 @@ importers:
         version: 18.3.1(react@18.3.1)
       tsdown:
         specifier: ^0.22.2
-        version: 0.22.2(typescript@6.0.3)(unrun@0.3.1)
+        version: 0.22.2(typescript@6.0.3)
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -1026,7 +1029,7 @@ importers:
         version: 18.3.1(react@18.3.1)
       tsdown:
         specifier: 0.22.2
-        version: 0.22.2(typescript@5.7.3)(unrun@0.3.1)
+        version: 0.22.2(typescript@5.7.3)
       typescript:
         specifier: ~5.7.2
         version: 5.7.3
@@ -1074,7 +1077,7 @@ importers:
         version: 18.3.1(react@18.3.1)
       tsdown:
         specifier: 0.22.2
-        version: 0.22.2(typescript@5.7.3)(unrun@0.3.1)
+        version: 0.22.2(typescript@5.7.3)
       typescript:
         specifier: ~5.7.2
         version: 5.7.3
@@ -1168,7 +1171,7 @@ importers:
         version: 3.18.0
       tsdown:
         specifier: 0.22.2
-        version: 0.22.2(typescript@5.7.3)(unrun@0.3.1)
+        version: 0.22.2(typescript@5.7.3)
       typescript:
         specifier: ~5.7.2
         version: 5.7.3
@@ -1256,7 +1259,7 @@ importers:
         version: 18.3.1(react@18.3.1)
       tsdown:
         specifier: 0.22.2
-        version: 0.22.2(typescript@5.7.3)(unrun@0.3.1)
+        version: 0.22.2(typescript@5.7.3)
       typescript:
         specifier: ~5.7.2
         version: 5.7.3
@@ -1350,7 +1353,7 @@ importers:
         version: 18.3.1(react@18.3.1)
       tsdown:
         specifier: 0.22.2
-        version: 0.22.2(typescript@5.7.3)(unrun@0.3.1)
+        version: 0.22.2(typescript@5.7.3)
       typescript:
         specifier: ~5.7.2
         version: 5.7.3
@@ -1415,6 +1418,9 @@ importers:
       '@types/react':
         specifier: ~18.3.1
         version: 18.3.31
+      '@types/react-dom':
+        specifier: ^18.3.5
+        version: 18.3.7(@types/react@18.3.31)
       jsdom:
         specifier: 29.1.1
         version: 29.1.1
@@ -1426,7 +1432,7 @@ importers:
         version: 18.3.1(react@18.3.1)
       tsdown:
         specifier: ^0.22.2
-        version: 0.22.2(typescript@6.0.3)(unrun@0.3.1)
+        version: 0.22.2(typescript@6.0.3)
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -1497,8 +1503,8 @@ importers:
         specifier: workspace:*
         version: link:../dsh-usage
       dsh-better-sidebar:
-        specifier: 0.19.0
-        version: 0.19.0(5d01a0121f53fce90355120f9d87b845)
+        specifier: 0.19.1
+        version: 0.19.1(5d01a0121f53fce90355120f9d87b845)
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: ^4.0.2
@@ -1620,7 +1626,7 @@ importers:
         version: 18.3.1(react@18.3.1)
       tsdown:
         specifier: 0.22.2
-        version: 0.22.2(typescript@5.7.3)(unrun@0.3.1)
+        version: 0.22.2(typescript@5.7.3)
       typescript:
         specifier: ~5.7.2
         version: 5.7.3
@@ -1693,7 +1699,7 @@ importers:
         version: 18.3.1(react@18.3.1)
       tsdown:
         specifier: ^0.22.2
-        version: 0.22.2(typescript@5.7.3)(unrun@0.3.1)
+        version: 0.22.2(typescript@5.7.3)
       typescript:
         specifier: ~5.7.2
         version: 5.7.3
@@ -3618,8 +3624,8 @@ packages:
   dompurify@3.4.15:
     resolution: {integrity: sha512-EUBjM+B+lkDE41iE82DDSCfkoPGfXx8IxFxPMjNzm/Uk4xDet77rTN9wqlxlVg71kK7XGuUMv6wUxJUwwv+Xyw==}
 
-  dsh-better-sidebar@0.19.0:
-    resolution: {integrity: sha512-eUNfVfJScUfvBiiB7yqot4UDslTOaDcRxPR9LKWE2Kv/Mp/iSk14whgrVg2RggYLc5aq2c+zpXG6qeQ5+aiHrg==}
+  dsh-better-sidebar@0.19.1:
+    resolution: {integrity: sha512-Jr0tPJoDKUVkq+fioL6Td+YwXZ+PULx3CnBJ4iktaQGNP5y9hgpz6V7o7f4Yh2czheVKZsewurqCaiN10GQYeQ==}
     engines: {node: '>=20'}
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.2
@@ -4589,16 +4595,6 @@ packages:
 
   unist-util-visit@5.1.0:
     resolution: {integrity: sha512-m+vIdyeCOpdr/QeQCu2EzxX/ohgS8KbnPDgFni4dQsfSCtpz8UqDyY5GjRru8PDKuYn7Fq19j1CQ+nJSsGKOzg==}
-
-  unrun@0.3.1:
-    resolution: {integrity: sha512-onIck/oNnCaytwths1ZVp1LK2Gq2hPoyFhiHebObuUXqR3S0uHuLLaBK8K6mRRgV7Ptip8AnNvaUsgzwWwBZuA==}
-    engines: {node: ^22.13.0 || >=24.0.0}
-    hasBin: true
-    peerDependencies:
-      synckit: ^0.11.11
-    peerDependenciesMeta:
-      synckit:
-        optional: true
 
   untitled-pixi-live2d-engine@1.3.5:
     resolution: {integrity: sha512-F9X54p9X6tUT6bgjp8fXaf3QRPRvLurNVXn8De0XvsW1aUCvCuK8z0+Q3iiIgT+TeLnhYWQ2HjjROQy51U7PzQ==}
@@ -6667,7 +6663,7 @@ snapshots:
     optionalDependencies:
       '@types/trusted-types': 2.0.7
 
-  dsh-better-sidebar@0.19.0(5d01a0121f53fce90355120f9d87b845):
+  dsh-better-sidebar@0.19.1(5d01a0121f53fce90355120f9d87b845):
     dependencies:
       '@codemirror/commands': 6.11.0
       '@codemirror/lang-cpp': 6.0.3
@@ -7858,7 +7854,7 @@ snapshots:
     optionalDependencies:
       typescript: 6.0.3
 
-  tsdown@0.22.2(typescript@5.7.3)(unrun@0.3.1):
+  tsdown@0.22.2(typescript@5.7.3):
     dependencies:
       ansis: 4.3.1
       cac: 7.0.0
@@ -7877,14 +7873,13 @@ snapshots:
       unconfig-core: 7.5.0
     optionalDependencies:
       typescript: 5.7.3
-      unrun: 0.3.1
     transitivePeerDependencies:
       - '@ts-macro/tsc'
       - '@typescript/native-preview'
       - oxc-resolver
       - vue-tsc
 
-  tsdown@0.22.2(typescript@6.0.3)(unrun@0.3.1):
+  tsdown@0.22.2(typescript@6.0.3):
     dependencies:
       ansis: 4.3.1
       cac: 7.0.0
@@ -7903,7 +7898,6 @@ snapshots:
       unconfig-core: 7.5.0
     optionalDependencies:
       typescript: 6.0.3
-      unrun: 0.3.1
     transitivePeerDependencies:
       - '@ts-macro/tsc'
       - '@typescript/native-preview'
@@ -7956,10 +7950,6 @@ snapshots:
       '@types/unist': 3.0.3
       unist-util-is: 6.0.1
       unist-util-visit-parents: 6.0.2
-
-  unrun@0.3.1:
-    dependencies:
-      rolldown: 1.2.7
 
   untitled-pixi-live2d-engine@1.3.5(pixi.js@8.20.1):
     dependencies:

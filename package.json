@@ -13,12 +13,12 @@
     "packages/dsh-web-all/cordis.patch.yml"
   ],
   "dependencies": {
-    "@linxin666/dsh-web-all": "0.3.22-dsh.20260916.1"
+    "@linxin666/dsh-web-all": "0.3.23-dsh.20260918.1"
   },
   "scripts": {
     "build": "pnpm -r build",
     "dev:watch": "node scripts/dev-watch.mjs",
-    "test": "pnpm -r --workspace-concurrency=1 test",
+    "test": "pnpm -r test",
     "test:desktop": "node --test desktop/tests/*.test.mjs",
     "typecheck": "pnpm -r typecheck",
     "aggregate:check": "node scripts/aggregate.mjs --check",
@@ -64,8 +64,7 @@
     "@playwright/test": "^1.62.1",
     "lightningcss": "^1.32.0",
     "playwright": "^1.62.1",
-    "tsdown": "^0.22.2",
-    "unrun": "^0.3.1"
+    "tsdown": "^0.22.2"
   },
   "license": "Apache-2.0",
   "packageManager": "pnpm@11.24.0"

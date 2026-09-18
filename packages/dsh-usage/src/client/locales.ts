@@ -53,7 +53,7 @@ export const zh = {
   'usage.config.bubbleMode.change': '仅变化时',
   'usage.config.bubbleMode.off': '关闭',
   'usage.bank.title': '鲸元券',
-  'usage.bank.hint': '官方 API 每消耗 1000 tokens 铸造 1 鲸元；保存或分享这张票券。',
+  'usage.bank.hint': '官方 API 每消耗 100 万 tokens 铸造 1 鲸元；保存或分享这张票券。',
   'usage.bank.noUsage': '暂无 DeepSeek 官方用量数据（统计自插件启用起）',
   'usage.bank.minted': '累计铸造 {minted} 鲸元（{tokens} tokens）',
   'usage.bank.spend.observed': '官方余额实测花费 ¥{cost}（自 {since} 起）',
@@ -62,6 +62,15 @@ export const zh = {
   'usage.bank.save': '保存图片',
   'usage.bank.share': '分享',
   'usage.bank.drawError': '票券生成失败：{error}',
+  'usage.sidebar.entry.label': '用量',
+  'usage.sidebar.entry.tooltip': '用量面板：套餐配额与余额',
+  'usage.sidebar.title': '用量',
+  'usage.sidebar.toggle.collapse': '折叠',
+  'usage.sidebar.toggle.expand': '展开',
+  'usage.sidebar.empty': '没有已配置的套餐或余额数据。',
+  'usage.sidebar.error': '加载失败：{error}',
+  'usage.sidebar.loading': '正在加载用量数据…',
+  'usage.sidebar.balanceLeft': '剩余 {balance}',
 }
 
 /** English mirror; every zh key present. */
@@ -110,7 +119,7 @@ export const en: Record<UsageKey, string> = {
   'usage.config.bubbleMode.change': 'On change',
   'usage.config.bubbleMode.off': 'Off',
   'usage.bank.title': 'Whale-yuan voucher',
-  'usage.bank.hint': 'Every 1,000 tokens spent on the official API mint one whale yuan; save or share the note.',
+  'usage.bank.hint': 'Every 1,000,000 tokens spent on the official API mint one whale yuan; save or share the note.',
   'usage.bank.noUsage': 'No official DeepSeek usage yet (counting starts when the plugin is enabled)',
   'usage.bank.minted': 'Minted {minted} whale yuan ({tokens} tokens)',
   'usage.bank.spend.observed': 'Spent ¥{cost} observed on the official balance (watching since {since})',
@@ -119,6 +128,15 @@ export const en: Record<UsageKey, string> = {
   'usage.bank.save': 'Save image',
   'usage.bank.share': 'Share',
   'usage.bank.drawError': 'Failed to render the voucher: {error}',
+  'usage.sidebar.entry.label': 'Usage',
+  'usage.sidebar.entry.tooltip': 'Usage panel: plan quotas and balances',
+  'usage.sidebar.title': 'Usage',
+  'usage.sidebar.toggle.collapse': 'Collapse',
+  'usage.sidebar.toggle.expand': 'Expand',
+  'usage.sidebar.empty': 'No plan or balance data configured.',
+  'usage.sidebar.error': 'Loading failed: {error}',
+  'usage.sidebar.loading': 'Loading usage data…',
+  'usage.sidebar.balanceLeft': '{balance} left',
 }
 
 export type UsageKey = keyof typeof zh

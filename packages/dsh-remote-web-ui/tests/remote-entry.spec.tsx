@@ -315,6 +315,7 @@ describe('apply registration', () => {
       slots: {
         inject: (key: string) => { injected.push(key); return () => {} },
         register: () => () => {},
+        spec: () => undefined,
       },
       settingsScope: {
         bind: () => ({
@@ -330,7 +331,11 @@ describe('apply registration', () => {
       },
     }
     apply(ctx as never)
-    expect(injected).toEqual(['web-ui.plugin.item'])
+    // The card registers straight into the seat it resolved (the official
+    // keyed seat here, because this double provides no webUiSettings face);
+    // this fork registers no sidebar footer action, so nothing rides a
+    // declaration-lifetime injection.
+    expect(injected).toEqual([])
   })
 
   it('keeps sidebar footer actions absent across settings transitions', async () => {
@@ -353,6 +358,7 @@ describe('apply registration', () => {
           registered.push(entry.name)
           return () => {}
         },
+        spec: () => undefined,
       },
       settingsScope: {
         bind: () => ({
@@ -368,14 +374,49 @@ describe('apply registration', () => {
       },
     }
     apply(ctx as never)
-    expect(registered).toEqual(['web-ui.plugin.item'])
+    expect(registered).toEqual(['settings.plugin.item'])
 
     snapshot = { status: 'ready' as const, writable: true, value: { enabled: false } }
     notify()
-    expect(registered).toEqual(['web-ui.plugin.item'])
+    expect(registered).toEqual(['settings.plugin.item'])
 
     snapshot = { status: 'ready' as const, writable: true, value: { enabled: true } }
     notify()
-    expect(registered).toEqual(['web-ui.plugin.item'])
+    expect(registered).toEqual(['settings.plugin.item'])
+  })
+
+  it('registers the card into the family list seat when the settings group is loaded', async () => {
+    const { apply } = await import('../src/client/index.ts')
+    const registered: Array<{ name: string; id?: string; key?: string }> = []
+    const ctx = {
+      effect: (fn: () => unknown) => fn(),
+      locale: { register: () => () => {}, bind: () => (key: string) => key },
+      slots: {
+        inject: (_key: string, factory?: () => unknown) => { factory?.(); return () => {} },
+        register: (entry: { name: string; id?: string; key?: string }) => {
+          registered.push(entry)
+          return () => {}
+        },
+        spec: () => ({ kind: 'keyed' }),
+      },
+      settingsScope: {
+        bind: () => ({
+          getSnapshot: () => ({ status: 'ready' as const, writable: true, value: { enabled: false } }),
+          subscribe: () => () => {},
+          set: async () => {},
+          unset: async () => {},
+        }),
+      },
+      get: (name: string) => {
+        if (name === 'connection') return { isLoopback: true }
+        if (name === 'webUiSettings') return { bind: () => ctx.settingsScope.bind() }
+        return undefined
+      },
+    }
+    apply(ctx as never)
+    // The group declares the family seat, so the card belongs there even
+    // though the harness host declares the official keyed seat too.
+    expect(registered).toContainEqual(expect.objectContaining({ name: 'web-ui.plugin.item', id: 'remote-web-ui' }))
+    expect(registered.some(entry => entry.name === 'settings.plugin.item')).toBe(false)
   })
 })

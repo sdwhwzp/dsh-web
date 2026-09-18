@@ -1,6 +1,6 @@
 /**
  * Composition guard for the shipped preset file: the committed
- * `agent.cordis.yml` must stay structurally valid, mount the two preset-local
+ * `agent.cordis.yml` must stay structurally valid, mount the preset-local
  * plugins, and keep the persona row on the schema the installed SDK accepts.
  *
  * The persona section-name assertion is the regression guard for the class of
@@ -21,12 +21,16 @@ import { validateAgentCordis } from '../src/schema.ts'
 
 const preset = readFileSync(join(process.cwd(), 'presets/liangshen/agent.cordis.yml'), 'utf8')
 
-/** The text of one top-level `- id: <id>` row, up to the next row. */
+/**
+ * The text of one top-level `- id: <id>` row: its own line and the indented
+ * block under it. The row ends at the next top-level line of any kind, so a
+ * comment block following the row is not mistaken for part of its YAML.
+ */
 function row(id: string): string {
   const start = preset.indexOf(`- id: ${id}\n`)
   if (start < 0) return ''
   const rest = preset.slice(start + 1)
-  const next = rest.search(/^- id: /m)
+  const next = rest.search(/^\S/m)
   return next < 0 ? rest : rest.slice(0, next)
 }
 
@@ -48,10 +52,14 @@ describe('liangshen preset composition', () => {
     expect(persona).toContain("name: '@deepseek-ai/dsh-persona'")
     expect(persona).toContain('prefix: |-')
     expect(persona).toContain('You are a helpful software engineer assistant.')
-    // The standing working discipline ships inside the persona prefix.
-    expect(persona).toContain('Avoid falling into repetitive loops during thinking')
-    expect(persona).toContain('YAGNI programming philosophy and the PDCA behavioral standard')
-    expect(persona).toContain('No need to write comments for the code.')
+    // The standing working discipline ships inside the persona prefix: the
+    // thinking-disruption fuse, action-oriented steps, and YAGNI/PDCA.
+    expect(persona).toContain('Thinking Disruption: Do not repeat reasoning on the same hypothesis more than twice')
+    expect(persona).toContain('immediately close </think> and call native inspection tools')
+    expect(persona).toContain('Action-Oriented: Thinking must focus solely on determining the next concrete operation')
+    expect(persona).toContain('Parallel Inspection: When multiple independent inspections, searches, or checks are needed')
+    expect(persona).toContain('Follow YAGNI and the PDCA loop')
+    expect(persona).toContain('Do not write redundant comments.')
     expect(persona).not.toContain('text:')
     expect(persona).not.toContain('complete:')
     // Runtime contexts are durable user-role messages, not prompt text: they
@@ -59,24 +67,44 @@ describe('liangshen preset composition', () => {
     expect(persona).not.toContain('includeRuntimeContext')
   })
 
-  it('declares both plugin configs explicitly', () => {
+  it('declares the plugin configs explicitly', () => {
     expect(row('minimal-prompt')).toContain('keepPlanPolicy: true')
-    expect(row('minimal-prompt')).toContain('instructionSource: system-prompt')
+    // The shipped default hands workspace instructions back to the harness's
+    // own agent-instructions row; the other two sources stay opt-in.
+    expect(row('minimal-prompt')).toContain('instructionSource: host')
     expect(row('minimal-prompt')).toContain('instructionMaxBytes: 65536')
     expect(row('tool-catalog')).toContain('descriptionMaxLength: 200')
   })
 
-  it('anchors the first turn on bash, str_replace_editor, exit_plan_mode, skill and presents PTC after it', () => {
-    expect(row('tool-catalog')).toContain('anchorTools: [bash, str_replace_editor, exit_plan_mode, skill]')
-    expect(row('tool-catalog')).toContain('ptcPresentation: true')
+  it("declares the 'both' presentation with no paged patterns by default, and no retired keys", () => {
+    expect(row('tool-catalog')).toContain("presentation: 'both'")
+    expect(row('tool-catalog')).toContain("pagedToolPatterns: []")
+    expect(row('tool-catalog')).not.toContain('ptcPresentation')
+    expect(row('tool-catalog')).not.toContain('anchorTools')
   })
 
-  it('supports bash-only configuration experiment via anchorTools row without registry changes', () => {
-    const bashOnlyPreset = preset.replace(
-      'anchorTools: [bash, str_replace_editor, exit_plan_mode, skill]',
-      'anchorTools: [bash]'
-    )
-    expect(validateAgentCordis(bashOnlyPreset)).toEqual([])
+  it('mounts working-context and does not mount tool-activate', () => {
+    expect(row('tool-activate')).toBe('')
+    expect(row('working-context')).toContain('name: ./working-context.mjs')
+  })
+
+  it('does not mount reasoning-effort plugin', () => {
+    expect(row('reasoning-effort')).toBe('')
+  })
+
+  it('keeps the native and ptc presentation variants structurally valid', () => {
+    for (const mode of ['native', 'ptc']) {
+      const variant = preset.replace("presentation: 'both'", `presentation: '${mode}'`)
+      expect(variant).not.toBe(preset)
+      expect(validateAgentCordis(variant), mode).toEqual([])
+    }
+  })
+
+  it('ships the balanced tool-result pruning budgets', () => {
+    const pruner = row('compaction')
+    expect(pruner).toContain('thresholdChars: 8192')
+    expect(pruner).toContain('headChars: 4096')
+    expect(pruner).toContain('tailChars: 1024')
   })
 
   it('keeps run_code the only model-authored orchestration surface', () => {

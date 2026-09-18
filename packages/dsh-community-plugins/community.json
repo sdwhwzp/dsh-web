@@ -1,16 +1,16 @@
 [
   {
-  "id": "dsh-quick-ask",
-  "name": "侧边快速提问",
-  "nameEn": "Side Quick Ask",
-  "author": "Volta-ln",
-  "description": "在 DSH Web 聊天界面右侧的悬浮面板中，就当前话题提出小问题，由独立轻量会话通过官方 /api RPC 回答，不写入、不影响主对话。支持流式正文、可折叠思考、工具 chips、停止按钮、agent 预设选择，并自动抓取主对话最近内容作为背景。",
-  "descriptionEn": "A floating side panel on the right edge of the DSH Web chat view that answers small questions about the current topic in an independent lightweight session driven through the official /api RPC, leaving the main conversation untouched. Streaming text, collapsible reasoning, tool chips, stop button, agent-preset selector, and an automatic context snapshot from the visible main chat.",
-  "repo": "https://github.com/Volta-ln/dsh-quick-ask",
-  "npm": "dsh-quick-ask",
-  "category": "ui",
-  "subcategory": "panel"
-},
+    "id": "dsh-quick-ask",
+    "name": "侧边快速提问",
+    "nameEn": "Side Quick Ask",
+    "author": "Volta-ln",
+    "description": "在 DSH Web 聊天界面右侧的悬浮面板中，就当前话题提出小问题，由独立轻量会话通过官方 /api RPC 回答，不写入、不影响主对话。支持流式正文、可折叠思考、工具 chips、停止按钮、agent 预设选择，并自动抓取主对话最近内容作为背景。",
+    "descriptionEn": "A floating side panel on the right edge of the DSH Web chat view that answers small questions about the current topic in an independent lightweight session driven through the official /api RPC, leaving the main conversation untouched. Streaming text, collapsible reasoning, tool chips, stop button, agent-preset selector, and an automatic context snapshot from the visible main chat.",
+    "repo": "https://github.com/Volta-ln/dsh-quick-ask",
+    "npm": "dsh-quick-ask",
+    "category": "ui",
+    "subcategory": "panel"
+  },
   {
     "id": "dsh-data-agent",
     "name": "Data Agent",
@@ -870,5 +870,39 @@
     "npm": "dsh-stalled-turn-continue",
     "category": "tools",
     "subcategory": "dev"
+  },
+  {
+    "id": "dsh-thread-tools",
+    "name": "会话线程工具",
+    "nameEn": "Thread Tools",
+    "author": "wig123",
+    "description": "把 Codex 的线程工具搬到 DSH 上：让模型列出你开着的那些会话、按正文检索它们、给某个正在跑的会话递消息并读回它的回答，还能新建空会话或从已有会话的已完成轮次分叉。",
+    "descriptionEn": "Codex's thread tools on DSH: the model can list the sessions you have open, search their content, hand one of them a message and read the answer back, open a fresh session, or branch one from its completed turns.",
+    "repo": "https://github.com/wig123/dsh-thread-tools",
+    "category": "tools",
+    "subcategory": "dev"
+  },
+  {
+    "id": "dsh-usage-panel",
+    "name": "消耗统计面板",
+    "nameEn": "Usage Panel",
+    "author": "AlfredChaos",
+    "description": "设置页 Token 用量统计：累计 KPI 与侧边栏会话列表同口径、半年活跃热力图、按模型堆叠的每日柱状图、模型环形图、Top 会话与 provider 分布，支持 JSON/CSV 导出。基于投影增量聚合、只读重算会话日志；fork/seed 历史去重、resume 会话完整保留、子代理消耗独立归属——历史账单的准确记账，与实时监控类插件互补。",
+    "descriptionEn": "A Settings-page token usage panel for DSH: cumulative KPIs aligned with the visible session list, a six-month activity heatmap, per-model stacked daily bars, a model donut, top sessions and provider breakdown, with JSON/CSV export. Incremental projection over session logs, strictly read-only; fork/seed history deduplicated, resumed sessions kept whole, subagent spend attributed separately — authoritative historical accounting, complementary to live monitoring plugins.",
+    "repo": "https://github.com/AlfredChaos/dsh-usage-panel",
+    "npm": "dsh-usage-panel",
+    "category": "utility",
+    "subcategory": "stats"
+  },
+  {
+    "id": "dsh-workbench",
+    "name": "工作台：迭代时间轴与技能库",
+    "nameEn": "Workbench: Iteration Timeline & Skill Library",
+    "author": "liiydong",
+    "description": "DSH Web 左栏的「工作台」面板，三页签。① 迭代（默认）：把「AI 改 Markdown → 生成 Word/PDF/Excel → 你审这一版」变成一条时间轴——按产线分组、产线内按天分小节，一轮一行显示时间 / 产物类型 / 这一版干了什么 / 改自哪几个 md / 审批状态；鼠标悬停浮出摘要卡（摘要、产出时间与体积、生成命令、改动来源、快照路径、你的历史意见）；点开一轮可【通过】【要改】【重置为待审】，写进产线目录下的 .versions/decisions.jsonl。② 技能库：读核心 ctx.skills 注册表（模型实际加载的同一份目录），可搜索、按来源过滤、读 SKILL.md 全文。③ 文档：把 md 源与 docx/pdf 产物按主干配对，把「产物比源旧」排最前。自带假数据演示项目（3 条产线 27 轮），零运行时依赖。",
+    "descriptionEn": "A Workbench panel for the DSH Web sidebar with three tabs. Iteration (default) turns \"AI edits Markdown, regenerates Word/PDF/Excel, you review that build\" into one timeline: grouped by production line and by day, one row per build showing time, artifact kind, what that build did, which Markdown sources it came from and your approval state; a hover card shows the summary, size, generating command, changed sources, snapshot path and your earlier notes; clicking a build offers Approve / Needs-work / Reset, appended to .versions/decisions.jsonl. Skill Library reads the core ctx.skills registry (search, filter by source, read the full SKILL.md). Documents pairs Markdown sources with their docx/pdf artifacts by stem and floats stale artifacts to the top. Ships a fake demo project (3 lines, 27 builds). Zero runtime dependencies.",
+    "repo": "https://github.com/liiydong/dsh-workbench",
+    "category": "ui",
+    "subcategory": "panel"
   }
 ]
