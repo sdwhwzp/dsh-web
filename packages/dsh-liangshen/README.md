@@ -34,7 +34,7 @@ This mode operates strictly within the official host security architecture and c
 The browser half adds a slot-machine lever to the composer tool row, immediately left of the model selector, on the new-session screen:
 
 - pull the lever down — drag it, click it, or press it with the keyboard — and the session about to start composes LiangShen mode; a landed pull plays the jackpot burst (flash, shockwave, sparks, and a banner reading 梁神模式 over classical Chinese, binary, and Morse lines);
-- push it up and the preset you were on before comes back — with nothing remembered yet, that is the deployment default;
+- push it up to restore the previous usable preset, then the deployment default, then the first available non-LiangShen preset; when no such preset exists, the enabled lever is hidden;
 - the arm always reports the session's real preset, so a reload shows the true state, and the lever renders only while the session is still blank — in a session that has started, the host refuses to recompose, and the row disappears from the composer entirely;
 - a refused switch prints the host's reason under the lever and never plays the burst, and `prefers-reduced-motion` keeps the state change while dropping the animation.
 
