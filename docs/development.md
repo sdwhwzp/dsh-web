@@ -67,6 +67,10 @@ shared/ 是 settings 卡片、轮询护栏、DSH_HOME 解析等跨包模块的�
 同名文件是 scripts/sync-shared.mjs 生成的同步副本。改 shared 源后运行
 node scripts/sync-shared.mjs 并把副本一并提交；pnpm test:scripts 的 drift 门禁防止副本漂移。
 
+会话跳转使用 `ctx.uiWorkspace.openSession`，调用方在包 manifest 与客户端 `inject` 中声明该服务。当前显示的会话通过 `shared/client/current-session.ts` 的 `currentSessionIdOf` 读取：支持 SDK 0.1.5 的 `current` 字段及 Harness 0.1.6-alpha.2 的 `retainedBy.mainView` 标记。插件继续基于 npm SDK 编译；客户端不得依赖 Harness 源码检出。
+
+家族设置卡由 `shared/client/settings/plugin-card-seat.ts` 管理：加载设置分组时使用 `web-ui.plugin.item`；无分组时使用 alpha.2 的 `plugins.row.config`，旧宿主继续使用 `settings.plugin.item`。每张卡声明独立包和聚合包的行键，并等待目标槽位声明；现代配置页的 summary 视图不挂载完整表单。
+
 ### 新增插件包
 
 ```sh

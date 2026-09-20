@@ -358,7 +358,7 @@ describe('apply registration', () => {
           registered.push(entry.name)
           return () => {}
         },
-        spec: () => undefined,
+        spec: (name: string) => name === 'settings.plugin.item' ? { kind: 'keyed' } : undefined,
       },
       settingsScope: {
         bind: () => ({

@@ -28,6 +28,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 // 0.1.2-alpha.2 cohort trimmed ui-conversation's peer set, so this edge is
 // no longer reachable transitively and must be declared here.
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
+// Type-only: pulls the ctx.uiWorkspace Context merge (Session navigation owner).
+import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import type {
   BranchesView, GitError, GitFeatureConfig, GraphView, RepoStatus, SwitchResult,
@@ -75,7 +77,7 @@ export interface InputSelectorContextOwnerProps {}
 const NS = 'git-graph'
 
 /** Required services: slots for the selector-context entry, sessions for the cwd lookup, workspaces for worktree sessions, locale for the copy. */
-export const inject = ['slots', 'sessions', 'workspaces', 'connection', 'locale']
+export const inject = ['slots', 'sessions', 'workspaces', 'uiWorkspace', 'connection', 'locale']
 
 /** Injected business face of the branch chip: git verbs, keyed by the current session id. */
 export interface GitGraphInjected {
@@ -133,10 +135,10 @@ export function apply(ctx: ClientContext): void {
   const git = new GitApi()
 
   // Auto-isolation (settings-gated host-side, probed here): wrap the shared
-  // workspaces service's startSession so New Session on a git workspace
+  // uiWorkspace service's startSession so New Session on a git workspace
   // lands in a fresh managed worktree. Shape mismatch degrades to the
   // official behavior. The fiber's dispose restores the official method.
-  ctx.inject(['workspaces', 'sessions'], (worktreeScope: ClientContext) => {
+  ctx.inject(['workspaces', 'sessions', 'uiWorkspace'], (worktreeScope: ClientContext) => {
     worktreeScope.effect(() => installAutoIsolation(worktreeScope, git), 'dsh-git-graph: auto-isolation')
   })
 
@@ -152,7 +154,7 @@ export function apply(ctx: ClientContext): void {
   // registration-safe signal (the GoalDock/QueueDock seam). The chip then
   // prefers the selector-context hole and falls back to the input dock when
   // that declaration never arrives.
-  ctx.inject(['slots', 'conversation', 'sessions'], (scope: ClientContext) => {
+  ctx.inject(['slots', 'conversation', 'sessions', 'uiWorkspace'], (scope: ClientContext) => {
     const sessions = scope.sessions
 
     /** The session's workspace root, resolved at call time from the sessions baseline. */
@@ -213,12 +215,11 @@ export function apply(ctx: ClientContext): void {
           // a registration failure rolls the worktree back (no half-made env).
           try {
             const workspace = await scope.workspaces.create({ path: created.value.path })
-            // 0.1.2 cohort: workspace-side session launch moved to the sessions
-            // face. ISessions.create only adopts the target workspace and
-            // resolves the new SessionId; open() is the separate navigation
-            // step that selects it (matching the old startSession behavior).
+            // ISessions.create only adopts the target workspace and resolves
+            // the new SessionId; navigation is the separate uiWorkspace step
+            // that selects it (ISessions.open was removed in 0.1.6-alpha.2).
             const createdSessionId = await scope.sessions.create({ workspaceId: workspace.workspaceId })
-            scope.sessions.open(createdSessionId)
+            scope.uiWorkspace.openSession(createdSessionId)
           } catch (error: unknown) {
             await git.removeWorktree(resolved.path, created.value.path, { force: true })
             return { ok: false, error: { code: 'internal', message: `workspace registration failed: ${String(error)}` } }

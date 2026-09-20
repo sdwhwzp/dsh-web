@@ -48,7 +48,7 @@ export interface SessionsControllerFace {
     getSnapshot(): { current: string | undefined }
     subscribe(fn: () => void): () => void
   }
-  /** Select a session as current (navigates the conversation view). */
+  /** Display a session (the client wiring routes this to uiWorkspace.openSession). */
   open(id: string): void
 }
 

@@ -205,6 +205,7 @@ export function apply(ctx: ClientContext): void {
   // issue #1589).
   const remoteSettings = new RemoteSettingsCardController(settingsScope)
   installPluginCard(ctx, {
+    configKeys: ['@linxin666/dsh-remote-web-ui#remote-web-ui', '@linxin666/dsh-web-all#web-ui-remote-web-ui'],
     namespace: REMOTE_WEB_UI_NS,
     id: 'remote-web-ui',
     order: 90,

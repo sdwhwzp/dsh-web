@@ -15,6 +15,7 @@
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { UiWorkspace } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
@@ -32,6 +33,7 @@ import { createElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import { createPetStore, type PetStoreInstance } from './pet-store.ts'
 import { createWorkTickGate } from './work-tick-gate.ts'
+import { currentSessionIdOf } from './current-session.ts'
 import { PetDockEntry, type PetInjected } from './PetDockEntry.tsx'
 import { defaultPetRendererRegistry } from './renderers/registry.ts'
 import { live2dRenderer } from './renderers/live2d.ts'
@@ -94,8 +96,8 @@ const petApi: PetHttpApi = {
 /** Poll interval for the host snapshot. */
 const POLL_MS = 2000
 
-/** Required services (sessions powers bubble-to-session navigation). */
-export const inject = ['slots', 'locale', 'connection', 'remote', 'sessions']
+/** Required services (sessions reports the displayed Session; uiWorkspace powers bubble-to-session navigation). */
+export const inject = ['slots', 'locale', 'connection', 'remote', 'sessions', 'uiWorkspace']
 
 /** Re-exported for consumers that type against the injected face. */
 export type { PetInjected, PetDockEntryProps } from './PetDockEntry.tsx'
@@ -216,10 +218,8 @@ export function apply(ctx: ClientContext): void {
       // service types, whose Context merge declares a different 'sessions'
       // face; pin the browser runtime's outward face here.
       const sessions = ctx.sessions as unknown as ISessions
-      const currentSessionId = (): string | undefined => {
-        const current = sessions.list.getSnapshot().current
-        return current === undefined ? undefined : String(current)
-      }
+      const uiWorkspace = ctx.uiWorkspace as unknown as UiWorkspace
+      const currentSessionId = (): string | undefined => currentSessionIdOf(sessions.list.getSnapshot())
 
       // The registry list is fetched lazily with retries baked into the poll
       // cycle: until it lands, the dock entry renders nothing and every 2s
@@ -298,7 +298,7 @@ export function apply(ctx: ClientContext): void {
       const openSession = (sessionId: string): void => {
         const list = sessions.list.getSnapshot()
         if ((list.byId as any)[sessionId] === undefined) return
-        sessions.open(sessionId as never)
+        uiWorkspace.openSession(sessionId as never)
       }
 
       const injected = (): PetInjected => ({

@@ -11,11 +11,13 @@
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ClientRemote, SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { UiWorkspace } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type { IWorkspaces } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SettingsScope, SettingsScopeSpec } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
+import { currentSessionIdOf } from './current-session.ts'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale) and its
 // LocaleNamespaceMap merge table.
 import type {} from '@deepseek-ai/dsh-client-locale/client'
@@ -81,7 +83,7 @@ declare module '@deepseek-ai/cordis' {
  * on hosts below that cohort, which serve the same roster through the
  * connection RPC face.
  */
-export const inject = ['slots', 'sessions', 'workspaces', 'connection', 'settingsScope', 'locale', 'remote', 'remote.session']
+export const inject = ['slots', 'sessions', 'workspaces', 'uiWorkspace', 'connection', 'settingsScope', 'locale', 'remote', 'remote.session']
 
 /** One agent-preset row the mode picker consumes (either face's wire shape). */
 interface PresetRosterRow {
@@ -171,6 +173,7 @@ export function apply(ctx: ClientContext): void {
   const settingsScope = binder.bind<TaskBoardSettings>({ namespace: TASK_BOARD_NS })
   const settingsCard = new TaskBoardSettingsCardController(settingsScope)
   installPluginCard(ctx, {
+    configKeys: ['@linxin666/dsh-client-ui-task-board#ui-task-board', '@linxin666/dsh-web-all#web-ui-task-board'],
     namespace: TASK_BOARD_NS,
     id: 'task-board',
     order: 110,
@@ -192,6 +195,7 @@ export function apply(ctx: ClientContext): void {
     // narrow these two client services during a combined package build.
     const sessions = ctx.get('sessions') as unknown as ISessions
     const workspaces = ctx.get('workspaces') as unknown as IWorkspaces
+    const uiWorkspace = ctx.get('uiWorkspace') as unknown as UiWorkspace
     const remote = ctx.get('remote') as unknown as ClientRemote
 
     // Core wiring: real runtime faces into the framework-free services.
@@ -200,8 +204,13 @@ export function apply(ctx: ClientContext): void {
       store,
       transport: new HttpTaskBoardHostTransport(),
       sessions: {
-        list: sessions.list,
-        open: id => sessions.open(id as never),
+        // The controller only reads the displayed Session; resolve it across
+        // harness lines (ISessions.open and `current` left in 0.1.6-alpha.2).
+        list: {
+          getSnapshot: () => ({ current: currentSessionIdOf(sessions.list.getSnapshot()) }),
+          subscribe: fn => sessions.list.subscribe(fn),
+        },
+        open: id => uiWorkspace.openSession(id as never),
       },
     })
     controller.start()

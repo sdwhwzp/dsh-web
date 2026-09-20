@@ -52,6 +52,7 @@ export interface HarnessPromptEnv {
 
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
+import { currentSessionIdOf } from './current-session.ts'
 
 /**
  * Build the real port over ctx.sessions. Returns undefined when no sessions
@@ -66,9 +67,9 @@ export function createHarnessPort(sessions: unknown): HarnessPort | undefined {
     current: () => {
       try {
         const list = s.list?.getSnapshot?.()
-        const id = list?.current
+        const id = currentSessionIdOf(list)
         if (id === undefined) return undefined
-        const row = list?.byId?.[id]
+        const row = list?.byId?.[id as keyof typeof list.byId]
         return { id, label: row?.displayTitle ?? id }
       } catch {
         return undefined

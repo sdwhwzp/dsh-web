@@ -21,6 +21,7 @@ import type { RemoteResult } from '@deepseek-ai/dsh-api-remotes/client'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { LIANGSHEN_PRESET_ID, isActionable, leverState, restoreTarget, type LeverFacts, type LeverState } from '../core/lever.ts'
 import type { LiangShenKey } from './locales.ts'
+import { currentSessionIdOf } from './current-session.ts'
 
 /**
  * Why the last switch was refused, mapped from the Remote failure code so the
@@ -260,15 +261,14 @@ export class LeverController {
   }
 
   private currentSessionId(): string | undefined {
-    const current = this.sessions?.list.getSnapshot().current
-    return current === undefined ? undefined : String(current)
+    return currentSessionIdOf(this.sessions?.list.getSnapshot())
   }
 
   private currentSession(): { blank?: boolean, projectionValues?: Record<string, unknown> } | undefined {
     const state = this.sessions?.list.getSnapshot()
-    const current = state?.current
+    const current = currentSessionIdOf(state)
     if (state === undefined || current === undefined) return undefined
-    return state.byId[current] as unknown as { blank?: boolean, projectionValues?: Record<string, unknown> } | undefined
+    return state.byId[current as keyof typeof state.byId] as unknown as { blank?: boolean, projectionValues?: Record<string, unknown> } | undefined
   }
 
   /** Display name of one preset id, falling back to the id itself. */

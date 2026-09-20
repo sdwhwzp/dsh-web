@@ -119,6 +119,7 @@ export function apply(ctx: ClientContext): void {
     // Card seat: the family group's list seat, or the official keyed seat of
     // the plugin-configuration tab when the group is not installed (issue #1589).
     installPluginCard(ctx, {
+      configKeys: ['@linxin666/dsh-liangshen#liangshen', '@linxin666/dsh-web-all#web-ui-liangshen'],
       namespace: SETTINGS_NAMESPACE,
       id: 'liangshen',
       order: 120,

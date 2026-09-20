@@ -12,6 +12,7 @@ import { writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 import { CheckIcon, CopyIcon, CloseIcon } from './icons.tsx'
 import { SESSION_ID_PART_COPY, SESSION_ID_PART_PANEL, SESSION_ID_PART_ROW, SESSION_ID_PART_SEARCH, SESSION_ID_PLUGIN_ATTR } from './semantic.ts'
 import css from './session-id.module.css'
+import { currentSessionIdOf } from './current-session.ts'
 
 /** The sessions-list read face injected by the plugin (ObservableSnapshot). */
 export type SessionListReadSource = {
@@ -161,7 +162,7 @@ export function SessionIdPanel({ list, onClose, t }: SessionIdPanelProps) {
         ) : (
           <div className={css.list}>
             {rows.map(row => (
-              <SessionRow key={row.id} session={row} current={snapshot.current} t={t} />
+              <SessionRow key={row.id} session={row} current={currentSessionIdOf(snapshot)} t={t} />
             ))}
           </div>
         )}

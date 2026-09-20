@@ -15,11 +15,11 @@ Status: implemented
 
 ## Decision
 
-席位选择以设置分组**已加载**为判据，而不是以官方席位**已声明**为判据。`installPluginCard`（`shared/client/settings/plugin-card-seat.ts`）在 `ctx.get('webUiSettings')` 返回有效值时注册进家族 list 槽 `web-ui.plugin.item`，否则注册进官方 keyed 槽 `settings.plugin.item`。
+席位选择以设置分组**已加载**为判据，而不是以官方席位**已声明**为判据。`installPluginCard`（`shared/client/settings/plugin-card-seat.ts`）在 `ctx.get('webUiSettings')` 返回有效值时注册进家族 list 槽 `web-ui.plugin.item`，否则使用已声明的官方配置槽位：alpha.2 上为 `plugins.row.config`，旧版为 `settings.plugin.item`。[alpha.2 兼容决策](2026-09-20-client-session-navigation-compatibility.md) 拥有行键与视图适配规则。
 
 `webUiSettings` 是 `dsh-web-settings` 加载期间发布的服务，每个家族插件本就为读取设置作用域而访问它，因此该探测不引入新的耦合，也不会被「harness 改动了官方席位的声明方式」这类变化误导。
 
-判据在每次 `slots/changed` 时重新求值，因为分组可能在本插件之后应用（聚合把它排在前面，单独安装分组的 profile 则不然）。初始贡献进官方席位，分组注册分区后立即迁到家族席位；替换注册前先释放原 entry。迁移带重入闩锁：registry 在 `register` 内部与上一条 entry 的 disposer 内部都会同步发出 `slots/changed`，无保护的重算会在迁移途中重入自身，把卡片重复注册进它正要离开的席位。
+判据在每次 `slots/changed` 时重新求值，因为分组可能在本插件之后应用（聚合把它排在前面，单独安装分组的 profile 则不然）。选定槽位尚未声明时贡献保持等待，分组注册分区后从官方席位迁到家族席位；替换注册前先释放原 entry。迁移带重入闩锁：registry 在 `register` 内部与上一条 entry 的 disposer 内部都会同步发出 `slots/changed`，无保护的重算会在迁移途中重入自身，把卡片重复注册进它正要离开的席位。
 
 ## Alternatives considered
 
@@ -35,7 +35,7 @@ Status: implemented
 - 只装家族插件、不装 `dsh-web-settings` 的 profile 仍可经官方 keyed 席位触达每张卡片，#1589 的结论得以保留。
 - 卡片跟随分组适应任意应用顺序：后装分组会把卡片迁进分区，无需刷新。
 - 五个已发布插件（remote-web-ui、task-board、doctor、tool-describe-image、liangshen）经同一份生成的共享模块一起改变席位行为。
-- 席位每张卡片只判定一次，仅在席位变化时重新判定；因此「分组已加载但分区始终未注册」会把卡片留在官方席位，而不是来回抖动。
+- 分组先于分区声明加载时，卡片等待声明到达，不产生注册被拒的警告。
 
 ## Testing
 

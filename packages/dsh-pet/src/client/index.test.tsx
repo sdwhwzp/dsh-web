@@ -155,7 +155,9 @@ function fakeContext(): FakeClientLifecycle {
           return () => { sessionListeners.delete(listener) }
         },
       },
-      open: () => {},
+    },
+    uiWorkspace: {
+      openSession: () => {},
     },
   } as unknown as ClientContext
   let disposed = false

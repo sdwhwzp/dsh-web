@@ -578,7 +578,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$11() {
 			try {
-				return "0.3.23-dsh.20260918.1";
+				return "0.3.23-dsh.20260918.2";
 			} catch {
 				return;
 			}
@@ -2029,7 +2029,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$10() {
 			try {
-				return "0.3.23-dsh.20260918.1";
+				return "0.3.23-dsh.20260918.2";
 			} catch {
 				return;
 			}
@@ -2121,7 +2121,8 @@ window.__ModuleLoader__.load({
 			"locale",
 			"connection",
 			"workspaces",
-			"sessions"
+			"sessions",
+			"uiWorkspace"
 		];
 		/**
 		* Build the dual-channel face once: official-channel and gateway-channel
@@ -2306,7 +2307,7 @@ window.__ModuleLoader__.load({
 					text: message
 				}], "queue");
 				if (!result.ok) throw new Error(`plugin-manager: repair prompt failed: ${result.error.code}: ${result.error.message}`);
-				ctx.sessions.open(sessionId);
+				ctx.uiWorkspace.openSession(sessionId);
 			};
 			/** Listeners subscribed through onChange; fired after successful mutations. */
 			const listeners = /* @__PURE__ */ new Set();
@@ -4560,7 +4561,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$9() {
 			try {
-				return "0.3.23-dsh.20260918.1";
+				return "0.3.23-dsh.20260918.2";
 			} catch {
 				return;
 			}
@@ -4674,6 +4675,27 @@ window.__ModuleLoader__.load({
 					return () => {};
 				}
 			});
+		}
+		//#endregion
+		//#region ../dsh-task-board/src/client/current-session.ts
+		/** Narrow one value to an index-readable object, or undefined for anything else. */
+		function recordOf$5(value) {
+			return typeof value === "object" && value !== null ? value : void 0;
+		}
+		/**
+		* Resolve the displayed Session id from one sessions-list snapshot.
+		* @param list - the `ctx.sessions.list` snapshot, or undefined when the service is unavailable.
+		* @returns the displayed Session id, or undefined when no Session is displayed.
+		*/
+		function currentSessionIdOf$5(list) {
+			if (list === void 0) return void 0;
+			if (list.current !== void 0) return String(list.current);
+			const rows = recordOf$5(list.byId);
+			if (rows === void 0) return void 0;
+			for (const id of Object.keys(rows)) {
+				const mainView = recordOf$5(recordOf$5(rows[id])?.retainedBy)?.mainView;
+				if (typeof mainView === "number" && mainView > 0) return id;
+			}
 		}
 		/**
 		* Repair a persisted tag list: keep the well-formed entries, trim, drop
@@ -10089,7 +10111,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$8() {
 			try {
-				return "0.3.23-dsh.20260918.1";
+				return "0.3.23-dsh.20260918.2";
 			} catch {
 				return;
 			}
@@ -10154,46 +10176,16 @@ window.__ModuleLoader__.load({
 		//#endregion
 		//#region ../dsh-task-board/src/client/plugin-card-seat.ts
 		/**
-		* Family plugin-card seat.
-		*
-		* A family plugin contributes its settings card to whichever plugin-card seat
-		* the running host actually renders:
-		*
-		* - `web-ui.plugin.item` — the list seat declared by the dsh-web-settings
-		*   group section (this family's own first-level "Web UI plugins" section);
-		* - `settings.plugin.item` — the official keyed seat of the harness's
-		*   `ui-settings-plugins` tab, keyed by the settings namespace the card edits.
-		*
-		* SEAT SELECTION IS NOT A DECLARATION PROBE. The official `ui-settings-plugins`
-		* row belongs to the harness bundle and its `configurable` tab always declares
-		* `settings.plugin.item` before any external plugin's `apply()` runs, so
-		* "is the official seat declared?" answers yes even in the deployment whose
-		* whole point is the family group. Choosing on that probe sends every family
-		* card to the official Plugins tab and leaves the group's own section
-		* permanently empty — the family of reports where the section renders its
-		* heading and zero cards.
-		*
-		* The signal that actually distinguishes the two deployments is whether
-		* dsh-web-settings is loaded: it is the package that owns the group section and
-		* it publishes the `webUiSettings` service during `apply()`, which every
-		* family plugin already reads for its settings scope. Group loaded -> the family
-		* seat; group absent -> the official seat.
-		*
-		* The decision is re-evaluated on every `slots/changed` because the group may
-		* apply after this plugin (the family aggregate orders it first, a profile that
-		* installs the group separately need not): the initial contribution goes to the
-		* official seat, then moves to the family seat the moment the group's section
-		* registers. The entry is disposed before the replacement is registered, so a
-		* card is never in two seats at once.
-		*
-		* The shared tree has no client-SDK dependency, so this module reads its
-		* context through the structural shape below; callers pass the plugin's own
-		* `ctx`.
+		* Family settings cards follow the loaded Web UI group. Without that group,
+		* alpha.2 hosts expose bundle-row configuration and older hosts expose the
+		* namespace-keyed settings card. Registration waits for the selected slot.
 		*/
 		/** The family list seat key. */
 		const FAMILY_PLUGIN_CARD_SEAT$4 = "web-ui.plugin.item";
 		/** The official keyed plugin-card seat key. */
 		const OFFICIAL_PLUGIN_CARD_SEAT$4 = "settings.plugin.item";
+		/** Bundle-row configuration slot on alpha.2 hosts. */
+		const PLUGIN_ROW_CONFIG_SEAT$4 = "plugins.row.config";
 		/** The service dsh-web-settings publishes while it is loaded. */
 		const FAMILY_GROUP_SERVICE$4 = "webUiSettings";
 		/**
@@ -10227,6 +10219,13 @@ window.__ModuleLoader__.load({
 			const slots = ctx.slots;
 			const component = seat.component;
 			const inject = seat.inject;
+			const pageComponent = (props) => props.view === "summary" ? null : (0, react.createElement)(seat.component, props);
+			const declared = (name) => slots.spec === void 0 || slots.spec(name) !== void 0;
+			const targetSeat = () => {
+				if (familyGroupLoaded$4(ctx)) return declared("web-ui.plugin.item") ? FAMILY_PLUGIN_CARD_SEAT$4 : void 0;
+				if (slots.spec !== void 0 && declared("plugins.row.config")) return PLUGIN_ROW_CONFIG_SEAT$4;
+				return declared("settings.plugin.item") ? OFFICIAL_PLUGIN_CARD_SEAT$4 : void 0;
+			};
 			let dispose;
 			let current;
 			/**
@@ -10239,15 +10238,27 @@ window.__ModuleLoader__.load({
 			/** Reconcile the contribution with the currently live seat (no-op when unchanged). */
 			const reconcile = () => {
 				if (reconciling) return;
-				const target = familyGroupLoaded$4(ctx) ? FAMILY_PLUGIN_CARD_SEAT$4 : OFFICIAL_PLUGIN_CARD_SEAT$4;
+				const target = targetSeat();
 				if (current === target) return;
 				reconciling = true;
 				const previous = dispose;
 				dispose = void 0;
 				current = void 0;
-				previous?.();
+				const nextDisposers = [];
 				try {
-					dispose = slots.register(target === "web-ui.plugin.item" ? {
+					previous?.();
+					if (target === void 0) return;
+					if (target === "plugins.row.config") {
+						for (const key of seat.configKeys) nextDisposers.push(slots.register({
+							name: PLUGIN_ROW_CONFIG_SEAT$4,
+							key,
+							locale: seat.locale,
+							...seat.inject === void 0 ? {} : { inject }
+						}, pageComponent));
+						dispose = () => {
+							for (const off of nextDisposers) off();
+						};
+					} else dispose = slots.register(target === "web-ui.plugin.item" ? {
 						name: FAMILY_PLUGIN_CARD_SEAT$4,
 						id: seat.id,
 						...seat.order === void 0 ? {} : { order: seat.order },
@@ -10262,7 +10273,8 @@ window.__ModuleLoader__.load({
 					}, component);
 					current = target;
 				} catch (error) {
-					warnRefusedSeat$4(target, error);
+					for (const off of nextDisposers) off();
+					if (target !== void 0) warnRefusedSeat$4(target, error);
 				} finally {
 					reconciling = false;
 				}
@@ -10296,6 +10308,7 @@ window.__ModuleLoader__.load({
 			"slots",
 			"sessions",
 			"workspaces",
+			"uiWorkspace",
 			"connection",
 			"settingsScope",
 			"locale",
@@ -10326,6 +10339,7 @@ window.__ModuleLoader__.load({
 			const settingsScope = (ctx.get("webUiSettings") ?? ctx.settingsScope).bind({ namespace: TASK_BOARD_NS });
 			const settingsCard = new TaskBoardSettingsCardController(settingsScope);
 			installPluginCard$4(ctx, {
+				configKeys: ["@linxin666/dsh-client-ui-task-board#ui-task-board", "@linxin666/dsh-web-all#web-ui-task-board"],
 				namespace: TASK_BOARD_NS,
 				id: "task-board",
 				order: 110,
@@ -10341,13 +10355,17 @@ window.__ModuleLoader__.load({
 				if (uiDisposer !== void 0) return;
 				const sessions = ctx.get("sessions");
 				const workspaces = ctx.get("workspaces");
+				const uiWorkspace = ctx.get("uiWorkspace");
 				const remote = ctx.get("remote");
 				const controller = new BoardController({
 					store: new LocalStorageTaskStore(),
 					transport: new HttpTaskBoardHostTransport(),
 					sessions: {
-						list: sessions.list,
-						open: (id) => sessions.open(id)
+						list: {
+							getSnapshot: () => ({ current: currentSessionIdOf$5(sessions.list.getSnapshot()) }),
+							subscribe: (fn) => sessions.list.subscribe(fn)
+						},
+						open: (id) => uiWorkspace.openSession(id)
 					}
 				});
 				controller.start();
@@ -11856,6 +11874,27 @@ window.__ModuleLoader__.load({
 			});
 		}
 		//#endregion
+		//#region ../dsh-git-graph/src/client/current-session.ts
+		/** Narrow one value to an index-readable object, or undefined for anything else. */
+		function recordOf$4(value) {
+			return typeof value === "object" && value !== null ? value : void 0;
+		}
+		/**
+		* Resolve the displayed Session id from one sessions-list snapshot.
+		* @param list - the `ctx.sessions.list` snapshot, or undefined when the service is unavailable.
+		* @returns the displayed Session id, or undefined when no Session is displayed.
+		*/
+		function currentSessionIdOf$4(list) {
+			if (list === void 0) return void 0;
+			if (list.current !== void 0) return String(list.current);
+			const rows = recordOf$4(list.byId);
+			if (rows === void 0) return void 0;
+			for (const id of Object.keys(rows)) {
+				const mainView = recordOf$4(recordOf$4(rows[id])?.retainedBy)?.mainView;
+				if (typeof mainView === "number" && mainView > 0) return id;
+			}
+		}
+		//#endregion
 		//#region ../dsh-git-graph/src/client/auto-isolation.ts
 		/** Log line prefix for every auto-isolation diagnostic. */
 		const TAG = "[git-graph] auto-isolation";
@@ -11867,24 +11906,25 @@ window.__ModuleLoader__.load({
 		function probeWorkspaces(value) {
 			if (typeof value !== "object" || value === null) return null;
 			const candidate = value;
-			if (typeof candidate.startSession !== "function" || typeof candidate.create !== "function" || typeof candidate.connectWorkspace !== "function" || typeof candidate.list?.getSnapshot !== "function") return null;
+			if (typeof candidate.create !== "function" || typeof candidate.list?.getSnapshot !== "function") return null;
 			return candidate;
 		}
 		/**
-		* Install the startSession wrapper on the shared workspaces service.
-		* @param scope - client context carrying workspaces and sessions.
+		* Install the startSession wrapper on the shared navigation service.
+		* @param scope - client context carrying uiWorkspace, workspaces, and sessions.
 		* @param git - the /git/* client (config + worktree verbs).
 		* @returns the disposer restoring the official method.
 		*/
 		function installAutoIsolation(scope, git) {
 			const workspaces = probeWorkspaces(scope.workspaces);
-			if (workspaces === null) {
-				console.warn(`${TAG} disabled: the workspaces service shape changed; using the official new-session behavior`);
+			const navigation = scope.uiWorkspace;
+			if (workspaces === null || typeof navigation?.startSession !== "function") {
+				console.warn(`${TAG} disabled: the workspace or navigation service changed; using the official new-session behavior`);
 				return () => {};
 			}
 			let original;
 			try {
-				original = workspaces.startSession;
+				original = navigation.startSession;
 			} catch {
 				console.warn(`${TAG} disabled: startSession is not readable`);
 				return () => {};
@@ -11892,9 +11932,25 @@ window.__ModuleLoader__.load({
 			/** The official target resolution (explicit > current session's workspace > recent). */
 			const resolveTarget = (workspaceId) => {
 				const snapshot = workspaces.list.getSnapshot();
-				const current = scope.sessions.list.getSnapshot().current;
+				const current = currentSessionIdOf$4(scope.sessions.list.getSnapshot());
 				const currentWorkspaceId = current === void 0 ? void 0 : snapshot.items.find((item) => item.sessionIds.includes(current))?.workspaceId;
-				return workspaceId ?? currentWorkspaceId ?? snapshot.recentWorkspaceId;
+				if (workspaceId !== void 0 || currentWorkspaceId !== void 0 || snapshot.recentWorkspaceId !== void 0) return workspaceId ?? currentWorkspaceId ?? snapshot.recentWorkspaceId;
+				const rows = scope.sessions.list.getSnapshot().byId;
+				let recent;
+				let latest = Number.NEGATIVE_INFINITY;
+				for (const item of snapshot.items) {
+					let updatedAt = Number.NEGATIVE_INFINITY;
+					for (const id of item.sessionIds) {
+						const session = rows[id];
+						if (session !== void 0) updatedAt = Math.max(updatedAt, session.updatedAt);
+					}
+					if (updatedAt === Number.NEGATIVE_INFINITY && item.createdAt !== void 0) updatedAt = Date.parse(item.createdAt);
+					if (recent === void 0 || updatedAt > latest) {
+						recent = item.workspaceId;
+						latest = updatedAt;
+					}
+				}
+				return recent;
 			};
 			/**
 			* Targets with a routing flow already in flight. The new-session button
@@ -11906,7 +11962,7 @@ window.__ModuleLoader__.load({
 			const routed = (workspaceId) => {
 				const target = resolveTarget(workspaceId);
 				if (target === void 0) {
-					original.call(workspaces);
+					original.call(navigation);
 					return;
 				}
 				if (routing.has(target)) return;
@@ -11914,23 +11970,23 @@ window.__ModuleLoader__.load({
 				(async () => {
 					const configResult = await git.config();
 					if (!configResult.ok || !configResult.value.autoIsolate) {
-						original.call(workspaces, target);
+						original.call(navigation, target);
 						return;
 					}
 					const config = configResult.value;
 					const item = workspaces.list.getSnapshot().items.find((entry) => entry.workspaceId === target);
 					if (item === void 0) {
-						original.call(workspaces, target);
+						original.call(navigation, target);
 						return;
 					}
 					const home = config.worktreesHome;
 					if (item.path.startsWith(home + "/") || item.path.startsWith(home + "\\")) {
-						original.call(workspaces, target);
+						original.call(navigation, target);
 						return;
 					}
 					const status = await git.status(item.path);
 					if (!status.ok || status.value === null) {
-						original.call(workspaces, target);
+						original.call(navigation, target);
 						return;
 					}
 					const name = `s-${Date.now().toString(36)}`;
@@ -11938,14 +11994,14 @@ window.__ModuleLoader__.load({
 					const created = await git.addWorktree(item.path, name, baseRef);
 					if (!created.ok) {
 						console.warn(`${TAG} worktree creation failed; starting the session in the main checkout instead`, created.error);
-						original.call(workspaces, target);
+						original.call(navigation, target);
 						return;
 					}
 					let registeredId;
 					try {
 						const workspace = await workspaces.create({ path: created.value.path });
 						registeredId = workspace.workspaceId;
-						original.call(workspaces, workspace.workspaceId);
+						original.call(navigation, workspace.workspaceId);
 					} catch (error) {
 						if (registeredId !== void 0 && typeof workspaces.delete === "function") try {
 							await workspaces.delete(registeredId);
@@ -11954,24 +12010,24 @@ window.__ModuleLoader__.load({
 						}
 						await git.removeWorktree(item.path, created.value.path, { force: true });
 						console.warn(`${TAG} workspace registration failed; rolled back the worktree`, error);
-						original.call(workspaces, target);
+						original.call(navigation, target);
 					}
 				})().catch((error) => {
 					console.warn(`${TAG} routing failed; using the official behavior`, error);
-					original.call(workspaces, target);
+					original.call(navigation, target);
 				}).finally(() => {
 					routing.delete(target);
 				});
 			};
 			try {
-				workspaces.startSession = routed;
+				navigation.startSession = routed;
 			} catch {
 				console.warn(`${TAG} disabled: startSession is not writable`);
 				return () => {};
 			}
 			return () => {
 				try {
-					workspaces.startSession = original;
+					navigation.startSession = original;
 				} catch {}
 			};
 		}
@@ -12118,7 +12174,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$7() {
 			try {
-				return "0.3.23-dsh.20260918.1";
+				return "0.3.23-dsh.20260918.2";
 			} catch {
 				return;
 			}
@@ -12195,6 +12251,7 @@ window.__ModuleLoader__.load({
 			"slots",
 			"sessions",
 			"workspaces",
+			"uiWorkspace",
 			"connection",
 			"locale"
 		];
@@ -12228,7 +12285,11 @@ window.__ModuleLoader__.load({
 				}
 			}, "dsh-git-graph: dictionaries");
 			const git = new GitApi();
-			ctx.inject(["workspaces", "sessions"], (worktreeScope) => {
+			ctx.inject([
+				"workspaces",
+				"sessions",
+				"uiWorkspace"
+			], (worktreeScope) => {
 				worktreeScope.effect(() => installAutoIsolation(worktreeScope, git), "dsh-git-graph: auto-isolation");
 			});
 			let fallbackTimer;
@@ -12238,7 +12299,8 @@ window.__ModuleLoader__.load({
 			ctx.inject([
 				"slots",
 				"conversation",
-				"sessions"
+				"sessions",
+				"uiWorkspace"
 			], (scope) => {
 				const sessions = scope.sessions;
 				/** The session's workspace root, resolved at call time from the sessions baseline. */
@@ -12320,7 +12382,7 @@ window.__ModuleLoader__.load({
 							try {
 								const workspace = await scope.workspaces.create({ path: created.value.path });
 								const createdSessionId = await scope.sessions.create({ workspaceId: workspace.workspaceId });
-								scope.sessions.open(createdSessionId);
+								scope.uiWorkspace.openSession(createdSessionId);
 							} catch (error) {
 								await git.removeWorktree(resolved.path, created.value.path, { force: true });
 								return {
@@ -14516,7 +14578,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$6() {
 			try {
-				return "0.3.23-dsh.20260918.1";
+				return "0.3.23-dsh.20260918.2";
 			} catch {
 				return;
 			}
@@ -15447,46 +15509,16 @@ window.__ModuleLoader__.load({
 		//#endregion
 		//#region ../dsh-remote-web-ui/src/client/plugin-card-seat.ts
 		/**
-		* Family plugin-card seat.
-		*
-		* A family plugin contributes its settings card to whichever plugin-card seat
-		* the running host actually renders:
-		*
-		* - `web-ui.plugin.item` — the list seat declared by the dsh-web-settings
-		*   group section (this family's own first-level "Web UI plugins" section);
-		* - `settings.plugin.item` — the official keyed seat of the harness's
-		*   `ui-settings-plugins` tab, keyed by the settings namespace the card edits.
-		*
-		* SEAT SELECTION IS NOT A DECLARATION PROBE. The official `ui-settings-plugins`
-		* row belongs to the harness bundle and its `configurable` tab always declares
-		* `settings.plugin.item` before any external plugin's `apply()` runs, so
-		* "is the official seat declared?" answers yes even in the deployment whose
-		* whole point is the family group. Choosing on that probe sends every family
-		* card to the official Plugins tab and leaves the group's own section
-		* permanently empty — the family of reports where the section renders its
-		* heading and zero cards.
-		*
-		* The signal that actually distinguishes the two deployments is whether
-		* dsh-web-settings is loaded: it is the package that owns the group section and
-		* it publishes the `webUiSettings` service during `apply()`, which every
-		* family plugin already reads for its settings scope. Group loaded -> the family
-		* seat; group absent -> the official seat.
-		*
-		* The decision is re-evaluated on every `slots/changed` because the group may
-		* apply after this plugin (the family aggregate orders it first, a profile that
-		* installs the group separately need not): the initial contribution goes to the
-		* official seat, then moves to the family seat the moment the group's section
-		* registers. The entry is disposed before the replacement is registered, so a
-		* card is never in two seats at once.
-		*
-		* The shared tree has no client-SDK dependency, so this module reads its
-		* context through the structural shape below; callers pass the plugin's own
-		* `ctx`.
+		* Family settings cards follow the loaded Web UI group. Without that group,
+		* alpha.2 hosts expose bundle-row configuration and older hosts expose the
+		* namespace-keyed settings card. Registration waits for the selected slot.
 		*/
 		/** The family list seat key. */
 		const FAMILY_PLUGIN_CARD_SEAT$3 = "web-ui.plugin.item";
 		/** The official keyed plugin-card seat key. */
 		const OFFICIAL_PLUGIN_CARD_SEAT$3 = "settings.plugin.item";
+		/** Bundle-row configuration slot on alpha.2 hosts. */
+		const PLUGIN_ROW_CONFIG_SEAT$3 = "plugins.row.config";
 		/** The service dsh-web-settings publishes while it is loaded. */
 		const FAMILY_GROUP_SERVICE$3 = "webUiSettings";
 		/**
@@ -15520,6 +15552,13 @@ window.__ModuleLoader__.load({
 			const slots = ctx.slots;
 			const component = seat.component;
 			const inject = seat.inject;
+			const pageComponent = (props) => props.view === "summary" ? null : (0, react.createElement)(seat.component, props);
+			const declared = (name) => slots.spec === void 0 || slots.spec(name) !== void 0;
+			const targetSeat = () => {
+				if (familyGroupLoaded$3(ctx)) return declared("web-ui.plugin.item") ? FAMILY_PLUGIN_CARD_SEAT$3 : void 0;
+				if (slots.spec !== void 0 && declared("plugins.row.config")) return PLUGIN_ROW_CONFIG_SEAT$3;
+				return declared("settings.plugin.item") ? OFFICIAL_PLUGIN_CARD_SEAT$3 : void 0;
+			};
 			let dispose;
 			let current;
 			/**
@@ -15532,15 +15571,27 @@ window.__ModuleLoader__.load({
 			/** Reconcile the contribution with the currently live seat (no-op when unchanged). */
 			const reconcile = () => {
 				if (reconciling) return;
-				const target = familyGroupLoaded$3(ctx) ? FAMILY_PLUGIN_CARD_SEAT$3 : OFFICIAL_PLUGIN_CARD_SEAT$3;
+				const target = targetSeat();
 				if (current === target) return;
 				reconciling = true;
 				const previous = dispose;
 				dispose = void 0;
 				current = void 0;
-				previous?.();
+				const nextDisposers = [];
 				try {
-					dispose = slots.register(target === "web-ui.plugin.item" ? {
+					previous?.();
+					if (target === void 0) return;
+					if (target === "plugins.row.config") {
+						for (const key of seat.configKeys) nextDisposers.push(slots.register({
+							name: PLUGIN_ROW_CONFIG_SEAT$3,
+							key,
+							locale: seat.locale,
+							...seat.inject === void 0 ? {} : { inject }
+						}, pageComponent));
+						dispose = () => {
+							for (const off of nextDisposers) off();
+						};
+					} else dispose = slots.register(target === "web-ui.plugin.item" ? {
 						name: FAMILY_PLUGIN_CARD_SEAT$3,
 						id: seat.id,
 						...seat.order === void 0 ? {} : { order: seat.order },
@@ -15555,7 +15606,8 @@ window.__ModuleLoader__.load({
 					}, component);
 					current = target;
 				} catch (error) {
-					warnRefusedSeat$3(target, error);
+					for (const off of nextDisposers) off();
+					if (target !== void 0) warnRefusedSeat$3(target, error);
 				} finally {
 					reconciling = false;
 				}
@@ -15651,6 +15703,7 @@ window.__ModuleLoader__.load({
 			} catch {}
 			const remoteSettings = new RemoteSettingsCardController(settingsScope);
 			installPluginCard$3(ctx, {
+				configKeys: ["@linxin666/dsh-remote-web-ui#remote-web-ui", "@linxin666/dsh-web-all#web-ui-remote-web-ui"],
 				namespace: REMOTE_WEB_UI_NS,
 				id: "remote-web-ui",
 				order: 90,
@@ -15873,6 +15926,27 @@ window.__ModuleLoader__.load({
 					lastAdjudicatedAt = 0;
 				}
 			};
+		}
+		//#endregion
+		//#region ../dsh-pet/src/client/current-session.ts
+		/** Narrow one value to an index-readable object, or undefined for anything else. */
+		function recordOf$3(value) {
+			return typeof value === "object" && value !== null ? value : void 0;
+		}
+		/**
+		* Resolve the displayed Session id from one sessions-list snapshot.
+		* @param list - the `ctx.sessions.list` snapshot, or undefined when the service is unavailable.
+		* @returns the displayed Session id, or undefined when no Session is displayed.
+		*/
+		function currentSessionIdOf$3(list) {
+			if (list === void 0) return void 0;
+			if (list.current !== void 0) return String(list.current);
+			const rows = recordOf$3(list.byId);
+			if (rows === void 0) return void 0;
+			for (const id of Object.keys(rows)) {
+				const mainView = recordOf$3(recordOf$3(rows[id])?.retainedBy)?.mainView;
+				if (typeof mainView === "number" && mainView > 0) return id;
+			}
 		}
 		//#endregion
 		//#region ../../node_modules/.pnpm/clsx@2.1.1/node_modules/clsx/dist/clsx.mjs
@@ -19697,7 +19771,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$5() {
 			try {
-				return "0.3.23-dsh.20260918.1";
+				return "0.3.23-dsh.20260918.2";
 			} catch {
 				return;
 			}
@@ -19792,13 +19866,14 @@ window.__ModuleLoader__.load({
 		};
 		/** Poll interval for the host snapshot. */
 		const POLL_MS = 2e3;
-		/** Required services (sessions powers bubble-to-session navigation). */
+		/** Required services (sessions reports the displayed Session; uiWorkspace powers bubble-to-session navigation). */
 		const inject$11 = [
 			"slots",
 			"locale",
 			"connection",
 			"remote",
-			"sessions"
+			"sessions",
+			"uiWorkspace"
 		];
 		/**
 		* Client plugin body: register dictionaries, mount the global pet entry and
@@ -19874,10 +19949,8 @@ window.__ModuleLoader__.load({
 					const setState = petStore.actions.setState;
 					const setFeedback = petStore.actions.setFeedback;
 					const sessions = ctx.sessions;
-					const currentSessionId = () => {
-						const current = sessions.list.getSnapshot().current;
-						return current === void 0 ? void 0 : String(current);
-					};
+					const uiWorkspace = ctx.uiWorkspace;
+					const currentSessionId = () => currentSessionIdOf$3(sessions.list.getSnapshot());
 					let petsLoaded = false;
 					let stateSeq = 0;
 					const pollNow = () => {
@@ -19926,7 +19999,7 @@ window.__ModuleLoader__.load({
 					}, "pet: current-session watch");
 					const openSession = (sessionId) => {
 						if (sessions.list.getSnapshot().byId[sessionId] === void 0) return;
-						sessions.open(sessionId);
+						uiWorkspace.openSession(sessionId);
 					};
 					const injected = () => ({
 						store: petStore,
@@ -36445,7 +36518,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$4() {
 			try {
-				return "0.3.23-dsh.20260918.1";
+				return "0.3.23-dsh.20260918.2";
 			} catch {
 				return;
 			}
@@ -38876,7 +38949,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$3() {
 			try {
-				return "0.3.23-dsh.20260918.1";
+				return "0.3.23-dsh.20260918.2";
 			} catch {
 				return;
 			}
@@ -38941,46 +39014,16 @@ window.__ModuleLoader__.load({
 		//#endregion
 		//#region ../dsh-tool-describe-image/src/client/plugin-card-seat.ts
 		/**
-		* Family plugin-card seat.
-		*
-		* A family plugin contributes its settings card to whichever plugin-card seat
-		* the running host actually renders:
-		*
-		* - `web-ui.plugin.item` — the list seat declared by the dsh-web-settings
-		*   group section (this family's own first-level "Web UI plugins" section);
-		* - `settings.plugin.item` — the official keyed seat of the harness's
-		*   `ui-settings-plugins` tab, keyed by the settings namespace the card edits.
-		*
-		* SEAT SELECTION IS NOT A DECLARATION PROBE. The official `ui-settings-plugins`
-		* row belongs to the harness bundle and its `configurable` tab always declares
-		* `settings.plugin.item` before any external plugin's `apply()` runs, so
-		* "is the official seat declared?" answers yes even in the deployment whose
-		* whole point is the family group. Choosing on that probe sends every family
-		* card to the official Plugins tab and leaves the group's own section
-		* permanently empty — the family of reports where the section renders its
-		* heading and zero cards.
-		*
-		* The signal that actually distinguishes the two deployments is whether
-		* dsh-web-settings is loaded: it is the package that owns the group section and
-		* it publishes the `webUiSettings` service during `apply()`, which every
-		* family plugin already reads for its settings scope. Group loaded -> the family
-		* seat; group absent -> the official seat.
-		*
-		* The decision is re-evaluated on every `slots/changed` because the group may
-		* apply after this plugin (the family aggregate orders it first, a profile that
-		* installs the group separately need not): the initial contribution goes to the
-		* official seat, then moves to the family seat the moment the group's section
-		* registers. The entry is disposed before the replacement is registered, so a
-		* card is never in two seats at once.
-		*
-		* The shared tree has no client-SDK dependency, so this module reads its
-		* context through the structural shape below; callers pass the plugin's own
-		* `ctx`.
+		* Family settings cards follow the loaded Web UI group. Without that group,
+		* alpha.2 hosts expose bundle-row configuration and older hosts expose the
+		* namespace-keyed settings card. Registration waits for the selected slot.
 		*/
 		/** The family list seat key. */
 		const FAMILY_PLUGIN_CARD_SEAT$2 = "web-ui.plugin.item";
 		/** The official keyed plugin-card seat key. */
 		const OFFICIAL_PLUGIN_CARD_SEAT$2 = "settings.plugin.item";
+		/** Bundle-row configuration slot on alpha.2 hosts. */
+		const PLUGIN_ROW_CONFIG_SEAT$2 = "plugins.row.config";
 		/** The service dsh-web-settings publishes while it is loaded. */
 		const FAMILY_GROUP_SERVICE$2 = "webUiSettings";
 		/**
@@ -39014,6 +39057,13 @@ window.__ModuleLoader__.load({
 			const slots = ctx.slots;
 			const component = seat.component;
 			const inject = seat.inject;
+			const pageComponent = (props) => props.view === "summary" ? null : (0, react.createElement)(seat.component, props);
+			const declared = (name) => slots.spec === void 0 || slots.spec(name) !== void 0;
+			const targetSeat = () => {
+				if (familyGroupLoaded$2(ctx)) return declared("web-ui.plugin.item") ? FAMILY_PLUGIN_CARD_SEAT$2 : void 0;
+				if (slots.spec !== void 0 && declared("plugins.row.config")) return PLUGIN_ROW_CONFIG_SEAT$2;
+				return declared("settings.plugin.item") ? OFFICIAL_PLUGIN_CARD_SEAT$2 : void 0;
+			};
 			let dispose;
 			let current;
 			/**
@@ -39026,15 +39076,27 @@ window.__ModuleLoader__.load({
 			/** Reconcile the contribution with the currently live seat (no-op when unchanged). */
 			const reconcile = () => {
 				if (reconciling) return;
-				const target = familyGroupLoaded$2(ctx) ? FAMILY_PLUGIN_CARD_SEAT$2 : OFFICIAL_PLUGIN_CARD_SEAT$2;
+				const target = targetSeat();
 				if (current === target) return;
 				reconciling = true;
 				const previous = dispose;
 				dispose = void 0;
 				current = void 0;
-				previous?.();
+				const nextDisposers = [];
 				try {
-					dispose = slots.register(target === "web-ui.plugin.item" ? {
+					previous?.();
+					if (target === void 0) return;
+					if (target === "plugins.row.config") {
+						for (const key of seat.configKeys) nextDisposers.push(slots.register({
+							name: PLUGIN_ROW_CONFIG_SEAT$2,
+							key,
+							locale: seat.locale,
+							...seat.inject === void 0 ? {} : { inject }
+						}, pageComponent));
+						dispose = () => {
+							for (const off of nextDisposers) off();
+						};
+					} else dispose = slots.register(target === "web-ui.plugin.item" ? {
 						name: FAMILY_PLUGIN_CARD_SEAT$2,
 						id: seat.id,
 						...seat.order === void 0 ? {} : { order: seat.order },
@@ -39049,7 +39111,8 @@ window.__ModuleLoader__.load({
 					}, component);
 					current = target;
 				} catch (error) {
-					warnRefusedSeat$2(target, error);
+					for (const off of nextDisposers) off();
+					if (target !== void 0) warnRefusedSeat$2(target, error);
 				} finally {
 					reconciling = false;
 				}
@@ -39125,6 +39188,7 @@ window.__ModuleLoader__.load({
 					unsubscribeSettings = settingsScope.subscribe(() => previewRef?.refresh());
 					const settingsCard = new DescribeImageSettingsCardController(settingsScope);
 					installPluginCard$2(settingsCtx, {
+						configKeys: ["@linxin666/dsh-tool-describe-image#describe-image", "@linxin666/dsh-web-all#web-ui-describe-image"],
 						namespace: NS$8,
 						id: "describe-image",
 						order: 115,
@@ -39408,6 +39472,27 @@ window.__ModuleLoader__.load({
 		function isActionable(state) {
 			return state === "on" || state === "off";
 		}
+		//#endregion
+		//#region ../dsh-liangshen/src/client/current-session.ts
+		/** Narrow one value to an index-readable object, or undefined for anything else. */
+		function recordOf$2(value) {
+			return typeof value === "object" && value !== null ? value : void 0;
+		}
+		/**
+		* Resolve the displayed Session id from one sessions-list snapshot.
+		* @param list - the `ctx.sessions.list` snapshot, or undefined when the service is unavailable.
+		* @returns the displayed Session id, or undefined when no Session is displayed.
+		*/
+		function currentSessionIdOf$2(list) {
+			if (list === void 0) return void 0;
+			if (list.current !== void 0) return String(list.current);
+			const rows = recordOf$2(list.byId);
+			if (rows === void 0) return void 0;
+			for (const id of Object.keys(rows)) {
+				const mainView = recordOf$2(recordOf$2(rows[id])?.retainedBy)?.mainView;
+				if (typeof mainView === "number" && mainView > 0) return id;
+			}
+		}
 		/** Read the preset a session summary reports, when it reports one. */
 		function presetOf(session) {
 			const value = session?.projectionValues?.["agentPreset"];
@@ -39583,12 +39668,11 @@ window.__ModuleLoader__.load({
 				};
 			}
 			currentSessionId() {
-				const current = this.sessions?.list.getSnapshot().current;
-				return current === void 0 ? void 0 : String(current);
+				return currentSessionIdOf$2(this.sessions?.list.getSnapshot());
 			}
 			currentSession() {
 				const state = this.sessions?.list.getSnapshot();
-				const current = state?.current;
+				const current = currentSessionIdOf$2(state);
 				if (state === void 0 || current === void 0) return void 0;
 				return state.byId[current];
 			}
@@ -40595,46 +40679,16 @@ window.__ModuleLoader__.load({
 		//#endregion
 		//#region ../dsh-liangshen/src/client/plugin-card-seat.ts
 		/**
-		* Family plugin-card seat.
-		*
-		* A family plugin contributes its settings card to whichever plugin-card seat
-		* the running host actually renders:
-		*
-		* - `web-ui.plugin.item` — the list seat declared by the dsh-web-settings
-		*   group section (this family's own first-level "Web UI plugins" section);
-		* - `settings.plugin.item` — the official keyed seat of the harness's
-		*   `ui-settings-plugins` tab, keyed by the settings namespace the card edits.
-		*
-		* SEAT SELECTION IS NOT A DECLARATION PROBE. The official `ui-settings-plugins`
-		* row belongs to the harness bundle and its `configurable` tab always declares
-		* `settings.plugin.item` before any external plugin's `apply()` runs, so
-		* "is the official seat declared?" answers yes even in the deployment whose
-		* whole point is the family group. Choosing on that probe sends every family
-		* card to the official Plugins tab and leaves the group's own section
-		* permanently empty — the family of reports where the section renders its
-		* heading and zero cards.
-		*
-		* The signal that actually distinguishes the two deployments is whether
-		* dsh-web-settings is loaded: it is the package that owns the group section and
-		* it publishes the `webUiSettings` service during `apply()`, which every
-		* family plugin already reads for its settings scope. Group loaded -> the family
-		* seat; group absent -> the official seat.
-		*
-		* The decision is re-evaluated on every `slots/changed` because the group may
-		* apply after this plugin (the family aggregate orders it first, a profile that
-		* installs the group separately need not): the initial contribution goes to the
-		* official seat, then moves to the family seat the moment the group's section
-		* registers. The entry is disposed before the replacement is registered, so a
-		* card is never in two seats at once.
-		*
-		* The shared tree has no client-SDK dependency, so this module reads its
-		* context through the structural shape below; callers pass the plugin's own
-		* `ctx`.
+		* Family settings cards follow the loaded Web UI group. Without that group,
+		* alpha.2 hosts expose bundle-row configuration and older hosts expose the
+		* namespace-keyed settings card. Registration waits for the selected slot.
 		*/
 		/** The family list seat key. */
 		const FAMILY_PLUGIN_CARD_SEAT$1 = "web-ui.plugin.item";
 		/** The official keyed plugin-card seat key. */
 		const OFFICIAL_PLUGIN_CARD_SEAT$1 = "settings.plugin.item";
+		/** Bundle-row configuration slot on alpha.2 hosts. */
+		const PLUGIN_ROW_CONFIG_SEAT$1 = "plugins.row.config";
 		/** The service dsh-web-settings publishes while it is loaded. */
 		const FAMILY_GROUP_SERVICE$1 = "webUiSettings";
 		/**
@@ -40668,6 +40722,13 @@ window.__ModuleLoader__.load({
 			const slots = ctx.slots;
 			const component = seat.component;
 			const inject = seat.inject;
+			const pageComponent = (props) => props.view === "summary" ? null : (0, react.createElement)(seat.component, props);
+			const declared = (name) => slots.spec === void 0 || slots.spec(name) !== void 0;
+			const targetSeat = () => {
+				if (familyGroupLoaded$1(ctx)) return declared("web-ui.plugin.item") ? FAMILY_PLUGIN_CARD_SEAT$1 : void 0;
+				if (slots.spec !== void 0 && declared("plugins.row.config")) return PLUGIN_ROW_CONFIG_SEAT$1;
+				return declared("settings.plugin.item") ? OFFICIAL_PLUGIN_CARD_SEAT$1 : void 0;
+			};
 			let dispose;
 			let current;
 			/**
@@ -40680,15 +40741,27 @@ window.__ModuleLoader__.load({
 			/** Reconcile the contribution with the currently live seat (no-op when unchanged). */
 			const reconcile = () => {
 				if (reconciling) return;
-				const target = familyGroupLoaded$1(ctx) ? FAMILY_PLUGIN_CARD_SEAT$1 : OFFICIAL_PLUGIN_CARD_SEAT$1;
+				const target = targetSeat();
 				if (current === target) return;
 				reconciling = true;
 				const previous = dispose;
 				dispose = void 0;
 				current = void 0;
-				previous?.();
+				const nextDisposers = [];
 				try {
-					dispose = slots.register(target === "web-ui.plugin.item" ? {
+					previous?.();
+					if (target === void 0) return;
+					if (target === "plugins.row.config") {
+						for (const key of seat.configKeys) nextDisposers.push(slots.register({
+							name: PLUGIN_ROW_CONFIG_SEAT$1,
+							key,
+							locale: seat.locale,
+							...seat.inject === void 0 ? {} : { inject }
+						}, pageComponent));
+						dispose = () => {
+							for (const off of nextDisposers) off();
+						};
+					} else dispose = slots.register(target === "web-ui.plugin.item" ? {
 						name: FAMILY_PLUGIN_CARD_SEAT$1,
 						id: seat.id,
 						...seat.order === void 0 ? {} : { order: seat.order },
@@ -40703,7 +40776,8 @@ window.__ModuleLoader__.load({
 					}, component);
 					current = target;
 				} catch (error) {
-					warnRefusedSeat$1(target, error);
+					for (const off of nextDisposers) off();
+					if (target !== void 0) warnRefusedSeat$1(target, error);
 				} finally {
 					reconciling = false;
 				}
@@ -40770,6 +40844,7 @@ window.__ModuleLoader__.load({
 			try {
 				const settingsCard = new LiangShenSettingsCardController((ctx.get("webUiSettings") ?? ctx.settingsScope).bind({ namespace: SETTINGS_NAMESPACE }));
 				installPluginCard$1(ctx, {
+					configKeys: ["@linxin666/dsh-liangshen#liangshen", "@linxin666/dsh-web-all#web-ui-liangshen"],
 					namespace: SETTINGS_NAMESPACE,
 					id: "liangshen",
 					order: 120,
@@ -41959,7 +42034,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$2() {
 			try {
-				return "0.3.23-dsh.20260918.1";
+				return "0.3.23-dsh.20260918.2";
 			} catch {
 				return;
 			}
@@ -42951,6 +43026,27 @@ window.__ModuleLoader__.load({
 			}
 		};
 		//#endregion
+		//#region ../dsh-doctor/src/client/current-session.ts
+		/** Narrow one value to an index-readable object, or undefined for anything else. */
+		function recordOf$1(value) {
+			return typeof value === "object" && value !== null ? value : void 0;
+		}
+		/**
+		* Resolve the displayed Session id from one sessions-list snapshot.
+		* @param list - the `ctx.sessions.list` snapshot, or undefined when the service is unavailable.
+		* @returns the displayed Session id, or undefined when no Session is displayed.
+		*/
+		function currentSessionIdOf$1(list) {
+			if (list === void 0) return void 0;
+			if (list.current !== void 0) return String(list.current);
+			const rows = recordOf$1(list.byId);
+			if (rows === void 0) return void 0;
+			for (const id of Object.keys(rows)) {
+				const mainView = recordOf$1(recordOf$1(rows[id])?.retainedBy)?.mainView;
+				if (typeof mainView === "number" && mainView > 0) return id;
+			}
+		}
+		//#endregion
 		//#region ../dsh-doctor/src/client/harness-send.ts
 		/**
 		* Build the real port over ctx.sessions. Returns undefined when no sessions
@@ -42965,7 +43061,7 @@ window.__ModuleLoader__.load({
 				current: () => {
 					try {
 						const list = s.list?.getSnapshot?.();
-						const id = list?.current;
+						const id = currentSessionIdOf$1(list);
 						if (id === void 0) return void 0;
 						return {
 							id,
@@ -45355,7 +45451,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$1() {
 			try {
-				return "0.3.23-dsh.20260918.1";
+				return "0.3.23-dsh.20260918.2";
 			} catch {
 				return;
 			}
@@ -45420,46 +45516,16 @@ window.__ModuleLoader__.load({
 		//#endregion
 		//#region ../dsh-doctor/src/client/plugin-card-seat.ts
 		/**
-		* Family plugin-card seat.
-		*
-		* A family plugin contributes its settings card to whichever plugin-card seat
-		* the running host actually renders:
-		*
-		* - `web-ui.plugin.item` — the list seat declared by the dsh-web-settings
-		*   group section (this family's own first-level "Web UI plugins" section);
-		* - `settings.plugin.item` — the official keyed seat of the harness's
-		*   `ui-settings-plugins` tab, keyed by the settings namespace the card edits.
-		*
-		* SEAT SELECTION IS NOT A DECLARATION PROBE. The official `ui-settings-plugins`
-		* row belongs to the harness bundle and its `configurable` tab always declares
-		* `settings.plugin.item` before any external plugin's `apply()` runs, so
-		* "is the official seat declared?" answers yes even in the deployment whose
-		* whole point is the family group. Choosing on that probe sends every family
-		* card to the official Plugins tab and leaves the group's own section
-		* permanently empty — the family of reports where the section renders its
-		* heading and zero cards.
-		*
-		* The signal that actually distinguishes the two deployments is whether
-		* dsh-web-settings is loaded: it is the package that owns the group section and
-		* it publishes the `webUiSettings` service during `apply()`, which every
-		* family plugin already reads for its settings scope. Group loaded -> the family
-		* seat; group absent -> the official seat.
-		*
-		* The decision is re-evaluated on every `slots/changed` because the group may
-		* apply after this plugin (the family aggregate orders it first, a profile that
-		* installs the group separately need not): the initial contribution goes to the
-		* official seat, then moves to the family seat the moment the group's section
-		* registers. The entry is disposed before the replacement is registered, so a
-		* card is never in two seats at once.
-		*
-		* The shared tree has no client-SDK dependency, so this module reads its
-		* context through the structural shape below; callers pass the plugin's own
-		* `ctx`.
+		* Family settings cards follow the loaded Web UI group. Without that group,
+		* alpha.2 hosts expose bundle-row configuration and older hosts expose the
+		* namespace-keyed settings card. Registration waits for the selected slot.
 		*/
 		/** The family list seat key. */
 		const FAMILY_PLUGIN_CARD_SEAT = "web-ui.plugin.item";
 		/** The official keyed plugin-card seat key. */
 		const OFFICIAL_PLUGIN_CARD_SEAT = "settings.plugin.item";
+		/** Bundle-row configuration slot on alpha.2 hosts. */
+		const PLUGIN_ROW_CONFIG_SEAT = "plugins.row.config";
 		/** The service dsh-web-settings publishes while it is loaded. */
 		const FAMILY_GROUP_SERVICE = "webUiSettings";
 		/**
@@ -45493,6 +45559,13 @@ window.__ModuleLoader__.load({
 			const slots = ctx.slots;
 			const component = seat.component;
 			const inject = seat.inject;
+			const pageComponent = (props) => props.view === "summary" ? null : (0, react.createElement)(seat.component, props);
+			const declared = (name) => slots.spec === void 0 || slots.spec(name) !== void 0;
+			const targetSeat = () => {
+				if (familyGroupLoaded(ctx)) return declared("web-ui.plugin.item") ? FAMILY_PLUGIN_CARD_SEAT : void 0;
+				if (slots.spec !== void 0 && declared("plugins.row.config")) return PLUGIN_ROW_CONFIG_SEAT;
+				return declared("settings.plugin.item") ? OFFICIAL_PLUGIN_CARD_SEAT : void 0;
+			};
 			let dispose;
 			let current;
 			/**
@@ -45505,15 +45578,27 @@ window.__ModuleLoader__.load({
 			/** Reconcile the contribution with the currently live seat (no-op when unchanged). */
 			const reconcile = () => {
 				if (reconciling) return;
-				const target = familyGroupLoaded(ctx) ? FAMILY_PLUGIN_CARD_SEAT : OFFICIAL_PLUGIN_CARD_SEAT;
+				const target = targetSeat();
 				if (current === target) return;
 				reconciling = true;
 				const previous = dispose;
 				dispose = void 0;
 				current = void 0;
-				previous?.();
+				const nextDisposers = [];
 				try {
-					dispose = slots.register(target === "web-ui.plugin.item" ? {
+					previous?.();
+					if (target === void 0) return;
+					if (target === "plugins.row.config") {
+						for (const key of seat.configKeys) nextDisposers.push(slots.register({
+							name: PLUGIN_ROW_CONFIG_SEAT,
+							key,
+							locale: seat.locale,
+							...seat.inject === void 0 ? {} : { inject }
+						}, pageComponent));
+						dispose = () => {
+							for (const off of nextDisposers) off();
+						};
+					} else dispose = slots.register(target === "web-ui.plugin.item" ? {
 						name: FAMILY_PLUGIN_CARD_SEAT,
 						id: seat.id,
 						...seat.order === void 0 ? {} : { order: seat.order },
@@ -45528,7 +45613,8 @@ window.__ModuleLoader__.load({
 					}, component);
 					current = target;
 				} catch (error) {
-					warnRefusedSeat(target, error);
+					for (const off of nextDisposers) off();
+					if (target !== void 0) warnRefusedSeat(target, error);
 				} finally {
 					reconciling = false;
 				}
@@ -45626,6 +45712,7 @@ window.__ModuleLoader__.load({
 			const card = cardController;
 			const doctor = controller;
 			if (doctor !== void 0 && card !== void 0) installPluginCard(ctx, {
+				configKeys: ["@linxin666/dsh-doctor#doctor", "@linxin666/dsh-web-all#web-ui-doctor"],
 				namespace: NS$5,
 				id: NS$5,
 				order: 140,
@@ -48202,6 +48289,27 @@ window.__ModuleLoader__.load({
 			});
 		}
 		//#endregion
+		//#region ../dsh-session-archive/src/client/current-session.ts
+		/** Narrow one value to an index-readable object, or undefined for anything else. */
+		function recordOf(value) {
+			return typeof value === "object" && value !== null ? value : void 0;
+		}
+		/**
+		* Resolve the displayed Session id from one sessions-list snapshot.
+		* @param list - the `ctx.sessions.list` snapshot, or undefined when the service is unavailable.
+		* @returns the displayed Session id, or undefined when no Session is displayed.
+		*/
+		function currentSessionIdOf(list) {
+			if (list === void 0) return void 0;
+			if (list.current !== void 0) return String(list.current);
+			const rows = recordOf(list.byId);
+			if (rows === void 0) return void 0;
+			for (const id of Object.keys(rows)) {
+				const mainView = recordOf(recordOf(rows[id])?.retainedBy)?.mainView;
+				if (typeof mainView === "number" && mainView > 0) return id;
+			}
+		}
+		//#endregion
 		//#region ../dsh-session-archive/src/client/archive-controller.ts
 		/** Max sessions per HTTP chunk: bounded work per request, no per-row spam. */
 		const CHUNK_SIZE = 200;
@@ -48255,10 +48363,10 @@ window.__ModuleLoader__.load({
 				this.store = deps.store ?? createArchiveStore().create();
 				this.sessions = deps.sessions;
 			}
-			/** The persisted current-selection id from the sessions feed, when available. */
+			/** The displayed Session id from the sessions feed, when available. */
 			getCurrentSessionId() {
 				try {
-					return this.sessions?.list.getSnapshot().current;
+					return currentSessionIdOf(this.sessions?.list.getSnapshot());
 				} catch {
 					return;
 				}
@@ -57181,7 +57289,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion() {
 			try {
-				return "0.3.23-dsh.20260918.1";
+				return "0.3.23-dsh.20260918.2";
 			} catch {
 				return;
 			}

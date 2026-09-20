@@ -14,7 +14,10 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
  * dsh-client-store needs no injection because its value imports ride the
  * platform table). The 0.1.1-rc.2 set's dsh-client-runtime row is gone
  * with its package; the api controller and api-remotes rows are the
- * Typert Remote replacement faces. A rename, removal, or new inject name
+ * Typert Remote replacement faces. dsh-client-ui-workspace joined for the
+ * 0.1.6-alpha.2 line: it owns Session navigation (`uiWorkspace.openSession`)
+ * after ISessions.open was removed, and is a browser roster row of the web
+ * bundle (dsh-web-app cordis.patch.yml). A rename, removal, or new inject name
  * must update this list together with its runtime-module-table evidence.
  */
 const APPROVED_INJECT_MODULES = [
@@ -30,6 +33,7 @@ const APPROVED_INJECT_MODULES = [
   '@deepseek-ai/dsh-client-ui-sidebar',
   '@deepseek-ai/dsh-client-ui-slots',
   '@deepseek-ai/dsh-client-ui-theme',
+  '@deepseek-ai/dsh-client-ui-workspace',
 ]
 
 function collectInjects() {

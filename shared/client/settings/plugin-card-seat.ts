@@ -1,46 +1,18 @@
 /**
- * Family plugin-card seat.
- *
- * A family plugin contributes its settings card to whichever plugin-card seat
- * the running host actually renders:
- *
- * - `web-ui.plugin.item` — the list seat declared by the dsh-web-settings
- *   group section (this family's own first-level "Web UI plugins" section);
- * - `settings.plugin.item` — the official keyed seat of the harness's
- *   `ui-settings-plugins` tab, keyed by the settings namespace the card edits.
- *
- * SEAT SELECTION IS NOT A DECLARATION PROBE. The official `ui-settings-plugins`
- * row belongs to the harness bundle and its `configurable` tab always declares
- * `settings.plugin.item` before any external plugin's `apply()` runs, so
- * "is the official seat declared?" answers yes even in the deployment whose
- * whole point is the family group. Choosing on that probe sends every family
- * card to the official Plugins tab and leaves the group's own section
- * permanently empty — the family of reports where the section renders its
- * heading and zero cards.
- *
- * The signal that actually distinguishes the two deployments is whether
- * dsh-web-settings is loaded: it is the package that owns the group section and
- * it publishes the `webUiSettings` service during `apply()`, which every
- * family plugin already reads for its settings scope. Group loaded -> the family
- * seat; group absent -> the official seat.
- *
- * The decision is re-evaluated on every `slots/changed` because the group may
- * apply after this plugin (the family aggregate orders it first, a profile that
- * installs the group separately need not): the initial contribution goes to the
- * official seat, then moves to the family seat the moment the group's section
- * registers. The entry is disposed before the replacement is registered, so a
- * card is never in two seats at once.
- *
- * The shared tree has no client-SDK dependency, so this module reads its
- * context through the structural shape below; callers pass the plugin's own
- * `ctx`.
+ * Family settings cards follow the loaded Web UI group. Without that group,
+ * alpha.2 hosts expose bundle-row configuration and older hosts expose the
+ * namespace-keyed settings card. Registration waits for the selected slot.
  */
+import { createElement, type ComponentType } from 'react'
 
 /** The family list seat key. */
 export const FAMILY_PLUGIN_CARD_SEAT = 'web-ui.plugin.item'
 
 /** The official keyed plugin-card seat key. */
 export const OFFICIAL_PLUGIN_CARD_SEAT = 'settings.plugin.item'
+
+/** Bundle-row configuration slot on alpha.2 hosts. */
+export const PLUGIN_ROW_CONFIG_SEAT = 'plugins.row.config'
 
 /** The service dsh-web-settings publishes while it is loaded. */
 export const FAMILY_GROUP_SERVICE = 'webUiSettings'
@@ -49,6 +21,8 @@ export const FAMILY_GROUP_SERVICE = 'webUiSettings'
 export interface PluginCardSlots {
   /** Contribution of one card entry. */
   register(options: never, component: never): unknown
+  /** Slot declaration lookup; older lightweight contexts may omit it. */
+  spec?(name: never): unknown
 }
 
 /** The slice of the client context a card contribution needs. */
@@ -70,6 +44,8 @@ export interface SettingsPluginItemOwnerProps {
 export interface PluginCardSeat {
   /** Settings namespace the card edits (the official seat's dispatch key). */
   namespace: string
+  /** Bundle package and row keys for standalone and aggregate installations. */
+  configKeys: readonly string[]
   /** Family list-seat entry id. */
   id: string
   /** Family list-seat sort order. */
@@ -125,6 +101,15 @@ export function installPluginCard(ctx: PluginCardContext, seat: PluginCardSeat):
   const slots = ctx.slots
   const component = seat.component as never
   const inject = seat.inject as never
+  const pageComponent = (props: Record<string, unknown>) => props.view === 'summary'
+    ? null
+    : createElement(seat.component as ComponentType<Record<string, unknown>>, props)
+  const declared = (name: string): boolean => slots.spec === undefined || slots.spec(name as never) !== undefined
+  const targetSeat = (): string | undefined => {
+    if (familyGroupLoaded(ctx)) return declared(FAMILY_PLUGIN_CARD_SEAT) ? FAMILY_PLUGIN_CARD_SEAT : undefined
+    if (slots.spec !== undefined && declared(PLUGIN_ROW_CONFIG_SEAT)) return PLUGIN_ROW_CONFIG_SEAT
+    return declared(OFFICIAL_PLUGIN_CARD_SEAT) ? OFFICIAL_PLUGIN_CARD_SEAT : undefined
+  }
 
   let dispose: (() => void) | undefined
   let current: string | undefined
@@ -139,15 +124,27 @@ export function installPluginCard(ctx: PluginCardContext, seat: PluginCardSeat):
   /** Reconcile the contribution with the currently live seat (no-op when unchanged). */
   const reconcile = (): void => {
     if (reconciling) return
-    const target = familyGroupLoaded(ctx) ? FAMILY_PLUGIN_CARD_SEAT : OFFICIAL_PLUGIN_CARD_SEAT
+    const target = targetSeat()
     if (current === target) return
     reconciling = true
     const previous = dispose
     dispose = undefined
     current = undefined
-    previous?.()
+    const nextDisposers: Array<() => void> = []
     try {
-      dispose = slots.register((target === FAMILY_PLUGIN_CARD_SEAT
+      previous?.()
+      if (target === undefined) return
+      if (target === PLUGIN_ROW_CONFIG_SEAT) {
+        for (const key of seat.configKeys) {
+          nextDisposers.push(slots.register({
+            name: PLUGIN_ROW_CONFIG_SEAT,
+            key,
+            locale: seat.locale,
+            ...(seat.inject === undefined ? {} : { inject }),
+          } as never, pageComponent as never) as () => void)
+        }
+        dispose = () => { for (const off of nextDisposers) off() }
+      } else dispose = slots.register((target === FAMILY_PLUGIN_CARD_SEAT
         ? {
           name: FAMILY_PLUGIN_CARD_SEAT,
           id: seat.id,
@@ -164,7 +161,8 @@ export function installPluginCard(ctx: PluginCardContext, seat: PluginCardSeat):
         }) as never, component) as () => void
       current = target
     } catch (error) {
-      warnRefusedSeat(target, error)
+      for (const off of nextDisposers) off()
+      if (target !== undefined) warnRefusedSeat(target, error)
     } finally {
       reconciling = false
     }
@@ -178,7 +176,6 @@ export function installPluginCard(ctx: PluginCardContext, seat: PluginCardSeat):
       // decision in place; the card still renders in the seat chosen below.
     }
   }
-  // The initial decision: the group, when it is already loaded (the aggregate
-  // order), otherwise the official seat the harness declares.
+  // A later slot declaration or group activation retries an unavailable seat.
   reconcile()
 }

@@ -15,11 +15,11 @@ So in the one deployment the family group exists for, the probe answered "the of
 
 ## Decision
 
-Seat selection keys on the settings group being **loaded**, not on the official seat being **declared**. `installPluginCard` (`shared/client/settings/plugin-card-seat.ts`) contributes to the family list seat `web-ui.plugin.item` when `ctx.get('webUiSettings')` answers a value, and to the official keyed `settings.plugin.item` otherwise.
+Seat selection keys on the settings group being **loaded**, not on the official seat being **declared**. `installPluginCard` (`shared/client/settings/plugin-card-seat.ts`) contributes to the family list seat `web-ui.plugin.item` when `ctx.get('webUiSettings')` answers a value, and otherwise uses the declared official configuration slot: `plugins.row.config` on alpha.2, or the older `settings.plugin.item`. The [alpha.2 compatibility decision](2026-09-20-client-session-navigation-compatibility.md) owns the row keys and view adapter.
 
 `webUiSettings` is the service `dsh-web-settings` publishes while it is loaded, and every family plugin already reads it for its settings scope, so the probe adds no new coupling and cannot be fooled by a harness release that changes how it declares the official seat.
 
-The decision is re-evaluated on every `slots/changed`, because the group may apply after the card's own plugin (the aggregate orders it first, a profile that installs the group separately need not). The initial contribution goes to the official seat and moves to the family seat the moment the group registers its section; the previous entry is disposed before the replacement is registered. A re-entrancy latch guards the move: the registry emits `slots/changed` synchronously from inside both `register` and the previous entry's disposer, and an unguarded reconcile re-enters itself mid-move and registers the card twice into the seat it is leaving.
+The decision is re-evaluated on every `slots/changed`, because the group may apply after the card's own plugin (the aggregate orders it first, a profile that installs the group separately need not). A contribution waits while its selected slot is undeclared, and moves from the official seat to the family seat when the group registers its section; the previous entry is disposed before the replacement is registered. A re-entrancy latch guards the move: the registry emits `slots/changed` synchronously from inside both `register` and the previous entry's disposer, and an unguarded reconcile re-enters itself mid-move and registers the card twice into the seat it is leaving.
 
 ## Alternatives considered
 
@@ -32,10 +32,10 @@ The decision is re-evaluated on every `slots/changed`, because the group may app
 ## Consequences
 
 - The "Web 插件" section renders its family cards again on a stock install, and the official Plugins tab keeps only its own built-in cards plus the plugin-manager tab.
-- A profile with family plugins and no `dsh-web-settings` still reaches every card through the official keyed seat; the #1589 outcome is preserved.
+- A profile with family plugins and no `dsh-web-settings` still reaches every card through the declared official configuration slot; the #1589 outcome is preserved.
 - The card follows the group across any apply order: installing the group later moves the card into the section without a reload.
 - Five shipped plugins (remote-web-ui, task-board, doctor, tool-describe-image, liangshen) change seat behavior together, through the one generated shared module.
-- The seat is decided once per card and re-decided only on a seat change, so a group that is loaded but whose section is never registered leaves the card in the official seat rather than oscillating.
+- A group that is loaded before its section declaration leaves the card pending until that declaration arrives, without refused-registration warnings.
 
 ## Testing
 

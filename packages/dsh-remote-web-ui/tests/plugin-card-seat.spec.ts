@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   FAMILY_PLUGIN_CARD_SEAT,
   OFFICIAL_PLUGIN_CARD_SEAT,
+  PLUGIN_ROW_CONFIG_SEAT,
   familyGroupLoaded,
   installPluginCard,
 } from '../src/client/plugin-card-seat.ts'
@@ -46,6 +47,7 @@ const Card = (): null => null
 function seat(overrides: Record<string, unknown> = {}): never {
   return {
     namespace: 'remote-web-ui',
+    configKeys: ['@linxin666/dsh-remote-web-ui#remote-web-ui', '@linxin666/dsh-web-all#web-ui-remote-web-ui'],
     id: 'remote-web-ui',
     order: 90,
     locale: 'remote',
@@ -115,6 +117,64 @@ describe('installPluginCard seat selection', () => {
     expect(harness.registrations).toHaveLength(0)
     expect(harness.warnings).toHaveLength(1)
     expect(harness.warnings[0]).toContain(FAMILY_PLUGIN_CARD_SEAT)
+  })
+
+
+  it('registers alpha.2 bundle row keys and renders the form only for the page view', () => {
+    const harness = context()
+    const registrations: Array<{ entry: Record<string, unknown>; component: (props: Record<string, unknown>) => unknown }> = []
+    const ctx = harness.ctx as { slots: { spec?: (name: string) => unknown; register: (...args: never[]) => unknown } }
+    ctx.slots.spec = name => name === PLUGIN_ROW_CONFIG_SEAT ? { kind: 'keyed' } : undefined
+    ctx.slots.register = ((entry: Record<string, unknown>, component: (props: Record<string, unknown>) => unknown) => {
+      registrations.push({ entry, component })
+      return () => {}
+    }) as never
+    installPluginCard(ctx as never, seat())
+    expect(registrations.map(row => row.entry)).toEqual([
+      expect.objectContaining({ name: PLUGIN_ROW_CONFIG_SEAT, key: '@linxin666/dsh-remote-web-ui#remote-web-ui' }),
+      expect.objectContaining({ name: PLUGIN_ROW_CONFIG_SEAT, key: '@linxin666/dsh-web-all#web-ui-remote-web-ui' }),
+    ])
+    expect(registrations[0]!.component({ view: 'summary' })).toBeNull()
+    expect(registrations[0]!.component({ view: 'page' })).toMatchObject({ type: Card })
+    expect(harness.warnings).toEqual([])
+  })
+
+  it('waits for a slot declaration and restores registrations after redeclaration', () => {
+    const harness = context()
+    const ctx = harness.ctx as { slots: { spec?: (name: string) => unknown; register: (...args: never[]) => unknown } }
+    let declared = false
+    let disposed = 0
+    ctx.slots.spec = name => declared && name === PLUGIN_ROW_CONFIG_SEAT ? { kind: 'keyed' } : undefined
+    ctx.slots.register = ((entry: Record<string, unknown>) => {
+      harness.registrations.push(entry)
+      return () => { disposed += 1 }
+    }) as never
+    installPluginCard(ctx as never, seat())
+    expect(harness.registrations).toEqual([])
+    expect(harness.warnings).toEqual([])
+    declared = true
+    for (const listener of harness.listeners) listener()
+    expect(harness.registrations).toHaveLength(2)
+    declared = false
+    for (const listener of harness.listeners) listener()
+    expect(disposed).toBe(2)
+    declared = true
+    for (const listener of harness.listeners) listener()
+    expect(harness.registrations).toHaveLength(4)
+  })
+
+  it('keeps the family group preferred on alpha.2 and waits for its child slot', () => {
+    const harness = context({ group: true })
+    const ctx = harness.ctx as { slots: { spec?: (name: string) => unknown } }
+    let familyDeclared = false
+    ctx.slots.spec = name => name === PLUGIN_ROW_CONFIG_SEAT || (familyDeclared && name === FAMILY_PLUGIN_CARD_SEAT) ? {} : undefined
+    installPluginCard(ctx as never, seat())
+    expect(harness.registrations).toEqual([])
+    familyDeclared = true
+    for (const listener of harness.listeners) listener()
+    expect(harness.registrations).toHaveLength(1)
+    expect(harness.registrations[0]).toMatchObject({ name: FAMILY_PLUGIN_CARD_SEAT })
+    expect(harness.warnings).toEqual([])
   })
 
   it('treats a context without the group service as "group absent"', () => {

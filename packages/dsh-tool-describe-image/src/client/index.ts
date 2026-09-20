@@ -148,6 +148,7 @@ export function apply(ctx: ClientContext): void {
       // Card seat: the family group's list seat, or the official keyed seat of
       // the plugin-configuration tab when the group is not installed (issue #1589).
       installPluginCard(settingsCtx, {
+        configKeys: ['@linxin666/dsh-tool-describe-image#describe-image', '@linxin666/dsh-web-all#web-ui-describe-image'],
         namespace: NS,
         id: 'describe-image',
         order: 115,

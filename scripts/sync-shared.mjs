@@ -157,6 +157,22 @@ const MANIFEST = [
     ],
   },
   {
+    // Displayed-Session lookup across harness lines: `SessionListState.current`
+    // up to 0.1.6-alpha.1, the `mainView` retention mirrored per row from
+    // 0.1.6-alpha.2 on (the field was removed with the uiWorkspace navigation owner).
+    file: 'current-session.ts',
+    source: 'shared/client/current-session.ts',
+    targets: [
+      'packages/dsh-doctor/src/client/current-session.ts',
+      'packages/dsh-git-graph/src/client/current-session.ts',
+      'packages/dsh-liangshen/src/client/current-session.ts',
+      'packages/dsh-pet/src/client/current-session.ts',
+      'packages/dsh-session-archive/src/client/current-session.ts',
+      'packages/dsh-session-id/src/client/current-session.ts',
+      'packages/dsh-task-board/src/client/current-session.ts',
+    ],
+  },
+  {
     file: 'sse-leader.ts',
     source: 'shared/client/sse-leader.ts',
     targets: ['packages/dsh-git-graph/src/client/sse-leader.ts'],
