@@ -12,7 +12,7 @@ issue #1528 报告了一块从未挂载过 Host 半区的看板：面板显示 `
 
 浏览器传输层现在对 Host 失败分类（`not-mounted`、`unauthorized`、`locked`、`rejected`、`timeout`、`unreachable`、`unexpected`），每一类在当前语言下渲染成自己的那句话；非 JSON 的响应体不会再被交给 `JSON.parse`。事件流连不上时，面板会被提醒去读一次状态（最多每 15 秒一次），因此从未挂载的 Host 半区会显示出来，而不是一直静默空白。
 
-`HostTaskLedger` 会在不可读锁的 mtime 超过 `UNREADABLE_LOCK_GRACE_MS`（60 秒）后回收它。持有者在 `O_EXCL` 之后立刻写入并 fsync 自己的记录，所以存在这么久的不可读锁不可能是正在写入。新的不可读锁仍然 fail closed 并给出恢复提示，被活进程持有的锁仍然拒绝抢占。
+`HostTaskLedger` 会在不可读锁的 mtime 超过 `UNREADABLE_LOCK_GRACE_MS`（60 秒）后回收它。持有者在 `O_EXCL` 之后立刻写入并 fsync 自己的记录，所以存在这么久的不可读锁不可能是正在写入。新的不可读锁仍然 fail closed 并给出恢复提示，由仍存活的原持有者持有的锁仍然拒绝抢占。持有者身份包含进程启动时间，因此 PID 被复用时可以识别过期锁。Windows 上 Get-Process 无法返回启动时间时，继续通过 CIM 读取 Win32_Process CreationDate；两种探测都无法取得启动时间时，仍保护该锁。
 
 ## Alternatives considered
 

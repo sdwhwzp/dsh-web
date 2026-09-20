@@ -12,7 +12,7 @@ Two defects produced that. The browser transport parsed every response as JSON, 
 
 The browser transport classifies Host failures (`not-mounted`, `unauthorized`, `locked`, `rejected`, `timeout`, `unreachable`, `unexpected`) and renders each as its own sentence in the active language; a non-JSON body is never handed to `JSON.parse`. A failed event stream nudges the panel into one state read, throttled to one per 15 s, so a Host half that never mounted is visible instead of silently empty.
 
-`HostTaskLedger` reclaims an unreadable lock once its mtime is older than `UNREADABLE_LOCK_GRACE_MS` (60 s). The owner writes and fsyncs its record immediately after `O_EXCL`, so an unreadable lock that old cannot be mid-write. A fresh unreadable lock still fails closed with the recovery hint, and a lock held by a live process is still refused.
+`HostTaskLedger` reclaims an unreadable lock once its mtime is older than `UNREADABLE_LOCK_GRACE_MS` (60 s). The owner writes and fsyncs its record immediately after `O_EXCL`, so an unreadable lock that old cannot be mid-write. A fresh unreadable lock still fails closed with the recovery hint, and a lock held by its live owner is still refused. The owner identity includes process start time so PID reuse can identify a stale lock. On Windows, an empty Get-Process start time falls back to Win32_Process CreationDate through CIM; if neither probe resolves the start time, the lock remains protected.
 
 ## Alternatives considered
 
