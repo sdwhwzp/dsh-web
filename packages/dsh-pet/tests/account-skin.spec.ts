@@ -70,7 +70,8 @@ describe('account-scoped pet skins', () => {
     root = undefined
   })
 
-  it('persists skins independently for two accounts and keeps the choice after reload', async () => {
+  it('user retains an independent skin selection after reload', async () => {
+    // Given two accounts, when each selects a skin, then reload preserves both independent choices.
     root = mkdtempSync(join(tmpdir(), 'dsh-pet-account-skin-'))
     const { service } = fixture(root)
     const alice: PetAccountScope = { source: 'dsh-passwords', id: 'alice' }
@@ -86,7 +87,8 @@ describe('account-scoped pet skins', () => {
     expect((await reloaded.state(bob)).skin).toBe('red')
   })
 
-  it('routes skin writes through the verified principal and rejects a tampered account', async () => {
+  it('user changes skins only through a verified principal', async () => {
+    // Given signed account requests, when a forged skin mutation follows valid writes, then the forgery is rejected and both choices remain isolated.
     root = mkdtempSync(join(tmpdir(), 'dsh-pet-account-skin-route-'))
     const { service } = fixture(root)
     const ctx = principalContext()

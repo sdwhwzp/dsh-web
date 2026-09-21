@@ -16,6 +16,8 @@ interface FakeOptions {
   statusNull?: boolean
   addFails?: boolean
   createFails?: boolean
+  workspaceSnapshot?: { items: Array<{ workspaceId: string; path: string; sessionIds: string[] }> }
+  sessionSnapshot?: { byId: Record<string, { retainedBy?: { mainView: number }; updatedAt: number }> }
 }
 
 /** One fake client scope: workspaces service + sessions list + stubbed git api. */
@@ -31,11 +33,11 @@ function fakeScope(options: FakeOptions = {}) {
   const workspaces = {
     create,
     list: {
-      getSnapshot: () => ({ items, recentWorkspaceId: 'ws-main' }),
+      getSnapshot: () => options.workspaceSnapshot ?? ({ items, recentWorkspaceId: 'ws-main' }),
     },
   }
   const uiWorkspace = { startSession, connectWorkspace: vi.fn(async (id: string) => `sess-${id}`) }
-  const sessions = { list: { getSnapshot: () => ({ current: 'sess-1' as const, byId: {} }) } }
+  const sessions = { list: { getSnapshot: () => options.sessionSnapshot ?? ({ current: 'sess-1' as const, byId: {} }) } }
   const git = {
     config: vi.fn(async () => ({
       ok: true as const,
@@ -179,35 +181,34 @@ describe('installAutoIsolation', () => {
   })
 
 
-  it('reads alpha.2 main-view retention when selecting the workspace', async () => {
-    const { scope, uiWorkspace, sessions, git } = fakeScope()
-    vi.spyOn(sessions.list, 'getSnapshot').mockReturnValue({
-      byId: { 'sess-1': { retainedBy: { mainView: 1 }, updatedAt: 1 } },
-    } as never)
+  it('user starts in the workspace retained by the main view', async () => {
+    // Given a retained main-view session, when starting without a workspace id, then isolation uses its workspace.
+    const { scope, uiWorkspace, git } = fakeScope({
+      sessionSnapshot: { byId: { 'sess-1': { retainedBy: { mainView: 1 }, updatedAt: 1 } } },
+    })
     installAutoIsolation(scope, git as unknown as GitApi)
     uiWorkspace.startSession()
     await flush()
     expect(git.addWorktree).toHaveBeenCalledWith('/repo', expect.any(String), undefined)
   })
 
-  it('uses the most recently active workspace when alpha.2 has no current selection', async () => {
-    const { scope, workspaces, uiWorkspace, sessions, git } = fakeScope()
-    vi.spyOn(workspaces.list, 'getSnapshot').mockReturnValue({
-      items: [
+  it('user starts in the most recently active workspace without a current selection', async () => {
+    // Given two unselected workspaces, when starting a session, then isolation chooses the newer session.
+    const { scope, uiWorkspace, git } = fakeScope({
+      workspaceSnapshot: { items: [
         { workspaceId: 'older', path: '/older', sessionIds: ['s-old'] },
         { workspaceId: 'newer', path: '/newer', sessionIds: ['s-new'] },
-      ],
-    } as never)
-    vi.spyOn(sessions.list, 'getSnapshot').mockReturnValue({
-      byId: { 's-old': { updatedAt: 1 }, 's-new': { updatedAt: 2 } },
-    } as never)
+      ] },
+      sessionSnapshot: { byId: { 's-old': { updatedAt: 1 }, 's-new': { updatedAt: 2 } } },
+    })
     installAutoIsolation(scope, git as unknown as GitApi)
     uiWorkspace.startSession()
     await flush()
     expect(git.addWorktree).toHaveBeenCalledWith('/newer', expect.any(String), undefined)
   })
 
-  it('keeps direct workspace connects outside auto-isolation and preserves the navigation receiver', async () => {
+  it('user connects directly without isolation and retains session navigation', async () => {
+    // Given isolation is disabled, when connecting and starting a session, then navigation keeps its receiver.
     const { scope, uiWorkspace, startSession, git } = fakeScope({ autoIsolate: false })
     installAutoIsolation(scope, git as unknown as GitApi)
     await uiWorkspace.connectWorkspace('ws-main')

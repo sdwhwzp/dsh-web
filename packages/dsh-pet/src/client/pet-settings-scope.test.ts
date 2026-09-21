@@ -32,7 +32,8 @@ afterEach(() => {
 })
 
 describe('PetAccountSettingsScope', () => {
-  it('loads and revision-fences writes through the account-aware endpoint', async () => {
+  it('user writes account settings with the loaded revision', async () => {
+    // Given account settings at revision 4, when disabling the pet, then the request fences revision 4 and stores revision 5.
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       if (init?.method !== 'POST') return response(view(4))
       const body = JSON.parse(String(init.body)) as {
@@ -66,7 +67,8 @@ describe('PetAccountSettingsScope', () => {
     scope.dispose()
   })
 
-  it('batches resets and reports the account layer returned by the host', async () => {
+  it('user batches setting resets and receives the resulting account layer', async () => {
+    // Given account overrides, when resetting size and selecting a pet together, then the snapshot contains the returned account layer.
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       if (init?.method !== 'POST') {
         return response(view(1, { ...base, size: 220, petId: 'otter' }, { size: 220, petId: 'otter' }))

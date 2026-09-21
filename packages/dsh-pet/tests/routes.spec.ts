@@ -244,7 +244,8 @@ describe('pet routes', () => {
     expect(asset.status()).toBe(200)
   })
 
-  it('rejects account identity headers when no trusted verifier is installed', async () => {
+  it('guest cannot assert a pet identity without a trusted verifier', async () => {
+    // Given no trusted verifier, when a request supplies identity headers, then the pet route refuses access.
     const response = await fetch(url('/api/pet/state'), {
       headers: {
         'x-dsh-principal': 'forged-account',
@@ -255,7 +256,8 @@ describe('pet routes', () => {
     expect(await response.json()).toMatchObject({ error: 'unverified-account-identity' })
   })
 
-  it('selects an independent pet account from the trusted gateway principal', async () => {
+  it('user selects an independent pet account through the trusted gateway', async () => {
+    // Given a trusted principal verifier, when accounts read and mutate pet settings, then each account sees its own state and forged signatures are rejected.
     const accountService = new PetService(new Context(), {
       persistDir: join(dir, 'account-home'),
       registry: service.registrySnapshot(),

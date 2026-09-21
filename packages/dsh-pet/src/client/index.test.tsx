@@ -191,7 +191,12 @@ describe('pet client apply', () => {
     stubAccountSettings(false)
     apply(fakeContext().ctx)
 
-    await new Promise<void>((resolve) => { window.setTimeout(resolve, 0) })
+    vi.useFakeTimers()
+    try {
+      await vi.advanceTimersByTimeAsync(0)
+    } finally {
+      vi.useRealTimers()
+    }
 
     expect(fetch).toHaveBeenCalledWith('/api/pet/settings', undefined)
     expect(document.body.querySelector('[data-dsh-pet-root]')).toBeNull()

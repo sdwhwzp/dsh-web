@@ -65,12 +65,14 @@ describe('findDshBinary', () => {
     expect(findDshBinary({ PATH: '/nothing' }, 'darwin', exists(['/opt/homebrew/bin/dsh']))).toBe('/opt/homebrew/bin/dsh')
   })
 
-  it('falls back to the running DSH source entry when no shim is installed', () => {
+  it('operator resolves the running DSH source entry without an installed shim', () => {
+    // Given the DSH source entry and no shim, when locating the CLI, then the source entry is selected.
     const entry = '/opt/dsh/apps/cli/src/bin.ts'
     expect(findDshBinary({ PATH: '/nothing' }, 'darwin', exists([entry]), entry)).toBe(entry)
   })
 
-  it('does not execute an unrelated host entry as the dsh CLI', () => {
+  it('operator cannot execute an unrelated host entry as the DSH CLI', () => {
+    // Given an unrelated host entry, when locating the CLI, then no executable is selected.
     const entry = '/opt/other/src/bin.ts'
     expect(findDshBinary({ PATH: '/nothing' }, 'linux', exists([entry]), entry)).toBeNull()
   })
@@ -96,7 +98,8 @@ describe('dshSpawnCommand', () => {
     expect(dshSpawnCommand('/usr/local/bin/dsh', 'darwin')).toEqual({ command: '/usr/local/bin/dsh', argsPrefix: [] })
   })
 
-  it('runs a built host entry under the host interpreter without loader flags', () => {
+  it('operator launches a built entry with the host interpreter', () => {
+    // Given a built DSH entry and source loader flags, when creating its launch command, then the flags are omitted.
     expect(dshSpawnCommand(
       '/opt/dsh/node_modules/@deepseek-ai/dsh/lib/bin.js',
       'darwin',
@@ -110,7 +113,8 @@ describe('dshSpawnCommand', () => {
     })
   })
 
-  it('runs a source host entry through the current Node loader flags', () => {
+  it('operator launches a source entry with the current Node loader flags', () => {
+    // Given a source DSH entry, when creating its launch command, then the host interpreter and loader flags are retained.
     expect(dshSpawnCommand(
       '/opt/dsh/apps/cli/src/bin.ts',
       'darwin',

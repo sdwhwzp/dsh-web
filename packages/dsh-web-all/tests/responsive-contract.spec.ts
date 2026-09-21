@@ -207,7 +207,8 @@ describe('aggregate responsive compat contract', () => {
     expect(document.querySelector('[data-dsh-boot-splash]')).toBeNull()
   })
 
-  it('adds one portable download action to every file editor and resolves the current session at click time', () => {
+  it('user downloads the displayed file from the current sidebar session', () => {
+    // Given a sidebar file editor, when its session and file change before clicking download, then one action resolves the latest file and session.
     document.documentElement.lang = 'zh-CN'
     document.body.innerHTML = `
       <div data-dsh-better-sidebar>
@@ -273,7 +274,8 @@ describe('aggregate responsive compat contract', () => {
     expect(document.querySelector('a[data-dsh-universal-download]')).toBeNull()
   })
 
-  it('does not duplicate a download action supplied by better-sidebar itself', () => {
+  it('user retains one download action when the sidebar supplies its own', () => {
+    // Given a native sidebar download action, when compatibility support mounts, then no duplicate action appears.
     document.body.innerHTML = `
       <div data-dsh-better-sidebar>
         <div data-dsh-panel-host>
@@ -294,7 +296,8 @@ describe('aggregate responsive compat contract', () => {
     cleanup?.()
   })
 
-  it('scopes the compat action to better-sidebar and ignores a cross-origin lookalike', () => {
+  it('user receives a local download action only inside the sidebar', () => {
+    // Given an unrelated editor and a cross-origin download lookalike, when compatibility support mounts, then only the sidebar receives the local action.
     document.body.innerHTML = `
       <div class="hash_editorHeader">
         <input class="hash_editorPathInput" title="/unrelated/file.md">
@@ -322,7 +325,8 @@ describe('aggregate responsive compat contract', () => {
     cleanup?.()
   })
 
-  it('tracks the pinned better-sidebar editor DOM hooks', () => {
+  it('operator detects drift in the pinned sidebar editor hooks', () => {
+    // Given the pinned sidebar sources, when reading its editor and mount hooks, then the required attributes and classes are present.
     const source = (file: string): string => readFileSync(
       resolve(process.cwd(), 'node_modules/dsh-better-sidebar/src/client', file),
       'utf8',

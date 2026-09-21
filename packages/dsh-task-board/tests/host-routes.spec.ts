@@ -250,7 +250,8 @@ describe('task-board parse route (#1540)', () => {
     expect(parseTask).not.toHaveBeenCalled()
   })
 
-  it('awaits account authorization before invoking the parser', async () => {
+  it('user must pass account authorization before task parsing starts', async () => {
+    // Given asynchronous account authorization, when requesting task parsing, then the parser waits for authorization.
     const authenticate = vi.fn(async () => {
       await Promise.resolve()
       throw new Error('account revoked')

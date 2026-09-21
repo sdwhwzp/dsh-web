@@ -235,7 +235,8 @@ describe('PetService host activity', () => {
     }
   })
 
-  it('ignores stream lifecycle frames and detaches live activity while disabled', async () => {
+  it('user receives no rewards from stream lifecycle frames and can disable live activity', async () => {
+    // Given a pet observing stream events, when lifecycle frames arrive and the pet is disabled, then lifecycle frames award nothing and disabled activity detaches.
     const ctx = new Context()
     const dir = tempDir()
     const session = makeSession('live')
@@ -297,7 +298,8 @@ describe('PetService host activity', () => {
     }
   })
 
-  it('projects live activity locally and rewards a committed turn once', async () => {
+  it('user sees local live activity and receives one reward per committed turn', async () => {
+    // Given stream and durable session events, when a committed turn is repeated, then activity is projected and the reward remains deduplicated.
     const ctx = new Context()
     const dir = tempDir()
     const session = makeSession('s1')
@@ -1418,7 +1420,8 @@ describe('status decorations in PetService (pet-center M5, #567)', () => {
 })
 
 describe('account-scoped pet persistence', () => {
-  it('keeps selection, name, display, affinity, and switches independent by immutable principal id', async () => {
+  it('user retains pet preferences independently by immutable account id', async () => {
+    // Given two immutable account identities, when pet preferences and interactions change, then each account retains only its own values across reload.
     const dir = tempDir()
     const alice = { source: 'dsh-passwords', id: '2' }
     const bob = { source: 'dsh-passwords', id: '3' }

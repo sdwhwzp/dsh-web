@@ -49,7 +49,8 @@ afterEach(() => {
 })
 
 describe('task-board deployment identities', () => {
-  it('uses carrier authorization and refuses ordinary, missing, revoked or rejected identities', async () => {
+  it('admin receives task-board access only through current carrier authorization', async () => {
+    // Given carrier authorization, when ordinary, absent, revoked or rejected identities request access, then only the active administrator is accepted.
     const fixture = accountFixture()
     expect(await fixture.accounts.request(req)).toEqual(alice)
     expect(fixture.authorizeRequest).toHaveBeenCalledWith(req)
@@ -62,7 +63,8 @@ describe('task-board deployment identities', () => {
     await expect(fixture.accounts.request(req)).rejects.toThrow('administrator')
   })
 
-  it('accepts the signed-principal provider on Hosts without Connection authorization and preserves standalone access', async () => {
+  it('admin uses signed principals while standalone access remains explicit', async () => {
+    // Given Hosts with and without identity providers, when requesting access, then signed principals are accepted and standalone mode refuses asserted identities.
     const authenticate = vi.fn(() => alice)
     const fixture = accountFixture()
     delete fixture.values.connection
@@ -79,7 +81,8 @@ describe('task-board deployment identities', () => {
     await expect(fixture.accounts.request(req)).rejects.toThrow('administrator')
   })
 
-  it('keeps task ownership in the atomic Host ledger across restart and excludes it from wire snapshots/imports', () => {
+  it('admin retains task ownership across restart without trusting imported identities', () => {
+    // Given an account-owned task, when reopening the ledger and importing tasks, then ownership persists privately and foreign mutations or forged identities fail.
     const dir = root()
     const first = ledger(dir)
     first.applyRequest('create-a', { kind: 'create', id: 'a', input: input() }, 'client-asserted-bob', alice)
@@ -99,7 +102,8 @@ describe('task-board deployment identities', () => {
     expect(reopened.taskPrincipal('legacy')).toEqual(alice)
   })
 
-  it('preserves the original ledger when persisted account bindings are malformed', () => {
+  it('admin retains the original ledger when account bindings are malformed', () => {
+    // Given a malformed persisted account binding, when loading the ledger, then loading fails and the file remains unchanged.
     const dir = root()
     const first = ledger(dir)
     const file = first.file
@@ -112,7 +116,8 @@ describe('task-board deployment identities', () => {
     expect(readFileSync(file, 'utf8')).toBe(bytes)
   })
 
-  it('propagates the same identity through create, pins, prompt, roster and history streams', async () => {
+  it('admin uses the same identity throughout task execution and inspection', async () => {
+    // Given an authenticated task owner, when launching and inspecting execution, then every gateway request carries that identity and revocation blocks another launch.
     const fixture = accountFixture()
     const calls: Array<{ method: string; principal?: TaskBoardPrincipal }> = []
     const gateway = {
@@ -146,7 +151,8 @@ describe('task-board deployment identities', () => {
     expect(gateway.invoke).toHaveBeenCalledTimes(9)
   })
 
-  it('authenticates state/actions/SSE, rejects forged action identity and closes a revoked stream', async () => {
+  it('admin uses authenticated task routes and loses streams on revocation', async () => {
+    // Given account-aware task routes, when actions forge identity or a live stream loses authorization, then forgery fails and the stream closes.
     const fixture = accountFixture()
     const service = new TaskBoardHostService({ invoke: async () => ({ items: [] }) } as unknown as TypertGateway, { ledger: ledger(), accounts: fixture.accounts, power: new PowerInhibitor({ platform: 'linux' }) })
     disposers.push(() => service.dispose())
@@ -179,7 +185,8 @@ describe('task-board deployment identities', () => {
     }
   })
 
-  it('revalidates after an awaited create before renaming, permission changes or prompting', async () => {
+  it('admin loses execution access when revoked during session creation', async () => {
+    // Given a pending session creation, when authorization is revoked before it resolves, then later rename, permission and prompt operations are refused.
     const fixture = accountFixture()
     const invoke = vi.fn(async () => { fixture.revoke(); return { sessionId: 'session-a' } })
     const execute = vi.fn(async () => ({ kind: 'success' as const }))
@@ -189,7 +196,8 @@ describe('task-board deployment identities', () => {
     expect(execute).not.toHaveBeenCalled()
   })
 
-  it('runs a persisted schedule as its owner after restart, then refuses revoked and unowned schedules', async () => {
+  it('admin runs restored schedules only while their owner remains authorized', async () => {
+    // Given persisted owned and unowned schedules, when a due tick runs before and after revocation, then only the authorized owner can execute.
     let now = new Date(2026, 8, 13, 10, 0, 0).getTime()
     const dir = root()
     const first = ledger(dir, () => now)

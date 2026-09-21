@@ -232,7 +232,8 @@ describe('gameplay routes', () => {
     expect(persisted.treats?.treats).toBe(20)
   })
 
-  it('keeps gameplay state independent for authenticated accounts', async () => {
+  it('user retains independent gameplay state across reloads', async () => {
+    // Given two authenticated accounts, when Alice works and interacts, then Bob remains unchanged and reload preserves Alice's state.
     const registry = loadPetRegistry({ packageRoot: dir, petsDir: '', dshPetsDir: '' })
     const accountHome = join(dir, 'account-gameplay-home')
     const alice = { source: 'dsh-passwords', id: '2' }

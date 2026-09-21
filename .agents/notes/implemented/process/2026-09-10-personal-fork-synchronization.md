@@ -12,7 +12,7 @@ The personal fork contains account isolation and deployment integrations alongsi
 
 The [personal fork rules](../../../../AGENTS.md#branches-commits-and-prs) require fetching the original source, merging it into the current working branch, preferring its implementation, adapting required local behavior, validating, publishing all unpublished local branches to the owned fork under their existing names, and fetching again to check for missing source commits. The push guard accepts the owned fork over HTTPS or SSH and rejects other destinations regardless of remote name.
 
-The fork uses the upstream 0.3.20 family and Harness 0.1.5-rc.1 SDK. Pet consumes the upstream assistant stream projection while preserving verified-principal storage, disabled defaults for new accounts, and isolation from host-global activity. Existing account, activity, disposal, and reward-deduplication tests cover these retained behaviors.
+The fork uses the upstream 0.3.24 family and Harness 0.1.5-rc.1 SDK. Pet consumes the upstream assistant stream projection while preserving verified-principal storage, disabled defaults for new accounts, and isolation from host-global activity. Existing account, activity, disposal, and reward-deduplication tests cover these retained behaviors.
 
 ## Alternatives considered
 
@@ -21,5 +21,7 @@ Following the original owner's fixed dev/origin instructions would select an upl
 Replacing every conflicting file with the source copy would discard account isolation and its regression tests. The source implementation remains the default, with the necessary principal-specific behavior retained and checked.
 
 ## Consequences
+
+Automatic market deployment runs only in the original upstream repository. This fork requires an explicitly requested `workflow_dispatch`; a synchronization push only publishes source. The workflow condition enforces this independently of whether deployment credentials exist.
 
 The original repository is read-only. Branch histories remain intact; failed or non-fast-forward pushes require reconciliation. Source synchronization and artifact builds do not restart a running DSH host; rollout and live GUI validation require the updated host and profile to be loaded.

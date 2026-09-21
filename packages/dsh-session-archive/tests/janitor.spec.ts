@@ -97,7 +97,8 @@ describe('physical delete', () => {
     expect(service.ledgerSnapshot().entries['session-del']).toBeUndefined()
   })
 
-  it('waits for projection-cache cleanup before completing deletion', async () => {
+  it('user waits for projection-cache cleanup before deletion completes', async () => {
+    // Given a deferred projection-cache cleanup, when deleting a session, then completion waits until cleanup is released.
     const host = createFakeHost({
       feedItems: [{ sessionId: 'session-del', updatedAt: 10 }],
       persistedIds: ['session-del'],

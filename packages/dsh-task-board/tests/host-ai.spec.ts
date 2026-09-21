@@ -103,7 +103,8 @@ describe('task parse through the llm service', () => {
     expect((failure as TaskParseError).message).toContain('NO_ADAPTER')
   })
 
-  it.each(['error', 'aborted'] as const)('rejects a terminal %s chunk even after partial text', async (kind) => {
+  it.each(['error', 'aborted'] as const)('user receives an error for a terminal %s chunk after partial text', async (kind) => {
+    // Given partial model output, when a terminal failure chunk arrives, then parsing rejects with its classified error.
     const llm = { async *stream(): AsyncIterable<StreamChunk> {
       yield { type: 'text-delta', index: 0, text: 'partial answer' }
       yield { type: 'finish', reason: { kind, failure: { code: 'provider-failure', message: 'provider stopped' } } }
@@ -111,13 +112,15 @@ describe('task parse through the llm service', () => {
     await expect(parseTaskDraft(llm, { text: 'hello', model: 'p/m' })).rejects.toMatchObject({ code: kind === 'error' ? 'model-error' : 'timeout', message: 'provider stopped' })
   })
 
-  it('does not call a model for an already-cancelled request', async () => {
+  it('user cancels parsing before any model request starts', async () => {
+    // Given an already cancelled request, when parsing starts, then it reports timeout without invoking the model.
     const calls: GenerateOptions[] = []
     await expect(parseTaskDraft(fakeLlm(['{}'], calls), { text: 'hello', model: 'p/m' }, AbortSignal.abort())).rejects.toMatchObject({ code: 'timeout' })
     expect(calls).toHaveLength(0)
   })
 
-  it('rejects a cancellation even when the model ends the stream without throwing', async () => {
+  it('user receives cancellation when the model ends its stream normally', async () => {
+    // Given a model that cancels after partial output, when its stream ends, then parsing rejects the cancelled request.
     const controller = new AbortController()
     const llm = { async *stream(): AsyncIterable<StreamChunk> {
       yield { type: 'text-delta', index: 0, text: 'partial answer' }

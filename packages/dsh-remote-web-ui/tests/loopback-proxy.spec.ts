@@ -4,7 +4,7 @@
  * the outer leg down without an unhandled error, and normal completion must
  * keep reusing the upstream keep-alive connection.
  */
-import { createServer, request as httpRequest, type IncomingMessage, type Server } from 'node:http'
+import { createServer, request as httpRequest, type Server } from 'node:http'
 import { describe, expect, it } from 'vitest'
 import type { AddressInfo } from 'node:net'
 import { proxyLoopbackHttp } from '../src/loopback-proxy.ts'
@@ -35,7 +35,7 @@ async function serveProxy(port: number): Promise<TestServer> {
 }
 
 /** One client request; resolves with status, collected body, and the abort error if any. */
-function call(port: number, opts: { method?: string; chunked?: boolean } = {}): Promise<{
+function call(port: number, opts: { method?: string; chunked?: boolean; onData?: () => void } = {}): Promise<{
   status: number | undefined
   body: string
   premature: boolean
@@ -46,7 +46,7 @@ function call(port: number, opts: { method?: string; chunked?: boolean } = {}): 
       (res) => {
         const chunks: Buffer[] = []
         let premature = false
-        res.on('data', (chunk) => { chunks.push(chunk as Buffer) })
+        res.on('data', (chunk) => { chunks.push(chunk as Buffer); opts.onData?.() })
         res.on('error', () => { premature = true })
         res.on('close', () => {
           resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8'), premature })
@@ -58,71 +58,56 @@ function call(port: number, opts: { method?: string; chunked?: boolean } = {}): 
   })
 }
 
-const settle = (ms: number): Promise<void> => new Promise(resolve => { setTimeout(resolve, ms) })
-
-/**
- * Poll a predicate until it holds or the deadline passes, then return its final
- * value. The proxy propagates an outer abort asynchronously; a loaded runner can
- * take longer than any fixed sleep, and polling keeps the assertion strict while
- * removing the load sensitivity (the deadline still fails a real regression).
- */
-async function waitFor(predicate: () => boolean, timeoutMs = 2000, stepMs = 10): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    if (predicate()) return true
-    await settle(stepMs)
-  }
-  return predicate()
-}
-
 describe('loopback proxy connection lifecycle', () => {
-  it('stops the inner request when the outer client aborts mid-body', async () => {
+  it('user aborts an upload after the upstream receives its partial body', async () => {
+    // Given a proxied upload, when the client aborts after its body reaches the upstream, then upstream processing aborts without completing.
+    let receivedBody!: () => void
+    const bodyReceived = new Promise<void>(resolve => { receivedBody = resolve })
+    let markAborted!: () => void
+    const requestAborted = new Promise<void>(resolve => { markAborted = resolve })
     let innerCompleted = false
-    let innerAborted = false
     const upstream: Server = createServer((req, res) => {
-      req.on('data', () => {})
+      req.on('data', receivedBody)
       req.on('end', () => {
         innerCompleted = true
         res.writeHead(200)
         res.end('ok')
       })
       // A proxy-side reset surfaces as ECONNRESET / 'aborted' on the inner request.
-      req.on('error', () => { innerAborted = true })
-      req.on('aborted', () => { innerAborted = true })
+      req.on('error', markAborted)
+      req.on('aborted', markAborted)
     })
     const up = await listen(upstream)
     const proxy = await serveProxy(up.port)
+    const req = httpRequest({ host: '127.0.0.1', port: proxy.port, method: 'POST' })
+    req.on('error', () => {})
     try {
-      // A chunked POST whose body never finishes: abort mid-flight.
-      await new Promise<void>((resolve, reject) => {
-        const req = httpRequest({ host: '127.0.0.1', port: proxy.port, method: 'POST' })
-        req.on('error', () => { resolve() })
-        req.write('partial-body-half')
-        setTimeout(() => {
-          req.destroy()
-          resolve()
-        }, 30)
-      })
-      const aborted = await waitFor(() => innerAborted)
+      req.write('partial-body-half')
+      await bodyReceived
+      req.destroy()
+      await expect(requestAborted).resolves.toBeUndefined()
       expect(innerCompleted).toBe(false)
-      expect(aborted).toBe(true)
     } finally {
+      req.destroy()
+      upstream.closeAllConnections()
       await proxy.close()
       await up.close()
     }
   })
 
-  it('tears the outer leg down when the inner response dies mid-stream', async () => {
+  it('user receives a premature response when the upstream truncates its body', async () => {
+    // Given a response longer than its partial body, when the client receives that part and the upstream resets, then the outer response reports truncation.
+    let truncate!: () => void
     const upstream: Server = createServer((req, res) => {
       // Announce a longer body than will ever be sent, then truncate.
       res.writeHead(200, { 'content-length': '64' })
       res.write('half-')
-      setTimeout(() => { res.destroy() }, 20)
+      truncate = () => { res.destroy() }
     })
     const up = await listen(upstream)
     const proxy = await serveProxy(up.port)
     try {
-      const result = await call(proxy.port)
+      const result = await call(proxy.port, { onData: () => { truncate() } })
       expect(result.status).toBe(200)
       expect(result.body).toBe('half-')
       expect(result.premature).toBe(true)

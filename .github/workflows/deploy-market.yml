@@ -40,6 +40,8 @@ concurrency:
 
 jobs:
   deploy:
+    # Fork synchronization publishes source without deploying the upstream market.
+    if: github.repository == 'zhu1090093659/dsh-web' || github.event_name == 'workflow_dispatch'
     name: Deploy market to Workers
     runs-on: ubuntu-latest
     timeout-minutes: 15

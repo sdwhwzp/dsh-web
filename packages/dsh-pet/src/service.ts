@@ -70,6 +70,7 @@ import {
   applyGameplayEffects,
   drawLotteryTier,
   initialGameplayState,
+  isDeclaredMode,
   rollTouchBranch,
   rollWorkOutcome,
   settleGameplay,
@@ -251,7 +252,8 @@ export type PetInteractResult = LedgerInteractionResult
 export interface PetGameplayStateView {
   /** Stat values rounded for display. */
   stats: Record<string, number>
-  mode: 'work' | 'sleep' | null
+  /** Active mode id ('work' | 'sleep' | a declared extra mode) or null. */
+  mode: string | null
 }
 
 /** Result of the gameplay verbs (touch / setMode / workTick / buy). */
@@ -728,15 +730,26 @@ export class PetService extends Service {
       petId,
       state: stored === undefined
         ? initialGameplayState(def, now)
-        : { stats: { ...stored.stats }, currencies: { ...stored.currencies }, mode: stored.mode, settledAt: stored.settledAt },
+        // Spread first so the settle remainders (restoreCarryMs / incomeCarryMs)
+        // survive a verb. Enumerating the fields dropped them, so every verb
+        // floored the elapsed time and threw the remainder away -- which starves
+        // any interval longer than the gap between verbs (30 s sleep restore,
+        // 30 min passive income).
+        : { ...stored, stats: { ...stored.stats }, currencies: { ...stored.currencies } },
     }
   }
 
   /** Display view of one gameplay state (rounded stats; treats ride the shared treat ledger). */
-  private gameplayViewOf(state: PetGameplayState): PetGameplayStateView {
+  private gameplayViewOf(state: PetGameplayState, def: PetGameplayManifest): PetGameplayStateView {
     const stats: Record<string, number> = {}
     for (const [name, value] of Object.entries(state.stats)) stats[name] = Math.round(value)
-    return { stats, mode: state.mode }
+    // A persisted mode the manifest no longer declares (a pet.json edit after
+    // the pet was parked in it) reads as "no mode". Otherwise the client would
+    // latch a mode it cannot resolve: the mode chip prints a raw i18n key, and
+    // the client's roam roll — suppressed while any mode is active — would
+    // never fire again.
+    const mode = state.mode !== null && !isDeclaredMode(def, state.mode) ? null : state.mode
+    return { stats, mode }
   }
 
   /**
@@ -775,7 +788,7 @@ export class PetService extends Service {
       if (amount > 0) applyGameplayEffects(state, def, [{ stat: boost.stat, amount }])
       this.drainGameplayTreats(state, account)
       this.commitGameplay(account, petId, state)
-      return { ok: true, hit: false, view: this.gameplayViewOf(state) }
+      return { ok: true, hit: false, view: this.gameplayViewOf(state, def) }
     }
     const target = def.touch?.zones.find(entry => entry.name === zone)
     if (target === undefined) return { ok: false, error: 'unknown-zone' }
@@ -783,7 +796,7 @@ export class PetService extends Service {
     if (branch === undefined) {
       this.drainGameplayTreats(state, account)
       this.commitGameplay(account, petId, state)
-      return { ok: true, hit: false, view: this.gameplayViewOf(state) }
+      return { ok: true, hit: false, view: this.gameplayViewOf(state, def) }
     }
     if (branch.effects !== undefined) applyGameplayEffects(state, def, branch.effects)
     const phrase = branch.phrases !== undefined && branch.phrases.length > 0
@@ -797,24 +810,31 @@ export class PetService extends Service {
       ...(branch.state === undefined ? {} : { state: branch.state }),
       ...(branch.stateMs === undefined ? {} : { stateMs: branch.stateMs }),
       ...(phrase === undefined ? {} : { phrase }),
-      view: this.gameplayViewOf(state),
+      view: this.gameplayViewOf(state, def),
     }
   }
 
-  /** RPC: enter or leave a gameplay mode ('work' | 'sleep' | null). */
-  async gameplaySetMode(mode: 'work' | 'sleep' | null, scope?: PetAccountScope): Promise<PetGameplayVerbResult> {
+  /**
+   * RPC: enter or leave a gameplay mode (null clears it). Every mode the
+   * manifest declares is accepted: 'work', 'sleep', or one of the extra
+   * 'modes' entries (a bath, a play session…).
+   */
+  async gameplaySetMode(mode: string | null, scope?: PetAccountScope): Promise<PetGameplayVerbResult> {
     const def = this.gameplayDef(scope)
     if (def === undefined) return { ok: false, error: 'no-gameplay' }
     if (mode === 'work' && def.work === undefined) return { ok: false, error: 'no-work' }
     if (mode === 'sleep' && def.sleep === undefined) return { ok: false, error: 'no-sleep' }
+    if (mode !== null && !isDeclaredMode(def, mode)) return { ok: false, error: 'unknown-mode' }
     const now = Date.now()
     const { account, petId, state } = this.gameplayState(def, now, scope)
     const sessionActive = scope === undefined && this.machine.render().sessionActive
     settleGameplay(state, def, now, { sessionActive })
+    // Each mode starts its own restore interval.
+    if (state.mode !== mode) state.restoreCarryMs = 0
     state.mode = mode
     this.drainGameplayTreats(state, account)
     this.commitGameplay(account, petId, state)
-    return { ok: true, view: this.gameplayViewOf(state) }
+    return { ok: true, view: this.gameplayViewOf(state, def) }
   }
 
   /** RPC: one work-round adjudication (only while the work mode holds). */
@@ -831,7 +851,7 @@ export class PetService extends Service {
     if (effects !== undefined) applyGameplayEffects(state, def, effects)
     this.drainGameplayTreats(state, account)
     this.commitGameplay(account, petId, state)
-    return { ok: true, outcome, view: this.gameplayViewOf(state) }
+    return { ok: true, outcome, view: this.gameplayViewOf(state, def) }
   }
 
   /** RPC: buy one shop item (effects, currency swap, or a lottery draw). */
@@ -850,7 +870,7 @@ export class PetService extends Service {
     const treats = item.currency === GAMEPLAY_TREATS_CURRENCY
     const balance = treats ? account.ledger.snapshot.treats.treats : (state.currencies[item.currency] ?? 0)
     if (balance < item.price) {
-      return { ok: false, error: 'insufficient-funds', view: this.gameplayViewOf(state) }
+      return { ok: false, error: 'insufficient-funds', view: this.gameplayViewOf(state, def) }
     }
     if (treats) account.ledger.spendTreats(item.price)
     else state.currencies[item.currency] = balance - item.price
@@ -866,7 +886,7 @@ export class PetService extends Service {
     }
     this.drainGameplayTreats(state, account)
     this.commitGameplay(account, petId, state)
-    return { ok: true, ...(prize === undefined ? {} : { prize }), view: this.gameplayViewOf(state) }
+    return { ok: true, ...(prize === undefined ? {} : { prize }), view: this.gameplayViewOf(state, def) }
   }
 
   /** RPC: show or hide the pet. */
@@ -1132,7 +1152,7 @@ export class PetService extends Service {
     if (gameplayDef !== undefined) {
       const { state } = this.gameplayState(gameplayDef, Date.now(), scope)
       settleGameplay(state, gameplayDef, Date.now(), { sessionActive: snapshot.sessionActive })
-      gameplay = this.gameplayViewOf(state)
+      gameplay = this.gameplayViewOf(state, gameplayDef)
     }
     // Read-only: the ledger settles on economic events only, never on a read,
     // so polling the state cannot trigger pet.json writes.

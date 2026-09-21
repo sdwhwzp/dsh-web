@@ -79,7 +79,8 @@ describe('shell row-state surface', () => {
   beforeEach(resetAll)
   afterEach(resetAll)
 
-  it('keeps browser-only UI active without importing or mounting a shared Host', async () => {
+  it('user retains browser-only UI without mounting a shared Host', async () => {
+    // Given a browser-only plugin row, when applying it and exposing the row route, then it stays active without a Host import and disposal removes it.
     const host = mockHost()
     const ctx = host.createCtx()
     const plugin = '@test/missing-host-implementation'
@@ -96,7 +97,8 @@ describe('shell row-state surface', () => {
     expect(host.routes.size).toBe(0)
   })
 
-  it('rejects a malformed client-only config without activating the row', async () => {
+  it('operator receives a degraded row for malformed browser-only configuration', async () => {
+    // Given a nonboolean clientOnly field, when applying the row, then it stays inactive and reports degradation.
     const host = mockHost()
     await apply(host.createCtx() as never, { plugin: 'node:events', clientOnly: 'true' } as never)
     expect(listActiveRows()).toEqual([])

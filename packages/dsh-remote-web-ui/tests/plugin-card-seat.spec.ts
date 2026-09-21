@@ -120,7 +120,8 @@ describe('installPluginCard seat selection', () => {
   })
 
 
-  it('registers alpha.2 bundle row keys and renders the form only for the page view', () => {
+  it('user sees the bundle settings form only in the page view', () => {
+    // Given the keyed configuration slot, when installing the card, then both bundle keys register and only the page view renders the form.
     const harness = context()
     const registrations: Array<{ entry: Record<string, unknown>; component: (props: Record<string, unknown>) => unknown }> = []
     const ctx = harness.ctx as { slots: { spec?: (name: string) => unknown; register: (...args: never[]) => unknown } }
@@ -139,7 +140,8 @@ describe('installPluginCard seat selection', () => {
     expect(harness.warnings).toEqual([])
   })
 
-  it('waits for a slot declaration and restores registrations after redeclaration', () => {
+  it('user regains settings cards after slot redeclaration', () => {
+    // Given an initially absent slot, when it is declared, removed and redeclared, then registrations follow its lifecycle.
     const harness = context()
     const ctx = harness.ctx as { slots: { spec?: (name: string) => unknown; register: (...args: never[]) => unknown } }
     let declared = false
@@ -163,7 +165,8 @@ describe('installPluginCard seat selection', () => {
     expect(harness.registrations).toHaveLength(4)
   })
 
-  it('keeps the family group preferred on alpha.2 and waits for its child slot', () => {
+  it('user sees settings in the family group after its child slot appears', () => {
+    // Given the family group and an absent child slot, when the child slot appears, then the card registers in that group.
     const harness = context({ group: true })
     const ctx = harness.ctx as { slots: { spec?: (name: string) => unknown } }
     let familyDeclared = false

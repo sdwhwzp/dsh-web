@@ -72,7 +72,8 @@ async function request(user: string, path: string, method = 'GET', body?: unknow
   return { status: res.status, body: await res.json() }
 }
 
-it('migrates only owned legacy entries, retains the backup, and requires identity', async () => {
+it('user receives only owned legacy SSH entries while the backup remains intact', async () => {
+  // Given legacy entries with different owners, when accounts list hosts, then migration respects ownership and anonymous access fails.
   expect((await request('alice', 'hosts')).body.hosts.map((x: { alias: string }) => x.alias)).toEqual(['legacy-alice'])
   expect((await request('bob', 'hosts')).body.hosts).toEqual([])
   expect((await request('admin', 'hosts')).body.hosts.map((x: { alias: string }) => x.alias)).toEqual(['legacy-admin'])
@@ -81,7 +82,8 @@ it('migrates only owned legacy entries, retains the backup, and requires identit
   expect(() => accounts.resolve(undefined)).toThrow('Authenticated')
 })
 
-it('allows duplicate aliases, edit and delete without changing another account', async () => {
+it('user edits and deletes duplicate SSH aliases without changing another account', async () => {
+  // Given matching aliases in two account stores, when Alice edits and deletes hers, then Bob retains his entry and cannot execute Alice's host.
   for (const user of ['alice', 'bob']) {
     expect((await request(user, 'hosts', 'POST', { alias: 'prod', host: '127.0.0.1', port: ssh.port,
       user: TEST_USER, auth: { kind: 'password', password: TEST_PASSWORD } })).status).toBe(201)
@@ -89,13 +91,14 @@ it('allows duplicate aliases, edit and delete without changing another account',
   expect((await request('alice', 'hosts?alias=prod', 'PATCH', { description: 'Alice only' })).status).toBe(200)
   expect(accounts.resolve(bob).store.find('prod')?.description).toBeUndefined()
   expect((await request('alice', 'hosts?alias=prod', 'DELETE')).status).toBe(200)
-  expect(accounts.resolve(bob).store.find('prod')).toBeDefined()
+  expect(accounts.resolve(bob).store.find('prod')).toMatchObject({ alias: 'prod', host: '127.0.0.1', user: TEST_USER })
   const foreign = await request('bob', 'exec', 'POST', { alias: 'legacy-alice', command: 'echo hello' })
   expect(foreign.status).toBe(500)
   expect(foreign.body.error).toContain('legacy-alice')
 })
 
-it('rejects Host credentials and foreign jump hosts even through direct mutations', async () => {
+it('user cannot select Host credentials or another account\'s jump host', async () => {
+  // Given an account store, when unsafe credentials or foreign jumps are submitted, then routes and direct mutations reject them.
   const store = accounts.resolve(bob).store
   for (const auth of [{ kind: 'agent' }, { kind: 'key', keyPath: '/home/admin/.ssh/id_ed25519' }]) {
     expect((await request('bob', 'hosts', 'POST', { alias: 'unsafe', host: 'example.com', user: 'root', auth })).status).toBe(400)
@@ -108,7 +111,8 @@ it('rejects Host credentials and foreign jump hosts even through direct mutation
   expect((await request('bob', 'hosts')).body.capabilities).toEqual({ accountScoped: true, serverCredentials: false })
 })
 
-it('authenticates a supplied private key without exposing it in list or create responses', async () => {
+it('user authenticates with a supplied key without exposing it in responses', async () => {
+  // Given a private test key, when creating and executing an SSH host, then authentication succeeds and responses omit the key.
   const privateKey = readFileSync(ssh.keyPair.privateKey, 'utf8')
   const created = await request('bob', 'hosts', 'POST', { alias: 'key-host', host: '127.0.0.1', port: ssh.port,
     user: TEST_USER, auth: { kind: 'key', privateKey } })
@@ -119,7 +123,8 @@ it('authenticates a supplied private key without exposing it in list or create r
   expect((statSync(accounts.resolve(bob).store.path).mode & 0o777)).toBe(0o600)
 })
 
-it('rejects persisted local commands and missing jumps before opening an account connection', async () => {
+it('user cannot connect with persisted local commands or missing jump hosts', async () => {
+  // Given unsafe persisted entries and a deleted jump, when resolving or executing them, then user access fails while administrator capabilities remain available.
   const store = accounts.resolve(bob).store
   const payload = { host: '127.0.0.1', port: ssh.port, user: TEST_USER,
     auth: { kind: 'password' as const, password: TEST_PASSWORD } }
@@ -152,7 +157,8 @@ it('rejects persisted local commands and missing jumps before opening an account
   }
 })
 
-it('keeps tunnels and cluster selectors within one engine', async () => {
+it('user keeps tunnels and cluster selection within the account engine', async () => {
+  // Given Alice's open tunnel, when Bob lists or stops it and Alice loses access, then Bob sees no tunnel and revocation closes it.
   const opened = await request('alice', 'tunnel', 'POST', { action: 'start', alias: 'legacy-alice', remotePort: ssh.echoPort })
   expect(opened.status).toBe(200)
   const id = opened.body.tunnel.id
@@ -168,7 +174,8 @@ it('keeps tunnels and cluster selectors within one engine', async () => {
   denied.delete(alice.id)
 })
 
-it('rechecks permissions for cached routes and tool engines and preserves deleted hosts after restart', async () => {
+it('user loses cached SSH access after revocation and retains deletions after restart', async () => {
+  // Given cached account engines, when permissions are revoked and a legacy host is deleted, then routes and tools refuse access and restart preserves the deletion.
   const tool = sshListTool(exec => accounts.resolve((exec as unknown as { principal?: SshPrincipal }).principal).engine)
   const listed = await tool.execute({}, { principal: bob } as never) as { hosts: { alias: string }[] }
   expect(listed.hosts.map(x => x.alias)).toEqual(['prod', 'key-host'])
@@ -182,7 +189,8 @@ it('rechecks permissions for cached routes and tool engines and preserves delete
   try { expect(restarted.resolve(alice).store.list()).toEqual([]) } finally { restarted.dispose() }
 })
 
-it('rejects gateway identity assertions when account isolation is disabled', async () => {
+it('guest cannot assert a gateway identity with isolation disabled', async () => {
+  // Given disabled account isolation, when a request asserts a gateway identity, then it is refused without exposing legacy hosts.
   isolated = false
   try {
     const res = await fetch(url + '/api/dsh-ssh/hosts', { headers: { 'x-dsh-principal': 'claimed' } })
