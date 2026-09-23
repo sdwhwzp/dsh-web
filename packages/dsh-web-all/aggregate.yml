@@ -54,19 +54,8 @@ deps:
   - ../dsh-web-settings
   - ../skins/skin-center
   - ../dsh-i18n
-# 外部 npm 插件段：alpha 分支（2026-09-17 决策）不内置 dsh-better-sidebar。
-# 该插件 0.19.1 的全部 @deepseek-ai/dsh-* peer 声明为 ^0.1.5-rc.1，按 semver
-# 不覆盖本分支的 0.1.7-alpha.2 cohort（预发布版本只匹配同 [major,minor,patch]
-# 元的区间），因此 alpha 实验环境不再挂载这个右侧面板插件：聚合包不依赖它、
-# profile 里也不出现它的行。需要右侧面板时按需安装
-# （dsh plugin --profile <name> add dsh-better-sidebar@latest）。
-# dev 分支保持内置 0.19.1，alpha 每次从 dev rebase 后需重新移除本段。
-# 历史沿革（dev 侧仍适用）：2026-08-30 曾因 alpha.2 移除
-# `@deepseek-ai/dsh-client-runtime` 面把本行与 dsh-archive-manager 一并排除；
-# 2026-08-31 以 0.18.0-alpha.0 回归（inject 改用 dsh-client-modules）；
-# 2026-09-04 随 rc.1 cohort 升至 0.18.0 正式版；2026-09-10 升至 0.19.0
-# （inject 含 optional 的 dsh-client-ui-sidebar-right 面）；2026-09-11 升至
-# 0.19.1。
+# 外部右侧面板由 profile 独立安装；本全家桶不依赖或挂载 dsh-better-sidebar。
+# 可通过 dsh plugin --profile <name> add dsh-better-sidebar@latest 安装适配宿主的版本。
 # @mlgbnb/dsh-archive-manager 仍然排除：其 latest 1.0.7 仍 import 已移除面。
 # 出厂默认关闭的可选行（2026-09-09 产品决策）：工具/探索类家族插件对新装用户
 # 不加载（设置入口也不出现），在 设置 → 插件 → 插件管理 的聚合子行里逐个开启；

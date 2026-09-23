@@ -15,6 +15,7 @@ This repository is an external plugin package for DeepSeek Harness (DSH). It is 
 - **LAN bind toggle**: the settings card writes a managed block into the profile `cordis.patch.yml` that pins the webserver bind to `0.0.0.0` (on) or `127.0.0.1` (off) — no `--host` command-line dance; an explicit `--host`/`--port` flag still wins. It maintains the matching host firewall rule (Windows Defender via netsh; Linux firewalld/ufw/iptables; other platforms report the firewall as unmanaged) and shows the live bind, the reachable LAN URLs, and the firewall state.
 - **Live status**: loopback-only status and event endpoints report connected devices; an `/api` posture probe reports any host whose `/api` fence the SDK leaves open. No desktop badge is registered.
 - **Self-update API**: loopback-only update endpoints check for a newer dsh-web release and run the verified update. No desktop update trigger or panel is registered.
+- **Desktop foot row**: the wide sidebar seats Settings and footer actions on one line, with full-width blocks such as the usage glance above it; the 56px rail retains the shell’s stacked footer.
 
 ## The mobile adaptation layer
 
