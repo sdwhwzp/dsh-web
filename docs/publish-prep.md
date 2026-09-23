@@ -2,29 +2,29 @@
 
 ## 范围
 
-本版本统一发布 `packages/` 与 `packages/skins/` 下由 `scripts/lib/family-packages.mjs` 发现的 19 个公开家族包；根 package.json 与 shared 私有包不发布。所有家族包采用统一版本号（当前为 0.3.24-dsh.20260923.2），皮肤中心只随包分发 `blue-fantasy`，其余皮肤由 Workshop 按需安装。
+本版本统一发布 `packages/` 与 `packages/skins/` 下由 `scripts/lib/family-packages.mjs` 发现的 19 个公开家族包；根 package.json 与 shared 私有包不发布。所有家族包采用统一版本号（当前为 0.3.24-dsh.20260923.3），皮肤中心只随包分发 `blue-fantasy`，其余皮肤由 Workshop 按需安装。
 
 | 目录 | npm 包 | 版本 | 发布状态 |
 | --- | --- | --- | --- |
-| packages/dsh-community-plugins | @linxin666/dsh-client-ui-community-plugins | 0.3.24-dsh.20260923.2 | public |
-| packages/dsh-git-graph | @linxin666/dsh-client-ui-git-graph | 0.3.24-dsh.20260923.2 | public |
-| packages/dsh-i18n | @linxin666/dsh-i18n | 0.3.24-dsh.20260923.2 | public |
-| packages/dsh-liangshen | @linxin666/dsh-liangshen | 0.3.24-dsh.20260923.2 | public |
-| packages/dsh-market | @linxin666/dsh-client-ui-market | 0.3.24-dsh.20260923.2 | public |
-| packages/dsh-model-capabilities | @linxin666/dsh-client-ui-model-capabilities | 0.3.24-dsh.20260923.2 | public |
-| packages/dsh-pet | @linxin666/dsh-pet | 0.3.24-dsh.20260923.2 | public |
-| packages/dsh-plugin-manager | @linxin666/dsh-client-ui-plugin-manager | 0.3.24-dsh.20260923.2 | public |
-| packages/dsh-preset-center | @linxin666/dsh-client-ui-preset-center | 0.3.24-dsh.20260923.2 | public |
-| packages/dsh-remote-web-ui | @linxin666/dsh-remote-web-ui | 0.3.24-dsh.20260923.2 | public |
-| packages/dsh-session-archive | @linxin666/dsh-session-archive | 0.3.24-dsh.20260923.2 | public |
-| packages/dsh-session-id | @linxin666/dsh-client-ui-session-id | 0.3.24-dsh.20260923.2 | public |
-| packages/dsh-skill-explorer | @linxin666/dsh-client-ui-skill-explorer | 0.3.24-dsh.20260923.2 | public |
-| packages/dsh-ssh | @linxin666/dsh-ssh | 0.3.24-dsh.20260923.2 | public |
-| packages/dsh-task-board | @linxin666/dsh-client-ui-task-board | 0.3.24-dsh.20260923.2 | public |
-| packages/dsh-usage | @linxin666/dsh-usage | 0.3.24-dsh.20260923.2 | public |
-| packages/dsh-web-all | @linxin666/dsh-web-all | 0.3.24-dsh.20260923.2 | public |
-| packages/dsh-web-settings | @linxin666/dsh-client-ui-web-ui-settings | 0.3.24-dsh.20260923.2 | public |
-| packages/skins/skin-center | @linxin666/dsh-client-ui-skin-center | 0.3.24-dsh.20260923.2 | public |
+| packages/dsh-community-plugins | @linxin666/dsh-client-ui-community-plugins | 0.3.24-dsh.20260923.3 | public |
+| packages/dsh-git-graph | @linxin666/dsh-client-ui-git-graph | 0.3.24-dsh.20260923.3 | public |
+| packages/dsh-i18n | @linxin666/dsh-i18n | 0.3.24-dsh.20260923.3 | public |
+| packages/dsh-liangshen | @linxin666/dsh-liangshen | 0.3.24-dsh.20260923.3 | public |
+| packages/dsh-market | @linxin666/dsh-client-ui-market | 0.3.24-dsh.20260923.3 | public |
+| packages/dsh-model-capabilities | @linxin666/dsh-client-ui-model-capabilities | 0.3.24-dsh.20260923.3 | public |
+| packages/dsh-pet | @linxin666/dsh-pet | 0.3.24-dsh.20260923.3 | public |
+| packages/dsh-plugin-manager | @linxin666/dsh-client-ui-plugin-manager | 0.3.24-dsh.20260923.3 | public |
+| packages/dsh-preset-center | @linxin666/dsh-client-ui-preset-center | 0.3.24-dsh.20260923.3 | public |
+| packages/dsh-remote-web-ui | @linxin666/dsh-remote-web-ui | 0.3.24-dsh.20260923.3 | public |
+| packages/dsh-session-archive | @linxin666/dsh-session-archive | 0.3.24-dsh.20260923.3 | public |
+| packages/dsh-session-id | @linxin666/dsh-client-ui-session-id | 0.3.24-dsh.20260923.3 | public |
+| packages/dsh-skill-explorer | @linxin666/dsh-client-ui-skill-explorer | 0.3.24-dsh.20260923.3 | public |
+| packages/dsh-ssh | @linxin666/dsh-ssh | 0.3.24-dsh.20260923.3 | public |
+| packages/dsh-task-board | @linxin666/dsh-client-ui-task-board | 0.3.24-dsh.20260923.3 | public |
+| packages/dsh-usage | @linxin666/dsh-usage | 0.3.24-dsh.20260923.3 | public |
+| packages/dsh-web-all | @linxin666/dsh-web-all | 0.3.24-dsh.20260923.3 | public |
+| packages/dsh-web-settings | @linxin666/dsh-client-ui-web-ui-settings | 0.3.24-dsh.20260923.3 | public |
+| packages/skins/skin-center | @linxin666/dsh-client-ui-skin-center | 0.3.24-dsh.20260923.3 | public |
 
 ## 外部依赖与迁移说明
 
@@ -53,7 +53,7 @@ pnpm community:check
 pnpm market:check
 pnpm libs:check
 pnpm build
-node scripts/verify-version.mjs 0.3.24-dsh.20260923.2
+node scripts/verify-version.mjs 0.3.24-dsh.20260923.3
 ```
 
 CI 与发布挂载冒烟测试挂载目标为 `@deepseek-ai/dsh@0.1.7-alpha.2`，与家族包通过 `dsh.engines.dsh >=0.1.7-alpha.2` 声明的最低宿主版本一致。
