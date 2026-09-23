@@ -14,7 +14,7 @@
  * cordis-level semantics are separately covered by the shell unit tests.
  */
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, writeFileSync, existsSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { createRequire } from 'node:module'
@@ -25,16 +25,43 @@ import { apply, _resetDegradedRouteForTest } from '../src/shell.ts'
 const PACKAGE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const require = createRequire(import.meta.url)
 
-/** Locate the installed host's dsh-app-boot (the shell contract's authority). */
+/**
+ * Locate the installed host's dsh-app-boot (the shell contract's authority).
+ * A candidate counts only when it can load its own host faces: the repository
+ * keeps `autoInstallPeers` off, so the copy the SDK graph pulls into the
+ * workspace resolves without its peers (dsh-home-paths, cordis-plugin-group,
+ * and the rest) and would turn a missing host into red real-boot specs
+ * instead of the documented skip.
+ */
 function resolveHostBoot(): string | null {
   for (const base of [PACKAGE_DIR, join(PACKAGE_DIR, '../..'), '/opt/homebrew/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-app-boot']) {
+    let candidate: string
     try {
-      return require.resolve('@deepseek-ai/dsh-app-boot', { paths: [base] })
+      candidate = require.resolve('@deepseek-ai/dsh-app-boot', { paths: [base] })
     } catch {
       continue
     }
+    if (loadsOwnHostFaces(candidate)) return candidate
   }
   return null
+}
+
+/** Whether one app-boot copy resolves every non-optional peer it declares. */
+function loadsOwnHostFaces(candidate: string): boolean {
+  const manifest = JSON.parse(readFileSync(join(dirname(dirname(candidate)), 'package.json'), 'utf8')) as {
+    peerDependencies?: Record<string, string>
+    peerDependenciesMeta?: Record<string, { optional?: boolean }>
+  }
+  const faces = Object.keys(manifest.peerDependencies ?? {})
+    .filter((name) => manifest.peerDependenciesMeta?.[name]?.optional !== true)
+  return faces.every((name) => {
+    try {
+      require.resolve(name, { paths: [dirname(candidate)] })
+      return true
+    } catch {
+      return false
+    }
+  })
 }
 
 const HOST_BOOT = resolveHostBoot()
