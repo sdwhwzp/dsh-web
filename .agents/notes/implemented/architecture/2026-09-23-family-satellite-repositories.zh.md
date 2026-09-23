@@ -34,6 +34,8 @@ Status: implemented
 
 `scripts/market-verify-assets.mjs` 走遍生成清单承诺的每个路径，对 `market/dist` 或已部署站点校验，并把服务端字节数与本地文件比对。它必须用 Range GET 而不是 HEAD——Workers 静态资产层对 HEAD 返回 `content-length: 0`。部署流程在 `market:check` 之前拉取，部署之后再对 `dsh-market.com` 校验。
 
+这条部署后走查从 GitHub runner 发出，边缘会把其中一部分以 403 挡下：连续六次运行报告的始终是同样的约 150 个路径，串行重核在三分钟探测后一个也没能恢复，而这些路径从住宅网络、两个公共云端抓取器、以及一次完整的本机 3075/3075 走查都返回 200 且字节数与提交一致。因此该拒绝是该出口上的策略，而不是对资产的判决：走查在突发内部重试瞬时状态，突发结束后逐条重核，并在整批失败都是 403 时在输出里点名这是出口被拒。于是市场推送上的红车道读作该 zone 对 runner IP 段的策略，而已部署产物仍由 `market:check` 对照固定输入、以及从策略允许的网络跑一次走查来覆盖，直到该 IP 段被明确放行，或这项检查搬进 Cloudflare 内部。
+
 ### 发布顺序
 
 卫星先发版，本仓才切换，因为聚合包把它们作为 npm 外部行挂载，而挂载冒烟断言的是 registry 路径。`@linxin666/dsh-web-all` 以 semver 范围依赖三个卫星包，每个卫星保有自己的版本线：`0.3.25` 携带移除已退役 `settingsScope` 注入的 0.1.7-rc.1 迁移，因此聚合包的挂载冒烟（`scripts/e2e-mount.sh`）在 registry 路径上是绿的，而它的 `FAMILY_TGZS_DIR` 覆盖目录只覆盖本仓构建的包。
