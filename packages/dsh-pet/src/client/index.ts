@@ -15,16 +15,18 @@
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { UiWorkspace } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-// Type-only: pulls the settings-surface Context merge (ctx.settingsScope).
+// Type-only: pulls the shared configuration forms Context merge (ctx.configForms).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls the ctx.slots merge (the renderer owns the slot registry since 0.1.2).
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+// Type-only: pulls the workspace plugin's Context merge (ctx.uiWorkspace), the
+// multi-instance navigation face that replaced ISessions.open().
+import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type { PetDisplayConfig } from '../persist.ts'
 import type { PetGameplayVerbResult, PetInteractResult, PetStateView } from '../service.ts'
 import type { PetInteraction } from '../affinity.ts'
@@ -33,7 +35,6 @@ import { createElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import { createPetStore, type PetStoreInstance } from './pet-store.ts'
 import { createWorkTickGate } from './work-tick-gate.ts'
-import { currentSessionIdOf } from './current-session.ts'
 import { PetDockEntry, type PetInjected } from './PetDockEntry.tsx'
 import { defaultPetRendererRegistry } from './renderers/registry.ts'
 import { live2dRenderer } from './renderers/live2d.ts'
@@ -42,6 +43,7 @@ import { registerPetUiTeardown, takeoverPetUiTeardown } from './ui-teardown.ts'
 import { PetSettingsSection, PetSettingsCardController } from './PetSettingsCard.tsx'
 import { PetAccountSettingsScope } from './pet-settings-scope.ts'
 import { NS, en, zh, t } from './locales.ts'
+import { mainViewSessionId } from './main-session.ts'
 import { reportDailyHeartbeat } from './telemetry.ts'
 
 /** The host pet API as the browser sees it (same-origin JSON endpoints). */
@@ -160,7 +162,7 @@ export function apply(ctx: ClientContext): void {
   // store.
   const petSettings = new PetSettingsCardController(settingsScope)
   // The section entry owns the controller: unregistering it (fiber disposal,
-  // hot reload) releases the scope subscription through petSettings.dispose.
+  // hot reload) releases the form subscription through petSettings.dispose.
   ctx.slots.inject('settings.section', () => {
     try {
       const unregister = ctx.slots.register({
@@ -209,17 +211,17 @@ export function apply(ctx: ClientContext): void {
       const setState = petStore.actions.setState
       const setFeedback = petStore.actions.setFeedback
 
-      // Clicking a session bubble jumps the GUI to that session; the same
-      // sessions face reports which session the user is currently on, so the
-      // host can lead the bubble stack with it. A bubble can outlive its
-      // disposed session by one poll tick, and the sessions service fails
-      // loud on unknown ids, so consult the live list first. The pet's type
-      // program also loads the host-side dsh-session package through the
-      // service types, whose Context merge declares a different 'sessions'
-      // face; pin the browser runtime's outward face here.
+      // Clicking a session bubble jumps the GUI to that session; the
+      // catalog's main-view ownership marker tells which session the main view
+      // holds (the multi-instance replacement for the removed list.current), so
+      // the host can lead the bubble stack with it. A bubble can outlive its
+      // disposed session by one poll tick, and navigation rejects unknown ids,
+      // so consult the live list first. The pet's type program also loads the
+      // host-side dsh-session package through the service types, whose Context
+      // merge declares a different 'sessions' face; pin the browser runtime's
+      // outward face here.
       const sessions = ctx.sessions as unknown as ISessions
-      const uiWorkspace = ctx.uiWorkspace as unknown as UiWorkspace
-      const currentSessionId = (): string | undefined => currentSessionIdOf(sessions.list.getSnapshot())
+      const currentSessionId = (): string | undefined => mainViewSessionId(sessions.list.getSnapshot().byId)
 
       // The registry list is fetched lazily with retries baked into the poll
       // cycle: until it lands, the dock entry renders nothing and every 2s
@@ -298,7 +300,9 @@ export function apply(ctx: ClientContext): void {
       const openSession = (sessionId: string): void => {
         const list = sessions.list.getSnapshot()
         if ((list.byId as any)[sessionId] === undefined) return
-        uiWorkspace.openSession(sessionId as never)
+        // Navigation belongs to the workspace UI since the multi-instance Client
+        // Session model; the Session Controller no longer opens one.
+        ctx.uiWorkspace.openSession(sessionId as never)
       }
 
       const injected = (): PetInjected => ({

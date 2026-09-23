@@ -4,7 +4,7 @@
  * API so a trusted gateway principal selects an independent account file.
  */
 
-import type { SettingsScope, SettingsScopeSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { SettingsPathOpView } from '@deepseek-ai/dsh-api-remotes/client'
 import type {
   PetAccountSettingsView,
@@ -17,7 +17,7 @@ const SETTINGS_URL = '/api/pet/settings'
 const SETTINGS_MUTATE_URL = '/api/pet/settings/mutate'
 
 /** Convert one Host account view into the standard settings-scope snapshot. */
-function scopeSnapshot(view: PetAccountSettingsView): SettingsScopeSnapshot<PetSettings> {
+function scopeSnapshot(view: PetAccountSettingsView): ConfigFormSnapshot<PetSettings> {
   return {
     status: 'ready',
     value: view.value,
@@ -44,16 +44,19 @@ function decodeView(value: unknown): PetAccountSettingsView {
   return row as unknown as PetAccountSettingsView
 }
 
+/** An HTTP refusal requires a fresh account snapshot before another write. */
+class SettingsResponseError extends Error {}
+
 /** Fetch one account settings view. */
 async function fetchView(url: string = SETTINGS_URL, init?: RequestInit): Promise<PetAccountSettingsView> {
   const response = await fetch(url, init)
-  if (!response.ok) throw new Error(`pet settings failed: ${response.status}`)
+  if (!response.ok) throw new SettingsResponseError(`pet settings failed: ${response.status}`)
   return decodeView(await response.json())
 }
 
-/** SettingsScope implementation backed by the principal-aware pet API. */
-export class PetAccountSettingsScope implements SettingsScope<PetSettings> {
-  private snapshot: SettingsScopeSnapshot<PetSettings> = {
+/** ConfigForm implementation backed by the principal-aware pet API. */
+export class PetAccountSettingsScope implements ConfigForm<PetSettings> {
+  private snapshot: ConfigFormSnapshot<PetSettings> = {
     status: 'loading',
     value: undefined,
     base: undefined,
@@ -71,7 +74,7 @@ export class PetAccountSettingsScope implements SettingsScope<PetSettings> {
     void this.refresh()
   }
 
-  getSnapshot(): SettingsScopeSnapshot<PetSettings> {
+  getSnapshot(): ConfigFormSnapshot<PetSettings> {
     return this.snapshot
   }
 
@@ -93,16 +96,16 @@ export class PetAccountSettingsScope implements SettingsScope<PetSettings> {
     }
   }
 
-  async set(field: string, value: unknown): Promise<void> {
-    await this.write([{ op: 'set', path: [field as keyof PetSettingsSection], value }])
+  async set(field: string, value: unknown): Promise<boolean> {
+    return this.write([{ op: 'set', path: [field as keyof PetSettingsSection], value }])
   }
 
-  async unset(field: string): Promise<void> {
-    await this.write([{ op: 'unset', path: [field as keyof PetSettingsSection] }])
+  async unset(field: string): Promise<boolean> {
+    return this.write([{ op: 'unset', path: [field as keyof PetSettingsSection] }])
   }
 
   /** Apply one atomic alpha.1 settings-scope mutation through the account endpoint. */
-  async mutate(ops: readonly SettingsPathOpView[], expectedRevision?: number): Promise<void> {
+  async mutate(ops: readonly SettingsPathOpView[], expectedRevision?: number): Promise<boolean> {
     const accountOps: PetSettingsPathOp[] = ops.map((op) => {
       if (op.path.length !== 1) throw new Error('invalid pet settings path')
       const field = op.path[0] as keyof PetSettingsSection
@@ -110,7 +113,7 @@ export class PetAccountSettingsScope implements SettingsScope<PetSettings> {
         ? { op: 'set', path: [field], value: op.value }
         : { op: 'unset', path: [field] }
     })
-    await this.write(accountOps, expectedRevision)
+    return this.write(accountOps, expectedRevision)
   }
 
   /** Stop publishing after the plugin fiber is disposed. */
@@ -120,8 +123,8 @@ export class PetAccountSettingsScope implements SettingsScope<PetSettings> {
     this.listeners.clear()
   }
 
-  private async write(ops: PetSettingsPathOp[], expectedRevision?: number): Promise<void> {
-    const run = async (): Promise<void> => {
+  private async write(ops: PetSettingsPathOp[], expectedRevision?: number): Promise<boolean> {
+    const run = async (): Promise<boolean> => {
       const revision = expectedRevision ?? this.snapshot.revision
       try {
         const view = await fetchView(SETTINGS_MUTATE_URL, {
@@ -132,18 +135,22 @@ export class PetAccountSettingsScope implements SettingsScope<PetSettings> {
             ...(revision === undefined ? {} : { expectedRevision: revision }),
           }),
         })
-        if (this.disposed) return
+        if (this.disposed) return false
         this.generation += 1
         this.publish(scopeSnapshot(view))
-      } catch {
+        return true
+      } catch (error) {
         await this.refresh()
+        if (error instanceof SettingsResponseError) return false
+        throw error
       }
     }
-    this.queue = this.queue.then(run, run)
-    await this.queue
+    const result = this.queue.then(run, run)
+    this.queue = result.then(() => {}, () => {})
+    return result
   }
 
-  private publish(snapshot: SettingsScopeSnapshot<PetSettings>): void {
+  private publish(snapshot: ConfigFormSnapshot<PetSettings>): void {
     this.snapshot = snapshot
     for (const listener of this.listeners) listener()
   }

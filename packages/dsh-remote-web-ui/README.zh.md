@@ -27,7 +27,7 @@
 - **移动端插件范围**：适配层激活时，右侧详情列与面向桌面的工具界面（SSH 终端、技能中心、任务看板、git graph、宠物、使用统计）一律隐藏——以 L2 语义根（`data-dsh-plugin`）为键，归属由声明方插件负责，官方类名变动也不会复活它们。这些是渲染抑制；客户端 bundle 仍会加载。激活时还会经官方 `ctx.layout.closeDetails()` 真正关闭详情面板。
 - **手动退出**：`sessionStorage.dsh-remote-force-desktop = 1` 关闭整个适配层；横屏、桌面与宽视口永不触碰。
 
-配对远程桌面同时运行在 **host 模式**：在本 harness 线上，「配置面仅限本机」的行为是客户端分支（`connection.isLoopback`），通道 boot 脚本在一切 boot entry 之前对非回环源安装传输钩子（`__DSH_TRANSPORT__.ownsHost = true`）。设置、凭据、Agent 预设与产出物在手机上与桌面完全一致——所有调用仍走门控 `/remote` 通道。四个控制面保持物理本地：`/api/pair/*`、`/api/update/*`、`/api/plugin-manager/*` 与 `/api/dsh-desktop-launcher/*`。
+配对远程桌面同时运行在 **host 模式**：在本 harness 线上，「配置面仅限本机」的行为是客户端分支（`connection.isLoopback`），通道 boot 脚本在一切 boot entry 之前安装传输钩子（`__DSH_TRANSPORT__.ownsHost = true`）。host 模式由**服务器授予**：只有当设备门控的应用落地页（`/pair-app`）在 boot 补丁之前发布了授权标记时才会安装该钩子，因此交付给未配对浏览器（围栏被打开的部署）的应用壳永远不会自称机器主人。设置、凭据、Agent 预设与产出物在手机上与桌面完全一致——所有调用仍走门控 `/remote` 通道。三个控制面保持物理本地：`/api/pair/*`、`/api/update/*` 与 `/api/plugin-manager/*`。
 
 ## 环境要求
 
@@ -137,7 +137,7 @@ pnpm run build
 - **`ctx.layout.toggleSidebar()`**（packages/client/ui-layout）：鲸鱼按钮经官方面板动作面展开折叠侧栏。
 - **`ctx.connection.authenticatedUrl()`**（packages/client/connection）：代理为内部凭据一次性兑换启动令牌的官方接缝（`src/inner-auth.ts`），使再发起的 `/api` 调用满足 harness 浏览器认证校验。
 - **`__DSH_FILE_UPLOAD__`**（file-upload 客户端钩子）：上传服务在构造时读取一次的可选启动前传输。远程引导补丁会发布它，使后台上传留在被改写的主线程 fetch 上，而不是逃出通道的 Web Worker（issue #1580）。
-- **`__DSH_TRANSPORT__.ownsHost`**（client-connection 传输钩子）：配对远程桌面的 host 模式翻转。本线没有 host 侧按方法特权锁定——配置面在客户端按 `connection.isLoopback` 分支——也没有 `api/gate` 瀑布（gate 监听器保持挂载，待未来部署获得该接缝；配对强制在插件自己的 `/remote` 通道上）。
+- **`__DSH_TRANSPORT__.ownsHost`**（client-connection 传输钩子）：配对远程桌面的 host 模式翻转。只有当设备门控的应用落地页在 boot 补丁之前发布了 `__DSH_REMOTE_HOST_GRANT__` 标记时才会安装，因此翻转是服务器授予而非按源自称。本线没有 host 侧按方法特权锁定——配置面在客户端按 `connection.isLoopback` 分支——也没有 `api/gate` 瀑布（gate 监听器保持挂载，待未来部署获得该接缝；配对强制在插件自己的 `/remote` 通道上）。
 - **用户补丁绑定语义**：同 id 补丁行整行替换 config，且用户补丁层无法可靠求值依赖 `webStartup` 的 `!!js` 表达式——局域网绑定块因此落静态值，插件每次启动重断言。
 
 栅栏辅助函数（`isTrustedApiRequest` / `isLoopbackHostname`）在 `src/gate.ts` / `src/routes.ts` 本地重实现：connection 插件不再导出它们，配对路由自带一份、只作用于配对链接宣传的字面量。
@@ -148,7 +148,7 @@ pnpm run build
 
 1. 启动隔离实例：`DSH_HOME=/tmp/dsh-qa dsh --profile web --no-open --port 3191`，并打开局域网绑定开关（或使用绑定块固定 0.0.0.0 的 profile）。
 2. 从回环向 `http://127.0.0.1:3191/api/pair/issue` POST `{}`，取得返回的 `<lan-url>/pair-accept?pair=<token>` 链接；确认桌面侧边栏没有远程访问或更新动作。
-3. 在第二个标签（390x844 触控模拟）打开该链接：链路 `/pair-accept → /pair-app?device=<id> → /` 设置设备 cookie、交付打过补丁的官方应用壳并启动 UI——`document.body.classList` 带 `dsh-remote-portrait`、适配样式表与小鲸鱼按钮存在、`__DSH_TRANSPORT__.ownsHost` 为 `true`。设置面渲染 host 数据（host 模式），而非 memory 镜像。https 部署下应用壳还会注册 `/pair-app.sw.js`；在该标签刷新 `/` 会直接进入应用而不是 harness 401。
+3. 在第二个标签（390x844 触控模拟）打开该链接：链路 `/pair-accept → /pair-app?grant=<one-time> → /` 设置设备 cookie、交付打过补丁的官方应用壳并启动 UI——`document.body.classList` 带 `dsh-remote-portrait`、适配样式表与小鲸鱼按钮存在、`__DSH_TRANSPORT__.ownsHost` 为 `true`。设置面渲染 host 数据（host 模式），而非 memory 镜像。https 部署下应用壳还会注册 `/pair-app.sw.js`；在该标签刷新 `/` 会直接进入应用而不是 harness 401。
 4. 从回环请求 `GET /api/pair/status` 可看到已连接设备；桌面侧边栏保持不变，局域网来源页面无法打开仅限回环的状态流。
 5. 从回环 `POST /api/pair/stop` 切断设备：下一次请求 403 且 `unpaired`（栅栏页提供手动配对令牌输入）。
 
@@ -162,12 +162,14 @@ pnpm run build
 - **配对设备是完全控制凭据。** host 模式下它可达完整 host API——聊天、会话、设置、凭据、Agent 预设、产出物——与 SDK 对回环桌面的信任一致。只有三个控制面（配对、自更新、插件安装/卸载）保持物理本地。只配对你控制的设备；停止或逐设备取消配对立即撤销。
 - **控制端点仅限回环**：签发/停止/撤销、设备列表与事件流、lan-bind 状态及更新端点只应答回环。局域网来源浏览器会收到禁止响应。
 - **后台文件上传同样走通道。** 官方上传服务优先使用 Web Worker 载体，其独立全局对象不受主线程补丁影响；因此引导补丁（以及作为兜底的浏览器补丁）会发布官方启动前钩子 `__DSH_FILE_UPLOAD__`，并把打过补丁的 `fetch` 交给它：原始 `/api/session/uploadFileBinary` POST 会被改写到 `/remote`，并像其他受门控调用一样携带设备凭据。没有该钩子时，配对浏览器的上传会绕过通道，被 harness 浏览器认证围栏拒为 401（issue #1580）。该钩子仅在非回环源、且通道安装期间发布，且永不覆盖页面已有的钩子。
-- **应用落地页不依赖 cookie。** 配对后已签发链接把设备带到 `/pair-app`——由本插件直接交付官方应用壳，不经过 harness 索引认证门；设备凭据经 `x-dsh-remote-device` 请求头（fetch）与 `device` 查询参数（WebSocket 升级）由引导补丁从 sessionStorage 挂载。因此手机浏览器完全禁用 cookie 时链路依然成立；有 cookie 时配对 cookie 仍是主凭据，手机路径不再需要 harness 浏览器认证 cookie。
+- **落地页 URL 只携带一次性授权，绝不携带设备 ID。** `/pair-accept` 签发 256 位、一次性消费、TTL 60 秒的授权并 303 到 `/pair-app?grant=<g>`；落地页消费它——无论成功、过期还是重放都先删除记录，因此重放或过期的授权解析不出任何设备——再由自己的响应把设备 ID 交给应用壳。设备 ID 是活的会话凭据，因此永不进入 URL、地址栏或重定向路径上的任何日志。请求经 TLS 到达时（`x-forwarded-proto: https`）配对 cookie 带 `Secure`，局域网明文 HTTP 下不带——在那里 Secure cookie 会被浏览器直接丢弃。
+- **应用落地页不依赖 cookie。** 配对后二维码把设备带到 `/pair-app`——由本插件直接交付官方应用壳，不经过 harness 索引认证门；设备凭据经 `x-dsh-remote-device` 请求头（fetch）与 `device` 查询参数（WebSocket 升级）由引导补丁从 sessionStorage 挂载。因此手机浏览器完全禁用 cookie 时链路依然成立；有 cookie 时配对 cookie 仍是主凭据，手机路径不再需要 harness 浏览器认证 cookie。
 - **重开由 service worker 接管（仅 https 源）。** 配对过的手机从历史、书签或标签恢复回来时导航到裸 `/`——插件不拥有的路径，harness 兜底座会用浏览器认证 401 应答（不依赖 cookie 的流程永远拿不到那份凭据）。应用壳因此注册 `/pair-app.sw.js`（与 `/pair-app` 同一栅栏；脚本是不含任何秘密的惰性逻辑）：只拦截对 `/` 的导航，经 `/pair-app` 网络优先地重发应用壳——同时校验设备 cookie 并刷新其活跃时间，每次重开也在为会话续期——离线时回退缓存的壳，插件不再应答时把导航原样放行（被撤销的设备随后看到 harness 应答或双语重扫页）。纯 HTTP 的局域网源不是安全上下文，永远不会注册该 worker；那里的重开意味着重新扫码。
 - **撤销按请求生效**：停止落地时已在途的请求会完成；下一个请求 403。
-- **配对设备会话默认持久化**：设备会话（非配对令牌）写入 `$DSH_HOME/remote-web-ui-devices.json`（0600，临时文件 + 原子改名）。`dsh web` 重启后配对 cookie 依然有效。签发新链接会铸造新令牌；重启不会恢复当前令牌。空闲超过 `idleExpireMs`（默认 30 天；重开 service worker 每次接管导航都会刷新该窗口）的会话被删除并须重新配对。设备 id 即会话凭据。需要时可用 `devicesFile` 指定其他绝对路径。更换 `cookieName` 会使现有设备失效（预期行为）。
+- **配对设备会话默认持久化**：设备会话（非限时 QR 令牌）写入 `$DSH_HOME/remote-web-ui-devices.json`（0600，临时文件 + 原子改名）。`dsh web` 重启后配对 cookie 依然有效。刷新二维码铸造新令牌；重启不会恢复当前二维码。空闲超过 `idleExpireMs`（默认 30 天；重开 service worker 每次接管导航都会刷新该窗口）的会话被删除并须重新配对。设备 id 即会话凭据。需要时可用 `devicesFile` 指定其他绝对路径。更换 `cookieName` 会使现有设备失效（预期行为）。无法落盘的撤销（DSH_HOME 只读、磁盘写满）会删除过期设备库，而不是把被撤销的会话留在磁盘上，因此下次启动不会恢复它。
 - **局域网绑定块拥有 webserver 行**：开关翻过后受管块固定绑定；插件每次启动重断言，显式 `--host`/`--port` 旗标通过重写块获胜。手工编辑该块会被检测并在卡片展示（`blockHost` 显示字面量）。
 - **桌面栅栏策略公开，但它不是访问控制**：`/api/pair/status` 只暴露布尔 `requirePairingForLan` 策略，供远程桌面在设置作用域可用前选择正确传输。关闭它只让桌面回到普通 `/api`（由它自己的 harness 围栏姿态决定），永远不会放宽 `/remote` 通道——该通道始终要求配对凭据。该字段不是凭据，不暴露令牌、设备、计数或隧道 URL。
+- **设备凭据仍会出现在 WebSocket 查询串中。** WS 握手无法携带 Web API 的请求头，因此无 cookie 凭据以 `?device=<id>` 传递；插件自己的 `/remote` 处理会消费它、且不再转发给内层回环请求，但源站访问日志、中继 Worker 与 Cloudflare 边缘仍会看到一条可认证为该设备的 URL。支持 cookie 的浏览器改用 cookie 认证握手。计划以短时一次性 WS 票据替代。
 - **快速隧道主机名每次运行都变**：`trycloudflare.com` URL 每次 `cloudflared` 启动都随机，`publicBaseUrl`（或自动隧道）须随之刷新。固定域名中继会把一个固定的 `<id>.dsh-market.com` 源前置在该临时地址上（随自动隧道默认开启）；命名隧道模式（`tunnelToken`）是自带域名的替代路径。Token 本身作为设置密文存储（读取脱敏），不会写日志，也不会回传浏览器半区。
 - **中继只改变访问源，不改变信任根**：中继开启时，手机访问的是 `https://<id>.dsh-market.com`——一个 dsh-market 的 Cloudflare Worker，它查询实例当前的隧道地址并逐字节转发请求——配对 Cookie 与所有应用层校验仍留在实例上，worker 不终结任何配对。变化的是传输路径：中继流量经过包作者在 Cloudflare 边缘运营的基础设施，作者的 worker 可以观察到这些流量——这与 Cloudflare 自身对裸 `trycloudflare.com` 快速隧道的可见性相同。注册表把每个 id 绑定到一个 256 位密钥的 SHA-256 哈希（明文只存于 `$DSH_HOME`，0600），只接受 `*.trycloudflare.com` 目标，对注册做限流，且除映射外不存储任何数据；关闭中继即可让部署完全留在临时源上。
 

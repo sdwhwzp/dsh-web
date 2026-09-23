@@ -53,7 +53,7 @@ dsh plugin --profile web add link:$(pwd)/packages/dsh-ssh
 
 ## 配置
 
-在 Host 插件配置中设置 `accountIsolation: true`，同时在 dsh-passwords 中设置 `TENANT_SSH_ENABLED=true`，两项须一起部署。具有 SSH 权限的认证账号可以管理自己的主机、终端、浏览器文件传输、隧道和集群执行；其他账号可以使用相同别名。网关保留上传/下载权限和私网目标限制。缺失或已撤销的账号身份会被拒绝，Agent 工具调用也适用。单用户本地安装可以保持 `accountIsolation` 关闭。
+在 Host 插件配置中设置 `accountIsolation: true`，同时在 dsh-passwords 中设置 `TENANT_SSH_ENABLED=true`，两项须一起部署，修改 `accountIsolation` 需要重启 Host。具有 SSH 权限的认证账号可以管理自己的主机、终端、浏览器文件传输、隧道和集群执行；其他账号可以使用相同别名。网关保留上传/下载权限和私网目标限制。缺失或已撤销的账号身份会被拒绝，Agent 工具调用也适用。单用户本地安装可以保持 `accountIsolation` 关闭。
 
 
 设置面板（插件配置）可开关 `announceToAgent`（是否向 Agent 宣告插件；默认关闭，保持系统提示词干净）与 `enabled`（总开关），并可设置 `terminalFontFamily`（Web 终端字体，留空则按 CSS 链解析：`--dsh-ssh-terminal-font` → 官方 `--ds-font-family-code` token → 内置 monospace 栈）。终端字体写死在 xterm 构造参数里，CSS 无法直接覆盖；要渲染 powerline / Nerd Font 图标，请在此填入对应 Nerd Font 栈（如 `"SauceCodePro Nerd Font", monospace`），修改对已打开的终端即时生效，无需重连。

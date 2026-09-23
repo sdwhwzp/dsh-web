@@ -10,7 +10,6 @@ import type { ArchiveSessionRow, BatchResponse, DeletePlanView, OpResult } from 
 import { clientProtectedReason, planDelete } from '../core/cascade.ts'
 import { createArchiveApi, type ArchiveApi } from './api.ts'
 import { createArchiveStore, type ArchiveStoreInstance, type BatchKind } from './archive-store.ts'
-import { currentSessionIdOf, type CurrentSessionListSnapshot } from './current-session.ts'
 
 /** Max sessions per HTTP chunk: bounded work per request, no per-row spam. */
 const CHUNK_SIZE = 200
@@ -18,9 +17,14 @@ const CHUNK_SIZE = 200
 export interface ArchiveControllerDeps {
   api?: ArchiveApi
   store?: ArchiveStoreInstance
-  /** The client sessions face, for the displayed-Session id and feed refresh. */
+  /**
+   * The client sessions face: the main-view Session resolver and the feed
+   * refresh. The Client Session Controller carries no global selection since
+   * 0.1.6-alpha.2, so the wiring resolves the main-view Session and this port
+   * takes the resolved id rather than the catalog shape.
+   */
   sessions?: {
-    list: { getSnapshot(): CurrentSessionListSnapshot }
+    current?: () => string | undefined
     refresh?: () => Promise<void>
   }
 }
@@ -81,10 +85,10 @@ export class ArchiveController {
     this.sessions = deps.sessions
   }
 
-  /** The displayed Session id from the sessions feed, when available. */
+  /** The main-view Session id from the sessions face, when available. */
   getCurrentSessionId(): string | undefined {
     try {
-      return currentSessionIdOf(this.sessions?.list.getSnapshot())
+      return this.sessions?.current?.()
     } catch {
       return undefined
     }

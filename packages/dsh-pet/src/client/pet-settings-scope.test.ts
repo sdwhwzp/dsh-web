@@ -53,7 +53,7 @@ describe('PetAccountSettingsScope', () => {
     const notified = vi.fn()
     const unsubscribe = scope.subscribe(notified)
 
-    await scope.set('enabled', false)
+    await expect(scope.set('enabled', false)).resolves.toBe(true)
 
     expect(scope.getSnapshot()).toMatchObject({
       status: 'ready',
@@ -96,4 +96,27 @@ describe('PetAccountSettingsScope', () => {
     })
     scope.dispose()
   })
+
+  it('user sees a refused write and retries against the refreshed account revision', async () => {
+    // Given another editor changed the account before this form saved
+    let writes = 0
+    vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method !== 'POST') return response(view(writes === 0 ? 1 : 2))
+      writes += 1
+      if (writes === 1) return new Response('{}', { status: 409 })
+      expect(JSON.parse(String(init.body)).expectedRevision).toBe(2)
+      return response(view(3, { ...base, enabled: false }))
+    }))
+    const scope = new PetAccountSettingsScope()
+    await vi.waitFor(() => expect(scope.getSnapshot().revision).toBe(1))
+
+    // When the stale write is refused and the user saves again
+    await expect(scope.set('enabled', false)).resolves.toBe(false)
+    await expect(scope.set('enabled', false)).resolves.toBe(true)
+
+    // Then the accepted account snapshot is published with the new revision
+    expect(scope.getSnapshot()).toMatchObject({ revision: 3, value: { enabled: false } })
+    scope.dispose()
+  })
+
 })

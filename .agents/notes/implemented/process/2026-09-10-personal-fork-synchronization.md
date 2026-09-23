@@ -12,7 +12,9 @@ The personal fork contains account isolation and deployment integrations alongsi
 
 The [personal fork rules](../../../../AGENTS.md#branches-commits-and-prs) require fetching the original source, merging it into the current working branch, preferring its implementation, adapting required local behavior, validating, publishing all unpublished local branches to the owned fork under their existing names, and fetching again to check for missing source commits. The push guard accepts the owned fork over HTTPS or SSH and rejects other destinations regardless of remote name.
 
-The fork uses the upstream 0.3.24 family and Harness 0.1.5-rc.1 SDK. Pet consumes the upstream assistant stream projection while preserving verified-principal storage, disabled defaults for new accounts, and isolation from host-global activity. Existing account, activity, disposal, and reward-deduplication tests cover these retained behaviors.
+The fork uses the upstream 0.3.24 family and Harness 0.1.7-alpha.1 SDK. Pet consumes the upstream assistant stream projection while preserving verified-principal storage, disabled defaults for new accounts, and isolation from host-global activity. Existing account, activity, disposal, and reward-deduplication tests cover these retained behaviors.
+
+The 0.1.7 configuration forms use the upstream volatile Config fields and per-entry settings APIs. Pet keeps its authenticated account endpoint as a `ConfigForm`, including revision fencing and accepted/refused mutation results. Its routes stay registered when the local pet is disabled so another account can still enable its own companion. SSH account isolation remains a profile setting that requires remounting; display settings use the upstream live references.
 
 ## Alternatives considered
 

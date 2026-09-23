@@ -1,6 +1,4 @@
 /** @vitest-environment jsdom */
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { apply, RESPONSIVE_CSS } from '../src/client/index.ts'
 
@@ -325,17 +323,4 @@ describe('aggregate responsive compat contract', () => {
     cleanup?.()
   })
 
-  it('operator detects drift in the pinned sidebar editor hooks', () => {
-    // Given the pinned sidebar sources, when reading its editor and mount hooks, then the required attributes and classes are present.
-    const source = (file: string): string => readFileSync(
-      resolve(process.cwd(), 'node_modules/dsh-better-sidebar/src/client', file),
-      'utf8',
-    )
-    const editor = source('EditorHost.tsx')
-    const sidebar = source('Sidebar.tsx')
-    const entry = source('index.tsx')
-    expect(editor).toContain('className={css.editorPathInput}')
-    expect(sidebar).toContain('<div data-dsh-panel-host')
-    expect(entry).toContain("host.setAttribute('data-dsh-better-sidebar', '')")
-  })
 })

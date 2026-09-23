@@ -28,7 +28,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 // 0.1.2-alpha.2 cohort trimmed ui-conversation's peer set, so this edge is
 // no longer reachable transitively and must be declared here.
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
-// Type-only: pulls the ctx.uiWorkspace Context merge (Session navigation owner).
+// Type-only: pulls the workspace plugin's Context merge (ctx.uiWorkspace), the
+// multi-instance navigation face that replaced ISessions.open().
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import type {
@@ -219,6 +220,8 @@ export function apply(ctx: ClientContext): void {
             // the new SessionId; navigation is the separate uiWorkspace step
             // that selects it (ISessions.open was removed in 0.1.6-alpha.2).
             const createdSessionId = await scope.sessions.create({ workspaceId: workspace.workspaceId })
+            // Navigation belongs to the workspace UI since the multi-instance
+            // Client Session model; the Session Controller no longer opens one.
             scope.uiWorkspace.openSession(createdSessionId)
           } catch (error: unknown) {
             await git.removeWorktree(resolved.path, created.value.path, { force: true })

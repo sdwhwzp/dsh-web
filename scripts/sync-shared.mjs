@@ -157,25 +157,26 @@ const MANIFEST = [
     ],
   },
   {
-    // Displayed-Session lookup across harness lines: `SessionListState.current`
-    // up to 0.1.6-alpha.1, the `mainView` retention mirrored per row from
-    // 0.1.6-alpha.2 on (the field was removed with the uiWorkspace navigation owner).
-    file: 'current-session.ts',
-    source: 'shared/client/current-session.ts',
-    targets: [
-      'packages/dsh-doctor/src/client/current-session.ts',
-      'packages/dsh-git-graph/src/client/current-session.ts',
-      'packages/dsh-liangshen/src/client/current-session.ts',
-      'packages/dsh-pet/src/client/current-session.ts',
-      'packages/dsh-session-archive/src/client/current-session.ts',
-      'packages/dsh-session-id/src/client/current-session.ts',
-      'packages/dsh-task-board/src/client/current-session.ts',
-    ],
-  },
-  {
     file: 'sse-leader.ts',
     source: 'shared/client/sse-leader.ts',
     targets: ['packages/dsh-git-graph/src/client/sse-leader.ts'],
+  },
+  {
+    // Main-view Session derivation: the Client Session Controller dropped its
+    // global `current` selection at 0.1.6-alpha.2 in favour of per-source
+    // ownership counts, so every plugin that needs "the session the main view
+    // shows" shares this one derivation instead of guessing at a replacement.
+    file: 'main-session.ts',
+    source: 'shared/client/main-session.ts',
+    targets: [
+      'packages/dsh-pet/src/client/main-session.ts',
+      'packages/dsh-task-board/src/client/main-session.ts',
+      'packages/dsh-session-id/src/client/main-session.ts',
+      'packages/dsh-liangshen/src/client/main-session.ts',
+      'packages/dsh-doctor/src/client/main-session.ts',
+      'packages/dsh-git-graph/src/client/main-session.ts',
+      'packages/dsh-session-archive/src/client/main-session.ts',
+    ],
   },
   {
     file: 'pair-access.ts',
@@ -227,7 +228,6 @@ const MANIFEST = [
       'packages/dsh-ssh/src/client/body-mutations.ts',
       'packages/dsh-task-board/src/client/body-mutations.ts',
       'packages/dsh-skill-explorer/src/client/body-mutations.ts',
-      'packages/dsh-usage/src/client/body-mutations.ts',
       'packages/dsh-web-all/src/client/body-mutations.ts',
     ],
   },
@@ -238,7 +238,6 @@ const MANIFEST = [
       'packages/dsh-ssh/src/client/sidebar-entry-core.ts',
       'packages/dsh-task-board/src/client/sidebar-entry-core.ts',
       'packages/dsh-skill-explorer/src/client/sidebar-entry-core.ts',
-      'packages/dsh-usage/src/client/sidebar-entry-core.ts',
     ],
   },
   {
