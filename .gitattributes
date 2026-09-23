@@ -41,3 +41,6 @@ scripts/* text eol=lf
 market/dist/assets/skins/cafe-roastery/skin.css whitespace=-blank-at-eof
 market/dist/assets/skins/observatory/patches.css whitespace=-blank-at-eof
 market/dist/assets/skins/pixel-anime/patches.css whitespace=-blank-at-eof
+
+# Unified patches encode an empty context line as one space.
+private-satellite-patches/*.patch whitespace=-blank-at-eol

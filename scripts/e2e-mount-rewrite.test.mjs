@@ -376,5 +376,3 @@ test('auto mode: a range with no published match and no workspace package fails 
     /找不到 workspace 包/,
   )
 })
-
-
