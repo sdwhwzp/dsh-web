@@ -25,10 +25,12 @@
 # 环境变量（均可省略）：
 #   DSH_CMD             dsh 命令；缺省 PATH 上的 `dsh`，回退 npx 拉官方包
 #   WEB_UI_ALL_DIR      聚合包目录；缺省 packages/dsh-web-all
-#   FAMILY_TGZS_DIR     本地家族 tarball 目录（手工全覆盖，优先级高于 auto
-#                       模式）：给出时把聚合包 tarball 里全部 @linxin666/* 依赖
-#                       改写为 file:<目录内同名 tarball>（验证仓库当前构建，
-#                       而非 npm 已发布版本；与本地全 tarball 安装流程一致）
+#   FAMILY_TGZS_DIR     本地家族 tarball 目录（手工覆盖，优先级高于 auto
+#                       模式）：给出时把聚合包 tarball 里本仓 workspace 构建的
+#                       @linxin666/* 依赖改写为 file:<目录内同名 tarball>（验证
+#                       仓库当前构建，而非 npm 已发布版本）。已迁出为独立仓库、
+#                       从 npm 消费的家族包（宠物 / 皮肤中心 / 社区索引）仍走
+#                       registry；workspace 包缺 tarball 仍是硬失败。
 #   PORT                固定端口（默认 0 = OS 分配，从日志解析 URL）
 #   DSH_HOME_BASE       覆盖 scratch 根目录（默认 mktemp -d）；指向真实 home 时
 #                       直接拒绝，且调用方给出的根目录不会被整棵删除

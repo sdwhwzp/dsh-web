@@ -35,7 +35,7 @@ pnpm libs:check        # 校验已提交 lib/ 产物与源码指纹一致性
 pnpm coverage:check    # 覆盖率棘轮（Tier 2，整仓约一分钟）
 ```
 
-改动提交前至少跑 `pnpm typecheck && pnpm test && pnpm test:standards && pnpm docs:check && pnpm i18n:check`；涉及聚合包、市场或皮肤中心时运行对应 `pnpm aggregate:check` / `pnpm market:check` / `pnpm skin-center:check`；CI 会全量跑所有门禁。
+改动提交前至少跑 `pnpm typecheck && pnpm test && pnpm test:standards && pnpm docs:check && pnpm i18n:check`；涉及聚合包或市场时运行对应 `pnpm aggregate:check` / `pnpm market:check`；皮肤、宠物与社区插件索引的门禁在各自的独立仓运行；CI 会全量跑所有门禁。
 
 ## 测试与门禁
 
@@ -102,7 +102,7 @@ node scripts/dsh-plugin-new <name>   # 生成 packages/<name>/ 骨架
 ### 新增皮肤
 
 ```sh
-node scripts/dsh-skin-new          # 生成 packages/skins/skin-center/skins/<id>/ 纯资产骨架
+# 皮肤与宠物已迁至独立仓：骨架与校验在 dsh-skins / dsh-pet 仓内运行
 node scripts/capture-previews <id>  # 重拍 preview/{light,dark}.png
 pnpm market:build                # 刷新市场产物（market/dist）
 node scripts/skins-montage.mjs    # 重排根 README 皮肤一览图（docs/images/skins-montage.png）

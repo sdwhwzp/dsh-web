@@ -11,9 +11,12 @@
  *     the push-to-publish window — is packed from its workspace directory
  *     and rewritten to a file: tarball. This removes the red window without
  *     weakening the gate for anything already published.
- *   --family-dir DIR: manual full override (the old FAMILY_TGZS_DIR
- *     behavior): rewrite ALL @linxin666/* dependencies to the same-named
- *     tarballs in DIR.
+ *   --family-dir DIR: manual override (the old FAMILY_TGZS_DIR behavior):
+ *     rewrite every @linxin666/* dependency this repository builds to the
+ *     same-named tarball in DIR. A family-scoped dependency that is not a
+ *     workspace package here — an extracted satellite consumed from npm —
+ *     keeps resolving from the registry, while a workspace package the
+ *     directory fails to cover stays a loud failure.
  *
  * Tarballs switched to a file: spec are patched recursively: the packed
  * (or copied) tarball's own package.json goes through the same dependency
@@ -34,6 +37,7 @@ const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 const { execFileSync } = require('node:child_process')
+const semver = require('semver')
 
 const FAMILY_SCOPE = '@linxin666/'
 const REGISTRY = 'https://registry.npmjs.org'
@@ -41,12 +45,31 @@ const REGISTRY = 'https://registry.npmjs.org'
 /** GNU tar reads a `C:\...` argument as a remote host spec; --force-local keeps it a local path. */
 const TAR_LOCAL = process.platform === 'win32' ? ['--force-local'] : []
 
-/** Default registry probe: true when name@version exists on npm. */
-async function checkPublished(name, version) {
+/**
+ * True when a dependency spec is served by the published version list.
+ *
+ * The spec is an exact version for family packages declared through the
+ * workspace protocol (pnpm writes the resolved version into the packed
+ * tarball) and a semver range for plugins consumed straight from npm, so both
+ * shapes must be evaluated. A range has to resolve against some published
+ * version; treating it as an exact version makes an already-released package
+ * look unpublished, and the gate then substitutes a workspace tarball that no
+ * longer exists.
+ */
+function resolvesFromPublished(spec, versions) {
+  if (typeof spec !== 'string' || spec === '') return false
+  if (versions.includes(spec)) return true
+  if (!semver.validRange(spec)) return false
+  return versions.some(version => semver.satisfies(version, spec))
+}
+
+/** Default registry probe: true when the dependency spec resolves from npm. */
+async function checkPublished(name, spec) {
   const res = await fetch(REGISTRY + '/' + name.replace('/', '%2f'))
   if (!res.ok) return false
   const data = await res.json()
-  return Boolean(data.versions && data.versions[version])
+  const versions = Array.isArray(data.versions) ? data.versions : Object.keys(data.versions ?? {})
+  return resolvesFromPublished(spec, versions)
 }
 
 /**
@@ -118,6 +141,18 @@ async function rewriteManifestDeps(pkgPath, opts, state, prefix) {
 
   if (opts.familyDir) {
     for (const name of familyNames) {
+      // The override directory covers the family packages this repository
+      // builds. A family-scoped dependency that is not a workspace package is
+      // consumed from npm (an extracted satellite), so it keeps resolving from
+      // the registry; a workspace package the directory does not cover is
+      // still a loud failure.
+      if (!familyDirTgz(name, opts, state)) {
+        if (findWorkspacePackage(opts.root, name)) {
+          throw new Error('缺少本地 tarball：' + name)
+        }
+        report.push(name + ' 不在本仓 workspace，保持 registry 安装')
+        continue
+      }
       const tgz = await ensureFamilyDirTgz(name, opts, state)
       pkg.dependencies[name] = 'file:' + tgz
       report.push(name + ' → file:' + tgz + '（family-dir 全覆盖）')
@@ -227,11 +262,7 @@ async function ensurePackedTgz(name, version, opts, state) {
  * rules), and return the patched copy path. The override dir stays
  * read-only.
  */
-async function ensureFamilyDirTgz(name, opts, state) {
-  const key = 'family:' + name
-  const cached = state.patched.get(key)
-  if (cached) return cached
-  if (state.inProgress.has(key)) return state.pendingPath.get(key)
+function familyDirTgz(name, opts, state) {
   if (!state.familyTgzByName) {
     state.familyTgzByName = new Map()
     for (const file of fs.readdirSync(opts.familyDir)) {
@@ -239,7 +270,15 @@ async function ensureFamilyDirTgz(name, opts, state) {
       state.familyTgzByName.set(readTgzName(path.join(opts.familyDir, file)), path.join(opts.familyDir, file))
     }
   }
-  const src = state.familyTgzByName.get(name)
+  return state.familyTgzByName.get(name)
+}
+
+async function ensureFamilyDirTgz(name, opts, state) {
+  const key = 'family:' + name
+  const cached = state.patched.get(key)
+  if (cached) return cached
+  if (state.inProgress.has(key)) return state.pendingPath.get(key)
+  const src = familyDirTgz(name, opts, state)
   if (!src) throw new Error('缺少本地 tarball：' + name)
   const dest = fs.mkdtempSync(path.join(state.scratch, 'family-'))
   const copy = path.join(dest, path.basename(src))
@@ -309,5 +348,12 @@ async function main() {
 
 if (require.main === module) main()
 
-module.exports = { rewriteDependencies, findWorkspacePackage, checkPublished, packWorkspace, FAMILY_SCOPE }
+module.exports = {
+  rewriteDependencies,
+  findWorkspacePackage,
+  checkPublished,
+  resolvesFromPublished,
+  packWorkspace,
+  FAMILY_SCOPE,
+}
 

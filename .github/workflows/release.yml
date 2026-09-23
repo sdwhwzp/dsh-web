@@ -71,9 +71,6 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Skin center consistency
-        run: pnpm skin-center:check
-
       - name: Build
         run: pnpm build
 

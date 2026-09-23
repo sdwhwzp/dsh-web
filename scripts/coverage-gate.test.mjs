@@ -118,21 +118,21 @@ describe('discoverPackages', () => {
   it('keeps only package directories whose test script runs vitest', () => {
     const vitest = () => ({ scripts: { test: 'vitest run' } })
     // Only paths that exist on disk survive the manifest existence check.
-    const found = discoverPackages(vitest, () => ['dsh-pet'])
-    assert.deepEqual(found.map((pkg) => pkg.name), ['dsh-pet'])
-    assert.ok(found[0].rel.startsWith('packages/dsh-pet'))
+    const found = discoverPackages(vitest, () => ['dsh-usage'])
+    assert.deepEqual(found.map((pkg) => pkg.name), ['dsh-usage'])
+    assert.ok(found[0].rel.startsWith('packages/dsh-usage'))
   })
 
   it('drops a package whose test script does not run vitest', () => {
     const other = () => ({ scripts: { test: 'node --test' } })
-    assert.deepEqual(discoverPackages(other, () => ['dsh-pet']), [])
+    assert.deepEqual(discoverPackages(other, () => ['dsh-usage']), [])
   })
 
   it('survives an unreadable manifest', () => {
     const broken = () => {
       throw new Error('bad json')
     }
-    assert.deepEqual(discoverPackages(broken, () => ['dsh-pet']), [])
+    assert.deepEqual(discoverPackages(broken, () => ['dsh-usage']), [])
   })
 
   it('returns nothing for an empty workspace list', () => {
@@ -145,7 +145,7 @@ describe('discoverPackages', () => {
       listPackageDirs,
     ).map((pkg) => pkg.name)
     assert.ok(names.length >= 15)
-    assert.ok(names.includes('dsh-pet'))
-    assert.ok(names.includes('skin-center'))
+    assert.ok(names.includes('dsh-usage'))
+    assert.ok(names.includes('dsh-market'))
   })
 })

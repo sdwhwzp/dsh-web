@@ -1,0 +1,3276 @@
+diff --git a/packages/dsh-pet/README.i18n.yaml b/packages/dsh-pet/README.i18n.yaml
+index 39032e43..55b8c350 100644
+--- a/packages/dsh-pet/README.i18n.yaml
++++ b/packages/dsh-pet/README.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   node scripts/verify-docs.mjs --write <dir>
+-README.md: 7b66d973fd5a0a6c072fb2f52160287befec81f5
+-README.zh.md: 092feaa5923944f3f24942fa54ce91907e81c13f
++README.md: b26e49d025ef50dd8c39ad8716dc3a3a60459c87
++README.zh.md: 2565c0b022ca5db3b24bbc0a5dcd2336ad4c365f
+diff --git a/packages/dsh-pet/README.md b/packages/dsh-pet/README.md
+index 7b66d973..b26e49d0 100644
+--- a/packages/dsh-pet/README.md
++++ b/packages/dsh-pet/README.md
+@@ -13,6 +13,7 @@ Re-implemented from the pet feature of the Codex desktop app, as an official DSH
+ | Feature | Description |
+ |---|---|
+ | Multi-pet registry | The host scans built-in `assets/`, the hatch-pet custom pets directory, and composed config entries; each pet is a manifest plus an atlas |
++| Per-account companions | Direct access and every authenticated gateway account keep independent selection, skin, name, position, bubble scale, visibility, switches, affinity, treats, gameplay state, and interaction counters; a new gateway account starts disabled and can enable its own pet without changing another account |
+ | Pet selection in settings | The plugin settings card lists every registered pet (built-in assets plus user directories — the installed set); switching persists and the sprite swaps immediately. The card sits in the first-level Pet settings section |
+ | Per-pet naming | Rename from the hover panel; each pet keeps its own name (stored per pet id, migrated from the legacy flat name) |
+ | State animation | Official session activity → manifest-defined sequences of 9-state tracks; each track finishes its full duration before the sequence advances and the complete sequence loops |
+@@ -25,7 +26,7 @@ Re-implemented from the pet feature of the Codex desktop app, as an official DSH
+ | Witty remarks | Built-in remark library (10 lines per event) plus per-pet custom lines; success lines rotate by persisted success counts and cooldown lines by persisted rejection counts |
+ | Status bubbles | Only one top-level session speaks by default — the session the GUI is currently on when it is reported, otherwise the most recently active one — and the rest collapse behind a +N badge on the main bubble instead of stacking a tall column; hover the bubble (or tap the badge, for touch) to fan every session's bubble out above it and click one to jump to its session; subagent sessions report through their spawning conversation and never occupy a bubble of their own; transient interaction feedback temporarily takes priority. Bubble copy comes from generous rotating pools per scene (waiting / thinking / writing / done / failed...), tool calls map onto per-family witty lines carrying the real argument hint (e.g. 跑跑 npm test), and a long-lived scene re-phrases itself every few seconds |
+ | Inner whispers | 碎碎念: while a session streams, the pet occasionally speaks its inner voice through that session's own bubble — a fresh whisper takes over the bubble and marks it with 「」 quotes — sharing the same DeepSeek-blue glass as every status bubble, so stacked bubbles never clash — instead of stacking a second bubble — category lines woken by the SITUATION (thinking / writing / the running tool family) plus outcome lines woken only by structured results (test green from a passed test tool, error from a failed tool result, completion from a completed turn) — never from the model's words, so a discussion that merely mentions a keyword cannot wake a mood, and a whisper never quotes real content (no tool names, paths or model text); paced by cooldowns (9 s category, 5 s outcome) and an 8 s display TTL, the status copy returns after a few seconds |
+-| Multi-session activity | The pet is host-global: the most recent meaningful event drives the sprite animation while every active top-level session reports its own state in a separate bubble; completed turns from every session (subagents included) contribute affinity and treats |
++| Multi-session activity | The direct desktop account's pet is host-global: the most recent meaningful event drives the sprite animation while every active top-level session reports its own state in a separate bubble; completed turns from every session (subagents included) contribute affinity and treats |
+ | Voice packs and panel DIY | A per-pet voice.json plus the global $DSH_HOME/pets/.voice.json override replace every bubble word and the hover panel (button labels, stat formats, button visibility); merge precedence per-pet > global > built-in, broken packs warn and never reject a pet |
+ 
+ ## Pet contract
+@@ -261,13 +262,14 @@ dsh-pet/
+ |   |-- remarks.ts           # witty-remark library: built-in pools + per-pet overrides + counted picker
+ |   |-- affinity.ts          # affinity ledger (pure functions + cooldowns)
+ |   |-- treats.ts            # dried-fish stock ledger
+-|   |-- persist.ts           # persistence ($DSH_HOME/pet.json: selection + names + interaction counts)
++|   |-- persist.ts           # persistence ($DSH_HOME/pet.json + principal-scoped pet-accounts/ files)
+ |   |-- routes.ts            # /api/pet/* JSON API + /pet/<id>/* asset routes
+ |   `-- client/             # browser half
+ |       |-- index.ts         # global mount (createRoot → body) + registry fetch + polling + wiring
+ |       |-- PetDockEntry.tsx # global floating entry (document.body, always shown)
+ |       |-- PetSprite.tsx    # definition-driven floating sprite (portal + rAF + dragging)
+ |       |-- PetSettingsCard.tsx # settings card: pet selector + display layout
++|       |-- pet-settings-scope.ts # account-aware settings API adapter
+ |       |-- sequences.ts     # full-track scene sequence timing
+ |       |-- spritesheet.ts   # atlas geometry helpers + track trimming
+ |       `-- pet.module.css
+@@ -290,17 +292,20 @@ global React root (createRoot → document.body) <-- polling 2s -- pet-client (b
+                                        PetSprite floating layer (portal + rAF)
+ ```
+ 
+-- **Status source**: the host projects official `turn/start`, `step/start`, `assistant/message`, `tool/call`, `tool/result`, and `turn/end` events plus live `agent/assistant-stream` chunks into waiting/thinking/tool/review/done/failed states. Optional legacy `activity/status` events remain a compatibility input.
++- **Status source**: the host projects durable `turn/start`, `step/start`, `assistant/message`, `tool/call`, `tool/result`, and `turn/end` events into waiting/thinking/tool/review/done/failed states. Live reasoning and text chunks arrive through `agent/assistant-stream`; stream start/end frames do not award turns. Durable `turn/end` owns reward deduplication. Optional legacy `activity/status` events remain a compatibility input. Principal-scoped accounts stay idle without host-global session bubbles; direct Host access keeps live activity.
+ - **Registry**: the host normalizes every manifest into a full render definition (geometry, per-row frame counts, per-track durations) and serves it over `/api/pet/pets`; the browser half renders any entry from that definition and carries no per-pet code.
+-- **Selection & naming**: `petId` lives in the plugin's own configuration — the profile entry the Host serves the Pet settings page from; per-pet names live in `pet.json` under `names`, edited through the hover-panel rename of the active pet. Legacy installs migrate their flat `name` onto the whale girl.
++- **Account persistence**: direct access at the Host port keeps the established `$DSH_HOME/pet.json`. A verified gateway principal `(source, immutable id)` maps to an opaque SHA-256 directory under `$DSH_HOME/pet-accounts/`; its `pet.json` stores that account's selection, per-pet skin, names, display, switches, affinity, treats, gameplay modes and stats, and interaction counters. Gameplay responses resolve modes against that account's selected pet manifest. A principal without a file starts with `enabled: false`; enabling it in Settings > Pet persists only for that principal. Renaming an account does not reset its pet.
++- **Selection & naming**: `petId` lives in the account pet file and is edited through the authenticated pet settings API; per-pet names live in `pet.json` under `names`, edited through the hover-panel rename of the active pet. Legacy installs migrate their flat `name` onto the whale girl.
+ - **Display**: `visible`, `size`, `right`, `bottom`, and `bubbleScale` persist in `pet.json` and are edited from the settings card. Bubble typography follows the sprite's own size (12px at the default 160px pet) and `bubbleScale` multiplies that result, bounded to 10–24px so a shrunk pet never carries unreadable text (issue #1549).
+-- **Multi-session semantics**: the API and browser mount are host-global and expose no foreground-session identity. Concurrent sessions each keep their own projected state: the most recent meaningful event drives the sprite animation, while every active TOP-LEVEL session reports its stage in its own bubble (the state view's sessions list, capped at 12 most-recent). Subagent children are tracked for animation, rewards, and the single display bubble but render no bubble of their own, so N conversations never multiply into an N-plus-subagents stack. Every session's completed turns are still rewarded independently; disposing a session removes its bubble, and disposing the display session falls back to the most recent remaining one.
+-- **Mount point**: `document.body` (global React root, always shown: no session / new session / mid-session — the old mount point `conversation.composer.dock` only rendered in an active session, hiding the pet in new sessions); the component uses `createPortal` internally to render the global floating layer. The root follows the plugin fiber lifecycle: fiber disposal unmounts the React root, removes the container, and stops the poll loop and settings subscription; a hot-reloaded or re-injected bundle takes over the page-global slot, so the page always holds exactly one `[data-dsh-pet-root]` (issue #785).
++- **Multi-session semantics**: the API and browser mount are host-global and expose no foreground-session identity. Concurrent sessions each keep their own projected state: the most recent meaningful event drives the sprite animation, while every active TOP-LEVEL session reports its stage in its own bubble (the state view's sessions list, capped at 12 most-recent). Subagent children are tracked for animation, rewards, and the single display bubble but render no bubble of their own, so N conversations never multiply into an N-plus-subagents stack. Every session's completed turns are still rewarded independently; disposing a session removes its bubble, and disposing the display session falls back to the most recent remaining one. Principal-scoped gateway accounts never inherit this global activity or its bubbles.
++- **Mount point**: an enabled account mounts one global React root on `document.body`, always shown ( no session / new session / mid-session — the old mount point `conversation.composer.dock` only rendered in an active session, hiding the pet in new sessions); the component uses `createPortal` internally to render the global floating layer. The root follows the plugin fiber lifecycle: fiber disposal unmounts the React root, removes the container, and stops the poll loop and settings subscription; a hot-reloaded or re-injected bundle takes over the page-global slot, so the page always holds exactly one `[data-dsh-pet-root]` (issue #785).
+ - **Rendering**: CSS sprite (background-position) per-frame animation; frame durations and optional scene sequences come from the served definition. The hover panel is anchored below the pet with a pointer bridge across the gap; when the viewport leaves no room below, it flips above the pet and is lifted clear of the status bubble stack so the two never overlap.
+-- **Communication**: browser ↔ host over the same-origin `/api/pet/*` JSON endpoints (state/pets/interact/set-visible/set-config/set-name/set-pet); each pet's atlas loads from `/pet/<id>/<spritesheetPath>` — the plugin self-sufficiently provides its own API and assets (the same pattern as dsh-remote-web-ui's `/api/pair`).
++- **Communication**: browser ↔ host over the same-origin `/api/pet/*` JSON endpoints (state/pets/settings/settings/mutate/interact/set-visible/set-config/set-name/set-skin/set-pet); each pet's atlas loads from `/pet/<id>/<spritesheetPath>`. When a trusted gateway supplies a verified request principal, every state and mutation endpoint selects that principal's account file; a direct request with no principal selects the desktop account.
+ 
+ ## Install
+ 
++Requires Harness `>=0.1.3-alpha.1` for Host assistant streaming.
++
+ Install the family aggregate package `@linxin666/dsh-web-all` (all plugins and skins in one) or this plugin alone:
+ 
+ ```sh
+@@ -315,7 +320,7 @@ dsh plugin --profile web add link:$(pwd)/packages/dsh-pet
+ 
+ ```
+ 
+-After installing, **restart `dsh web`** — your selected pet appears at the bottom-right of the interface. In link mode, `pnpm build` and refresh the page after a code change; no reinstall needed.
++After installing, **restart `dsh web`**. A newly authenticated gateway account keeps the pet off until that account enables it under Settings > Pet; the choice persists only for that account. In link mode, `pnpm build` and refresh the page after a code change; no reinstall needed.
+ 
+ ## Development
+ 
+@@ -337,11 +342,16 @@ OUO Neko uses the extended v2 contract: a 1536×2288 atlas with the same 9 anima
+ ## Security model
+ 
+ - Every `/api/pet/*` and `/pet/<id>/*` route is loopback-only by default (the shared plugin-family fence: loopback socket + Host header + browser same-origin markers): unpaired LAN clients get `403 forbidden: loopback-only` before any pet state or atlas is served. When `dsh-remote-web-ui` is also loaded, a live paired-device cookie is an additional allow path (the same cookie `api/gate` already checks); unpaired and revoked devices stay 403. The pet does not depend on the remote plugin.
++- Account selection accepts only identities verified by the Host `requestPrincipal` service. Browser-supplied principal or signature headers are rejected when no verifier is installed or verification fails; storage paths use issuer plus immutable account id, never username or a browser path.
+ - Asset serving resolves both the pet directory and the candidate file through `realpath`; symlink escapes are refused (403). Files are size-capped before being read into memory (manifest 64 KB, imagery 20 MB; over-cap answers 413).
+ - Live2D models are served by closure: only the manifest, the declared primary assets, and the files the `.model3.json` references (each screened against traversal, absolute and URL forms).
+ - The plugin never downloads executables and never bundles the Live2D Cubism Core.
+ - Manifests are fail-closed on structure: unknown fields or renderers reject the entry with a diagnostic shown in settings.
+ 
++## Known limitations
++
++- Principal-scoped gateway companions currently render idle animation without session bubbles. The Host session event stream does not attribute activity to a verified principal, so sharing host-global activity would leak another account's status; selection, layout, naming, switches, affinity, treats, and direct interactions remain fully independent. Direct access on the Host port retains full session-reactive animation.
++
+ ## Telemetry
+ 
+ The browser half sends one anonymous install heartbeat per UTC day to dsh-market.com: a random localStorage id plus this package's name, nothing else. The server stores only a salted hash of that id, never IP addresses, and exposes aggregate counts only. See [docs/telemetry.md](../../docs/telemetry.md) for the full contract.
+diff --git a/packages/dsh-pet/README.zh.md b/packages/dsh-pet/README.zh.md
+index 092feaa5..2565c0b0 100644
+--- a/packages/dsh-pet/README.zh.md
++++ b/packages/dsh-pet/README.zh.md
+@@ -13,6 +13,7 @@
+ | 功能 | 说明 |
+ |---|---|
+ | 多宠物注册表 | 宿主扫描内置 `assets/`、hatch-pet 自定义宠物目录和组合配置条目；每只宠物 = manifest + 图集 |
++| 账号独立宠物 | 直连账号与每个已认证网关账号分别保存宠物选择、皮肤、名字、位置、气泡倍率、可见性、开关、亲密度、小鱼干、玩法状态与互动计数；新网关账号默认关闭，可独立开启自己的宠物而不影响其他账号 |
+ | 设置中选择宠物 | 插件设置卡片列出所有已注册宠物（内置资产 + 用户目录，即已安装集合）；切换即持久化，精灵立即更换。卡片位于一级设置分区「宠物」 |
+ | 每只宠物独立命名 | 在悬浮面板改名；每只宠物保存自己的名字（按宠物 id 存储，旧版平铺名字自动迁移） |
+ | 状态动画 | 官方会话活动 → manifest 定义的 9 态轨道序列；每条轨道播完自身完整时长后切换，整条序列循环 |
+@@ -25,7 +26,7 @@
+ | 妙语库 | 内置默认妙语库（每类事件 10 句）+ 宠物自定义台词；成功文案按持久化成功次数轮换，冷却文案按持久化拒绝次数轮换 |
+ | 状态气泡 | 默认只有一个顶层会话说话——上报 GUI 当前会话时优先它，否则是最近活动的一个——其余会话收进主气泡右上角的 +N 角标，不再叠出一长列；悬停气泡（触屏点按角标）即可向上展开所有会话的气泡，点击任一气泡跳转到对应会话；子代理会话借由其发起会话体现，不占用独立气泡；瞬时互动反馈临时优先。气泡文案按场景准备了大量轮换词库（等待 / 思考 / 整理 / 完成 / 失败……），工具调用按工具族映射俏皮文案并带上真实参数（如 跑跑 npm test），同一场景持续数秒会自动换一种说法 |
+ | 碎碎念 | 会话流式输出期间，宠物会偶尔借该会话自己的气泡说出内心独白——新鲜的碎碎念接管所属会话的气泡并以「」引号标记——与状态气泡共用同一片 DeepSeek 蓝黑玻璃，气泡栈内颜色统一不再色差——不再叠出第二只气泡——分类台词由「正在干什么」触发（思考 / 写回复 / 正在跑的工具族），结果台词只由结构化结果触发（测试工具通过 → 全绿、工具失败 → 报错、回合完成 → 收工）——决不读模型说的话，讨论里提到关键词也不会误触发心境；碎碎念也从不引用真实内容（无工具名、路径、模型原文）；分类冷却 9 秒、结果冷却 5 秒，展示 8 秒后气泡恢复状态文案 |
+-| 多会话活动 | 宠物是宿主全局的：最近一次有意义事件驱动精灵动画，同时每个活动的顶层会话用自己的气泡报告各自状态；每个会话（含子代理）完成的轮次都计入亲密度与小鱼干 |
++| 多会话活动 | 直连桌面账号的宠物是宿主全局的：最近一次有意义事件驱动精灵动画，同时每个活动的顶层会话用自己的气泡报告各自状态；每个会话（含子代理）完成的轮次都计入亲密度与小鱼干 |
+ | 语音包与面板 DIY | 宠物目录 voice.json + 全局 $DSH_HOME/pets/.voice.json 覆盖气泡全部文案与悬浮面板（按钮标签/统计格式/按钮显隐）；合并优先级 宠物自带 > 全局 > 内置，坏包警告不拒载 |
+ 
+ ## 宠物契约
+@@ -261,13 +262,14 @@ dsh-pet/
+ |   |-- remarks.ts           # 妙语库：内置默认池 + 每宠物覆盖 + 计数选取
+ |   |-- affinity.ts          # 亲密度账本（纯函数 + 冷却）
+ |   |-- treats.ts            # 小鱼干库存账本
+-|   |-- persist.ts           # 持久化（$DSH_HOME/pet.json：选择 + 名字 + 互动计数）
++|   |-- persist.ts           # 持久化（$DSH_HOME/pet.json + 按身份隔离的 pet-accounts/ 文件）
+ |   |-- routes.ts            # /api/pet/* JSON API + /pet/<id>/* 静态资源路由
+ |   `-- client/             # 浏览器半区
+ |       |-- index.ts         # 全局挂载（createRoot → body）+ 注册表拉取 + 轮询 + 接线
+ |       |-- PetDockEntry.tsx # 全局浮层入口（document.body，始终显示）
+ |       |-- PetSprite.tsx    # 由定义驱动的浮层精灵（portal + rAF + 拖动）
+ |       |-- PetSettingsCard.tsx # 设置卡片：宠物选择器 + 显示布局
++|       |-- pet-settings-scope.ts # 账号感知的设置 API 适配器
+ |       |-- sequences.ts     # 完整轨道场景序列计时
+ |       |-- spritesheet.ts   # 图集几何辅助 + 轨道裁剪
+ |       `-- pet.module.css
+@@ -290,17 +292,20 @@ dsh-pet/
+                                        PetSprite 浮层（portal + rAF）
+ ```
+ 
+-- **状态来源**：宿主把官方 `turn/start`、`step/start`、`assistant/message`、`tool/call`、`tool/result`、`turn/end` 事件与实时 `agent/assistant-stream` 增量投影为 waiting/thinking/tool/review/done/failed 状态。可选兼容 `activity/status` 事件仍作为输入。
++- **状态来源**：宿主把持久化的 `turn/start`、`step/start`、`assistant/message`、`tool/call`、`tool/result`、`turn/end` 事件投影为 waiting/thinking/tool/review/done/failed 状态。实时推理和文本 chunk 由 `agent/assistant-stream` 提供；流 start/end 帧不奖励回合，持久化的 `turn/end` 负责奖励去重。可选兼容 `activity/status` 事件仍作为输入。按身份隔离的账号保持空闲且不显示宿主全局会话气泡，直接访问宿主时保留实时活动。
+ - **注册表**：宿主把每份 manifest 归一化为完整渲染定义（几何、每行帧数、每轨时长），经 `/api/pet/pets` 下发；浏览器半区用该定义渲染任意条目，不携带任何宠物专属代码。
+-- **选择与命名**：`petId` 存于插件自身的配置——宿主据此 profile 条目生成 Pet 设置页；每只宠物的名字存于 `pet.json` 的 `names`，通过悬浮面板对当前宠物改名编辑。旧版安装的平铺 `name` 自动迁移到鲸鱼娘名下。
++- **账号持久化**：直连宿主端口沿用 `$DSH_HOME/pet.json`。通过验证的网关身份 `(来源, 不变账号 ID)` 映射到 `$DSH_HOME/pet-accounts/` 下的 SHA-256 不透明目录；其中的 `pet.json` 保存该账号的宠物选择、按宠物保存的皮肤、名字、显示配置、开关、亲密度、小鱼干、玩法模式与数值，以及互动计数。玩法响应根据该账号所选宠物的清单解析模式。没有账号文件时从 `enabled: false` 开始；在「设置 > 宠物」开启后只为该身份持久化。账号改名不会重置宠物。
++- **选择与命名**：`petId` 存于账号宠物文件，并通过已认证的宠物设置 API 编辑；每只宠物的名字存于 `pet.json` 的 `names`，通过悬浮面板对当前宠物改名编辑。旧版安装的平铺 `name` 自动迁移到鲸鱼娘名下。
+ - **显示**：`visible`、`size`、`right`、`bottom` 与 `bubbleScale` 存在 `pet.json`，在设置卡片里编辑。气泡字号跟随精灵自身的尺寸（默认 160px 宠物对应 12px），`bubbleScale` 在此结果上再乘一个倍率，并限制在 10–24px——缩小的宠物不会顶着读不清的字（issue #1549）。
+-- **多会话语义**：API 与浏览器挂载都是宿主全局的，不暴露前台会话身份。并行会话各自保留投影状态：最近一次有意义事件驱动精灵动画，同时每个活动的顶层会话在独立气泡里报告自己的阶段（state 视图的 sessions 列表，最多保留最近 12 个）。子代理会话仍参与动画、计奖与单一显示气泡，但不占独立气泡位——N 个对话不会变成"N + 子代理数"的气泡堆。每个会话完成的轮次仍独立计奖；销毁会话移除它的气泡，销毁当前显示会话则回退到最近仍在活动的会话。
+-- **挂载点**：`document.body`（全局 React 根，始终显示：无会话 / 新会话 / 会话中都可见——旧挂载点 `conversation.composer.dock` 只在活动会话里渲染，新会话里宠物消失）；组件内部用 `createPortal` 渲染全局浮层。根容器随插件 fiber 生命周期走：fiber 销毁时卸载 React 根、移除容器并停止轮询与设置订阅；热重载或重复注入的新 bundle 接管页面级单挂载槽，页面始终只有一个 `[data-dsh-pet-root]`（issue #785）。
++- **多会话语义**：API 与浏览器挂载都是宿主全局的，不暴露前台会话身份。并行会话各自保留投影状态：最近一次有意义事件驱动精灵动画，同时每个活动的顶层会话在独立气泡里报告自己的阶段（state 视图的 sessions 列表，最多保留最近 12 个）。子代理会话仍参与动画、计奖与单一显示气泡，但不占独立气泡位——N 个对话不会变成"N + 子代理数"的气泡堆。每个会话完成的轮次仍独立计奖；销毁会话移除它的气泡，销毁当前显示会话则回退到最近仍在活动的会话。按身份隔离的网关账号不会继承这些全局活动或气泡。
++- **挂载点**：已开启的账号在 `document.body` 挂载一个全局 React 根，始终显示（无会话 / 新会话 / 会话中都可见——旧挂载点 `conversation.composer.dock` 只在活动会话里渲染，新会话里宠物消失）；组件内部用 `createPortal` 渲染全局浮层。根容器随插件 fiber 生命周期走：fiber 销毁时卸载 React 根、移除容器并停止轮询与设置订阅；热重载或重复注入的新 bundle 接管页面级单挂载槽，页面始终只有一个 `[data-dsh-pet-root]`（issue #785）。
+ - **渲染**：CSS 精灵（background-position）逐帧动画；帧时长和可选场景序列来自下发定义。悬浮面板锚定在宠物下方，间隙由指针桥接覆盖；当视口下方空间不足时，面板翻转到宠物上方并抬升到状态气泡栈之上，两者互不遮挡。
+-- **通信**：浏览器 ↔ 宿主走同源 `/api/pet/*` JSON 端点（state/pets/interact/set-visible/set-config/set-name/set-pet）；每只宠物的图集从 `/pet/<id>/<spritesheetPath>` 加载——插件自给自足地提供自己的 API 与资源（与 dsh-remote-web-ui 的 `/api/pair` 同一模式）。
++- **通信**：浏览器 ↔ 宿主走同源 `/api/pet/*` JSON 端点（state/pets/settings/settings/mutate/interact/set-visible/set-config/set-name/set-skin/set-pet）；每只宠物的图集从 `/pet/<id>/<spritesheetPath>` 加载。可信网关提供通过验证的请求身份时，每个状态与修改端点选择该身份的账号文件；没有身份的直连请求选择桌面账号。
+ 
+ ## 安装
+ 
++需要 Harness `>=0.1.3-alpha.1` 提供宿主助手流式事件。
++
+ 安装聚合全家桶 `@linxin666/dsh-web-all`（全部插件与皮肤一次到位），或单独安装本插件：
+ 
+ ```sh
+@@ -315,7 +320,7 @@ dsh plugin --profile web add link:$(pwd)/packages/dsh-pet
+ 
+ ```
+ 
+-安装后**重启 `dsh web`**——你选择的宠物出现在界面右下角。link 模式下改代码后 `pnpm build` 并刷新页面即可，无需重装。
++安装后**重启 `dsh web`**。新认证的网关账号默认不显示宠物，需要由该账号在「设置 > 宠物」中开启；选择只为该账号持久化。link 模式下改代码后 `pnpm build` 并刷新页面即可，无需重装。
+ 
+ ## 开发
+ 
+@@ -337,11 +342,16 @@ OUO Neko 使用扩展 v2 契约：图集为 1536×2288，在相同 9 行动画
+ ## 安全模型
+ 
+ - 全部 `/api/pet/*` 与 `/pet/<id>/*` 路由默认仅限 loopback（插件家族共享围栏：loopback 套接字 + Host 头 + 浏览器同源标记）：未配对的局域网客户端在任何宠物状态或图集下发前即收到 `403 forbidden: loopback-only`。同时装了 `dsh-remote-web-ui` 时，有效的已配对设备 cookie 是额外放行路径（与 `api/gate` 检查同一枚 cookie）；未配对与已撤销设备仍 403。宠物插件不硬依赖远程插件。
++- 账号选择只接受宿主 `requestPrincipal` 服务验证过的身份。未安装验证器或验证失败时，浏览器提供的身份头或签名头都会被拒绝；存储路径使用身份来源与不变账号 ID，不使用用户名或浏览器路径。
+ - 资产服务对宠物目录与目标文件双双做 `realpath` 解析；symlink 越界一律拒绝（403）。文件读入内存前按类限大小（清单 64 KB、图像 20 MB；超限 413）。
+ - Live2D 模型按闭包放行：仅清单、声明的主资产与 `.model3.json` 引用到的文件（引用先经穿越/绝对路径/URL 形态筛查）。
+ - 插件从不下载可执行文件，也从不内置 Live2D Cubism Core。
+ - 清单结构 fail-closed：未知字段或未知渲染器直接拒载，并在设置中给出诊断。
+ 
++## 已知限制
++
++- 按身份隔离的网关账号宠物目前显示空闲动画，不显示会话气泡。宿主会话事件流没有把活动归属到通过验证的身份，复用宿主全局活动会泄露其他账号的状态；宠物选择、布局、名字、开关、亲密度、小鱼干与直接互动仍完全独立。直连宿主端口保留完整的会话响应动画。
++
+ ## 数据遥测
+ 
+ 浏览器半区每个 UTC 日向 dsh-market.com 发送一次匿名安装心跳：仅含一个 localStorage 随机 ID 与本包名，无其他数据。服务端只存储该 ID 的加盐哈希，不存 IP，且只暴露聚合计数。完整契约见 [docs/telemetry.md](../../docs/telemetry.md)。
+diff --git a/packages/dsh-pet/package.json b/packages/dsh-pet/package.json
+index c723230a..6cb7696c 100644
+--- a/packages/dsh-pet/package.json
++++ b/packages/dsh-pet/package.json
+@@ -1,7 +1,7 @@
+ {
+   "name": "@linxin666/dsh-pet",
+   "description": "Multi-pet companion plugin for the dsh web GUI: a registry-driven floating pet that reacts to model activity, with per-pet naming, petting/feeding interactions and an affinity score",
+-  "version": "0.3.24",
++  "version": "0.3.24-dsh.20260923.4",
+   "icon": "icon.svg",
+   "type": "module",
+   "packageManager": "pnpm@11.7.0",
+diff --git a/packages/dsh-pet/src/client/PetSettingsCard.tsx b/packages/dsh-pet/src/client/PetSettingsCard.tsx
+index a708ede5..92d7496a 100644
+--- a/packages/dsh-pet/src/client/PetSettingsCard.tsx
++++ b/packages/dsh-pet/src/client/PetSettingsCard.tsx
+@@ -1,12 +1,10 @@
+ /**
+- * The pet settings card: pet selection plus display layout, staged over the
+- * 'pet' profile entry's own configuration (a plugin's settings ARE its Cordis
+- * Config since 0.1.7, so the Host serves one form per profile entry).
+- * Rendered as an always-open first-level settings page; the section wrapper
+- * below mounts it as the content of the top-level 'settings.section' nav
+- * entry. The petId choices come from the registry endpoint ('/api/pet/pets') —
+- * the same list the sprite renders from — so the card carries no per-pet
+- * knowledge.
++ * The pet settings card: pet selection plus display layout, bound to the
++ * account-aware settings endpoint. Rendered as an always-open first-level
++ * settings page; the section wrapper below mounts it as the content of the
++ * top-level 'settings.section' nav entry. The petId choices come from the
++ * registry endpoint ('/api/pet/pets') — the same list the sprite renders
++ * from — so the card carries no per-pet knowledge.
+  */
+ 
+ import type { ReactNode } from 'react'
+diff --git a/packages/dsh-pet/src/client/PetSprite.test.tsx b/packages/dsh-pet/src/client/PetSprite.test.tsx
+index 583fb117..40e1ab7c 100644
+--- a/packages/dsh-pet/src/client/PetSprite.test.tsx
++++ b/packages/dsh-pet/src/client/PetSprite.test.tsx
+@@ -1201,4 +1201,3 @@ describe('PetSprite portal target', () => {
+     expect(document.body.querySelector('[role="button"]')).not.toBeNull()
+   })
+ })
+-
+diff --git a/packages/dsh-pet/src/client/index.test.tsx b/packages/dsh-pet/src/client/index.test.tsx
+index db08e3f1..e590846b 100644
+--- a/packages/dsh-pet/src/client/index.test.tsx
++++ b/packages/dsh-pet/src/client/index.test.tsx
+@@ -5,10 +5,10 @@
+  * data-dsh-plugin="pet" so skins can target the pet subtree. The same
+  * tests pin the fiber-lifecycle contract (issue #785): a hot-reloaded or
+  * re-injected bundle instance must never leave the previous React root,
+- * container, or settings subscription behind, so the page always holds
++ * or container behind, so the page always holds
+  * exactly one [data-dsh-pet-root].
+  */
+-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
++import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+ // The npm SDK's client half is a closure-factory bundle for the GUI's
+ // __ModuleLoader__ (not importable under vitest); provide defineStore /
+ // createSnapshotStore (same fake-store pattern as the settings-card tests).
+@@ -55,6 +55,32 @@ beforeAll(() => {
+   document.documentElement.lang = 'zh'
+ })
+ 
++function accountSettings(enabled: boolean): Response {
++  const value = {
++    enabled,
++    decorationEnabled: true,
++    visible: true,
++    size: 160,
++    right: 24,
++    bottom: 20,
++    petId: 'whale-girl',
++  }
++  return new Response(JSON.stringify({ value, base: value, user: {}, revision: 0, writable: true }), {
++    headers: { 'content-type': 'application/json' },
++  })
++}
++
++function stubAccountSettings(enabled: boolean): void {
++  vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
++    if (String(input) === '/api/pet/settings') return accountSettings(enabled)
++    throw new Error('pet runtime fetch is outside this lifecycle test')
++  }))
++}
++
++beforeEach(() => {
++  stubAccountSettings(true)
++})
++
+ /** A client root context with observable fiber disposal. */
+ interface FakeClientLifecycle {
+   ctx: ClientContext
+@@ -63,8 +89,6 @@ interface FakeClientLifecycle {
+   emitSettings(): void
+   sessionsListenerCount(): number
+   setEnabled(enabled: boolean): void
+-  /** Namespaces the family settings binder was asked for (empty without one). */
+-  boundNamespaces(): string[]
+ }
+ 
+ const activeLifecycles: FakeClientLifecycle[] = []
+@@ -72,21 +96,21 @@ const activeLifecycles: FakeClientLifecycle[] = []
+ afterEach(() => {
+   for (const lifecycle of activeLifecycles.splice(0).reverse()) lifecycle.dispose()
+   document.body.replaceChildren()
++  vi.unstubAllGlobals()
+ })
+ 
+-interface FakeContextOptions {
+-  /** Provide the dsh-web-settings family binder, as the group plugin does. */
+-  familyBinder?: boolean
+-  /** Initial value of the settings section the bound form answers with. */
+-  enabled?: boolean
++async function waitForPetRoot(): Promise<Element> {
++  await vi.waitFor(() => {
++    expect(document.body.querySelector('[data-dsh-pet-root]')).not.toBeNull()
++  })
++  return document.body.querySelector('[data-dsh-pet-root]')!
+ }
+ 
+-function fakeContext(options: FakeContextOptions = {}): FakeClientLifecycle {
++function fakeContext(): FakeClientLifecycle {
+   const disposers: (() => void)[] = []
+   const settingsListeners = new Set<() => void>()
+   const sessionListeners = new Set<() => void>()
+-  const boundNamespaces: string[] = []
+-  let settingsValue: { enabled?: boolean } | undefined = options.enabled === undefined ? undefined : { enabled: options.enabled }
++  let settingsValue: { enabled?: boolean } | undefined
+   const scope = {
+     getSnapshot: () => ({
+       status: 'ready',
+@@ -102,12 +126,6 @@ function fakeContext(options: FakeContextOptions = {}): FakeClientLifecycle {
+       return () => { settingsListeners.delete(listener) }
+     },
+   }
+-  const familyBinder = {
+-    bind: (spec: { namespace: string }) => {
+-      boundNamespaces.push(spec.namespace)
+-      return scope
+-    },
+-  }
+   const ctx = {
+     effect: (fn: () => unknown, _label?: string) => {
+       const dispose = fn()
+@@ -117,10 +135,7 @@ function fakeContext(options: FakeContextOptions = {}): FakeClientLifecycle {
+       return cleanup
+     },
+     locale: { register: () => () => {} },
+-    // The family binder is optional (dsh-web-settings may be absent); both
+-    // answers are the shared per-entry form of this plugin's own profile entry.
+-    get: (name: string) => name === 'webUiSettings' && options.familyBinder === true ? familyBinder : undefined,
+-    configForms: { get: () => scope },
++    get: () => undefined,
+     slots: {
+       // Cordis runs the factory when the slot mounts and its returned
+       // disposer when the fiber disposes; mirror that so slot content
+@@ -140,7 +155,9 @@ function fakeContext(options: FakeContextOptions = {}): FakeClientLifecycle {
+           return () => { sessionListeners.delete(listener) }
+         },
+       },
+-      open: () => {},
++    },
++    uiWorkspace: {
++      openSession: () => {},
+     },
+   } as unknown as ClientContext
+   let disposed = false
+@@ -157,70 +174,78 @@ function fakeContext(options: FakeContextOptions = {}): FakeClientLifecycle {
+     },
+     sessionsListenerCount: () => sessionListeners.size,
+     setEnabled: (enabled: boolean) => { settingsValue = { enabled } },
+-    boundNamespaces: () => boundNamespaces,
+   }
+   activeLifecycles.push(lifecycle)
+   return lifecycle
+ }
+ 
+ describe('pet client apply', () => {
+-  it('mounts the pet root container with the L2 data-dsh-plugin attribute (#506)', () => {
++  it('waits for account settings before mounting an explicitly enabled pet', async () => {
+     apply(fakeContext().ctx)
+-    const root = document.body.querySelector('[data-dsh-pet-root]')
+-    expect(root).not.toBeNull()
+-    expect(root!.getAttribute('data-dsh-plugin')).toBe('pet')
++    expect(document.body.querySelector('[data-dsh-pet-root]')).toBeNull()
++    const root = await waitForPetRoot()
++    expect(root.getAttribute('data-dsh-plugin')).toBe('pet')
+   })
+ 
+-  it('keeps one global pet root when two client factories overlap (#785)', () => {
++  it('leaves a disabled account unmounted after its settings resolve', async () => {
++    stubAccountSettings(false)
++    apply(fakeContext().ctx)
++
++    vi.useFakeTimers()
++    try {
++      await vi.advanceTimersByTimeAsync(0)
++    } finally {
++      vi.useRealTimers()
++    }
++
++    expect(fetch).toHaveBeenCalledWith('/api/pet/settings', undefined)
++    expect(document.body.querySelector('[data-dsh-pet-root]')).toBeNull()
++  })
++
++  it('keeps one global pet root when two client factories overlap (#785)', async () => {
+     const first = fakeContext()
+     apply(first.ctx)
+-    const firstContainer = document.body.querySelector('[data-dsh-pet-root]')
+-    expect(firstContainer).not.toBeNull()
++    const firstContainer = await waitForPetRoot()
+ 
+     // A rebuilt bundle re-applies while the first fiber is still draining.
+     const second = fakeContext()
+     apply(second.ctx)
++    await vi.waitFor(() => {
++      expect(document.body.querySelector('[data-dsh-pet-root]')).not.toBe(firstContainer)
++    })
+ 
+     const roots = document.body.querySelectorAll('[data-dsh-pet-root]')
+     expect(roots).toHaveLength(1)
+     expect(roots[0]).not.toBe(firstContainer)
+-    expect(firstContainer!.isConnected).toBe(false)
+-
+-    // The first instance must not resurrect its own root.
+-    first.emitSettings()
+-    expect(document.body.querySelectorAll('[data-dsh-pet-root]')).toHaveLength(1)
++    expect(firstContainer.isConnected).toBe(false)
+ 
+     // The first fiber draining later stays a no-op.
+     first.dispose()
+     expect(document.body.querySelectorAll('[data-dsh-pet-root]')).toHaveLength(1)
+   })
+ 
+-  it('tears down root, container, and settings subscription on fiber disposal (#785)', () => {
++  it('tears down root and container on fiber disposal (#785)', async () => {
+     const lifecycle = fakeContext()
+     apply(lifecycle.ctx)
+-    expect(document.body.querySelectorAll('[data-dsh-pet-root]')).toHaveLength(1)
+-    // The settings card controller subscribes to the same scope as the UI
+-    // sync, so at least the sync listener is present while the fiber lives.
+-    expect(lifecycle.settingsListenerCount()).toBeGreaterThan(0)
+-
++    await waitForPetRoot()
+     lifecycle.dispose()
+ 
+     expect(document.body.querySelectorAll('[data-dsh-pet-root]')).toHaveLength(0)
+-    expect(lifecycle.settingsListenerCount()).toBe(0)
+   })
+ 
+-  it('re-applies cleanly after disposal so a hot reload keeps one pet (#785)', () => {
++  it('re-applies cleanly after disposal so a hot reload keeps one pet (#785)', async () => {
+     const first = fakeContext()
+     apply(first.ctx)
++    await waitForPetRoot()
+     first.dispose()
+     expect(document.body.querySelectorAll('[data-dsh-pet-root]')).toHaveLength(0)
+ 
+     const second = fakeContext()
+     apply(second.ctx)
+-    expect(document.body.querySelectorAll('[data-dsh-pet-root]')).toHaveLength(1)
++    await waitForPetRoot()
+   })
+ 
+-  it('sweeps stale containers left behind by instances without a teardown slot (#785)', () => {
++  it('sweeps stale containers left behind by instances without a teardown slot (#785)', async () => {
+     // A container from a bundle build that predates the teardown registry:
+     // nothing registered a teardown, so only the mount-path sweep can clear it.
+     const stale = document.createElement('div')
+@@ -228,45 +253,12 @@ describe('pet client apply', () => {
+     document.body.appendChild(stale)
+ 
+     apply(fakeContext().ctx)
++    await vi.waitFor(() => {
++      expect(stale.isConnected).toBe(false)
++    })
+ 
+     const roots = document.body.querySelectorAll('[data-dsh-pet-root]')
+     expect(roots).toHaveLength(1)
+     expect(stale.isConnected).toBe(false)
+   })
+-
+-  it('unsubscribes the session watch when the pet is disabled from settings', () => {
+-    const lifecycle = fakeContext()
+-    apply(lifecycle.ctx)
+-    // The poll loop and the current-session watch both subscribe through
+-    // ctx.effect, so exactly one sessions.list listener is live per mount.
+-    expect(lifecycle.sessionsListenerCount()).toBe(1)
+-
+-    // Toggling the plugin off tears the UI down without disposing the fiber:
+-    // the session watch must go with it, or every later session-store
+-    // notification keeps polling a dead pet forever.
+-    lifecycle.setEnabled(false)
+-    lifecycle.emitSettings()
+-    expect(lifecycle.sessionsListenerCount()).toBe(0)
+-    expect(document.body.querySelectorAll('[data-dsh-pet-root]')).toHaveLength(0)
+-
+-    // Re-enabling mounts a fresh UI with a fresh watch.
+-    lifecycle.setEnabled(true)
+-    lifecycle.emitSettings()
+-    expect(lifecycle.sessionsListenerCount()).toBe(1)
+-    expect(document.body.querySelectorAll('[data-dsh-pet-root]')).toHaveLength(1)
+-  })
+-
+-  it('user gets the pet settings form through the family binder when the group plugin is mounted', () => {
+-    // Given a client context that provides the dsh-web-settings family binder
+-    // and answers 'disabled' through the form that binder returns
+-    const lifecycle = fakeContext({ familyBinder: true, enabled: false })
+-
+-    // When the pet client plugin applies
+-    apply(lifecycle.ctx)
+-
+-    // Then the card bound the 'pet' namespace through that binder...
+-    expect(lifecycle.boundNamespaces()).toEqual(['pet'])
+-    // ...and the pet surface followed the form it answered (disabled -> hidden)
+-    expect(document.body.querySelectorAll('[data-dsh-pet-root]')).toHaveLength(0)
+-  })
+ })
+diff --git a/packages/dsh-pet/src/client/index.ts b/packages/dsh-pet/src/client/index.ts
+index 10924597..7f1302c4 100644
+--- a/packages/dsh-pet/src/client/index.ts
++++ b/packages/dsh-pet/src/client/index.ts
+@@ -16,7 +16,6 @@
+ import type { Context as ClientContext } from '@deepseek-ai/cordis'
+ import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
+ import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
+-import type { ConfigForm, ConfigForms } from '@deepseek-ai/dsh-client-ui-settings/client'
+ // Type-only: pulls the locale plugin's Context merge (ctx.locale).
+ import type {} from '@deepseek-ai/dsh-client-locale/client'
+ // Type-only: pulls the shared configuration forms Context merge (ctx.configForms).
+@@ -41,7 +40,8 @@ import { defaultPetRendererRegistry } from './renderers/registry.ts'
+ import { live2dRenderer } from './renderers/live2d.ts'
+ import { frames2dRenderer } from './renderers/frames2d.ts'
+ import { registerPetUiTeardown, takeoverPetUiTeardown } from './ui-teardown.ts'
+-import { PetSettingsSection, PetSettingsCardController, type PetSettings } from './PetSettingsCard.tsx'
++import { PetSettingsSection, PetSettingsCardController } from './PetSettingsCard.tsx'
++import { PetAccountSettingsScope } from './pet-settings-scope.ts'
+ import { NS, en, zh, t } from './locales.ts'
+ import { mainViewSessionId } from './main-session.ts'
+ import { reportDailyHeartbeat } from './telemetry.ts'
+@@ -98,11 +98,8 @@ const petApi: PetHttpApi = {
+ /** Poll interval for the host snapshot. */
+ const POLL_MS = 2000
+ 
+-/** Settings namespace of the pet's settings page. It is the profile entry id the Host serves a form for. */
+-const PET_SETTINGS_NS = 'pet'
+-
+-/** Required services (sessions powers bubble-to-session navigation). */
+-export const inject = ['slots', 'locale', 'connection', 'configForms', 'remote', 'sessions', 'uiWorkspace']
++/** Required services (sessions reports the displayed Session; uiWorkspace powers bubble-to-session navigation). */
++export const inject = ['slots', 'locale', 'connection', 'remote', 'sessions', 'uiWorkspace']
+ 
+ /** Re-exported for consumers that type against the injected face. */
+ export type { PetInjected, PetDockEntryProps } from './PetDockEntry.tsx'
+@@ -112,54 +109,6 @@ export type { PetSettingsCardFace, PetSettingsCardState } from './PetSettingsCar
+ export type { PetSettingsSectionProps } from './PetSettingsCard.tsx'
+ export type { PetDefinition } from '../registry.ts'
+ 
+-declare module '@deepseek-ai/cordis' {
+-  interface Context {
+-    /**
+-     * Optional family binder provided by dsh-web-settings; absent when that
+-     * group plugin is not installed, so callers fall back to the shared
+-     * per-entry form.
+-     */
+-    webUiSettings?: {
+-      bind<S>(spec: { namespace: string; decode?: (section: unknown) => S | undefined }): ConfigForm<S>
+-    }
+-  }
+-}
+-
+-/**
+- * The configuration form the settings card stages and saves through: the
+- * family binder when dsh-web-settings is mounted, otherwise the shared form of
+- * this plugin's own profile entry.
+- *
+- * The two are not interchangeable by name. A plugin's settings ARE its own
+- * config on 0.1.7, so the form belongs to the profile entry that carries the
+- * plugin — and only the family binder knows which entry that is, because the
+- * family bundle renames child rows ('pet' becomes 'web-ui-pet' there) while a
+- * standalone install keeps the package's own id.
+- * @param ctx - client root context.
+- * @returns the form for the pet's settings page.
+- */
+-const AGGREGATE_ENTRY_ID = 'web-ui-pet'
+-const PET_ENTRY_IDS: readonly string[] = [AGGREGATE_ENTRY_ID, 'ui-pet', PET_SETTINGS_NS]
+-
+-function servedEntryId(forms: ConfigForms): string {
+-  let served: readonly string[] | undefined
+-  try {
+-    served = forms.describe().getSnapshot().view?.namespaces.map(view => view.ns)
+-  } catch {
+-    served = undefined
+-  }
+-  if (!served || served.length === 0) return PET_SETTINGS_NS
+-  return PET_ENTRY_IDS.find(id => served.includes(id)) ?? PET_SETTINGS_NS
+-}
+-
+-function petSettingsForm(ctx: ClientContext): ConfigForm<PetSettings> {
+-  const binder = ctx.get('webUiSettings')
+-  if (binder !== undefined && typeof binder.bind === 'function') {
+-    return binder.bind<PetSettings>({ namespace: PET_SETTINGS_NS })
+-  }
+-  return ctx.configForms.get<PetSettings>(servedEntryId(ctx.configForms))
+-}
+-
+ /**
+  * Client plugin body: register dictionaries, mount the global pet entry and
+  * poll loop while the plugin is enabled, and seat the settings card as a
+@@ -199,21 +148,19 @@ export function apply(ctx: ClientContext): void {
+   defaultPetRendererRegistry.register(live2dRenderer)
+   defaultPetRendererRegistry.register(frames2dRenderer)
+ 
+-  const settingsForm = petSettingsForm(ctx)
++  const settingsScope = new PetAccountSettingsScope()
+   const enabled = (): boolean => {
+-    const snapshot = settingsForm.getSnapshot()
+-    return snapshot.status === 'ready'
+-      ? snapshot.value?.enabled ?? true
+-      : snapshot.status === 'unavailable'
++    const snapshot = settingsScope.getSnapshot()
++    return snapshot.status === 'ready' && (snapshot.value?.enabled ?? false)
+   }
+ 
+-  // First-level settings section: one staged form over the 'pet' profile
+-  // entry's configuration, registered as a top-level settings page. The
+-  // controller loads the petId choices from the registry endpoint itself — the
+-  // registry lists the available pets (built-in assets plus user dirs), so the
+-  // section only ever shows installed pets. Installing new pets happens in the
+-  // Workshop store.
+-  const petSettings = new PetSettingsCardController(settingsForm)
++  // First-level settings section: one staged form over this request's pet
++  // account, registered as a top-level settings page. The controller loads
++  // the petId choices from the registry endpoint itself — the registry lists
++  // the available pets (built-in assets plus user dirs), so the section only
++  // ever shows installed pets. Installing new pets happens in the Workshop
++  // store.
++  const petSettings = new PetSettingsCardController(settingsScope)
+   // The section entry owns the controller: unregistering it (fiber disposal,
+   // hot reload) releases the form subscription through petSettings.dispose.
+   ctx.slots.inject('settings.section', () => {
+@@ -386,6 +333,7 @@ export function apply(ctx: ClientContext): void {
+         },
+         hide: () => {
+           petApi.setVisible(false).then(() => {
++            void settingsScope.refresh()
+             pollNow()
+           }, () => {
+             // Ignore; next poll resyncs.
+@@ -393,6 +341,7 @@ export function apply(ctx: ClientContext): void {
+         },
+         summon: () => {
+           petApi.setVisible(true).then(() => {
++            void settingsScope.refresh()
+             pollNow()
+           }, () => {
+             // Ignore; next poll resyncs.
+@@ -400,6 +349,7 @@ export function apply(ctx: ClientContext): void {
+         },
+         dragEnd: (right, bottom) => {
+           petApi.setConfig({ right, bottom }).then(() => {
++            void settingsScope.refresh()
+             pollNow()
+           }, () => {
+             // Ignore; next poll resyncs.
+@@ -421,7 +371,7 @@ export function apply(ctx: ClientContext): void {
+             if (result.ok) pollNow()
+             return result
+           }, () => ({ ok: false, error: 'transport' })),
+-          
++
+           setMode: async (mode) => {
+             if (mode === 'work') workTickGate.reset()
+             return petApi.gameplaySetMode(mode)
+@@ -496,10 +446,11 @@ export function apply(ctx: ClientContext): void {
+   // (issue #785): disposal drops the subscription and tears the UI down
+   // (terminal), so a hot-reloaded or re-injected bundle never leaves the
+   // previous React root, container, or poll loop behind on document.body.
+-  const unsubscribeSettings = settingsForm.subscribe(syncUi)
++  const unsubscribeSettings = settingsScope.subscribe(syncUi)
+   ctx.effect(
+     () => () => {
+       unsubscribeSettings()
++      settingsScope.dispose()
+       killUi()
+     },
+     'pet: client lifecycle',
+diff --git a/packages/dsh-pet/src/client/pet-settings-scope.test.ts b/packages/dsh-pet/src/client/pet-settings-scope.test.ts
+new file mode 100644
+index 00000000..4cb21257
+--- /dev/null
++++ b/packages/dsh-pet/src/client/pet-settings-scope.test.ts
+@@ -0,0 +1,122 @@
++import { afterEach, describe, expect, it, vi } from 'vitest'
++import type { PetAccountSettingsView, PetSettingsSection } from '../service.ts'
++import { PetAccountSettingsScope } from './pet-settings-scope.ts'
++
++const base: PetSettingsSection = {
++  enabled: true,
++  decorationEnabled: true,
++  visible: true,
++  size: 160,
++  right: 24,
++  bottom: 120,
++  petId: 'whale-girl',
++}
++
++function view(
++  revision: number,
++  value: PetSettingsSection = base,
++  user: Partial<PetSettingsSection> = {},
++): PetAccountSettingsView {
++  return { value, base, user, revision, writable: true }
++}
++
++function response(value: PetAccountSettingsView): Response {
++  return new Response(JSON.stringify(value), {
++    status: 200,
++    headers: { 'content-type': 'application/json' },
++  })
++}
++
++afterEach(() => {
++  vi.unstubAllGlobals()
++})
++
++describe('PetAccountSettingsScope', () => {
++  it('user writes account settings with the loaded revision', async () => {
++    // Given account settings at revision 4, when disabling the pet, then the request fences revision 4 and stores revision 5.
++    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
++      if (init?.method !== 'POST') return response(view(4))
++      const body = JSON.parse(String(init.body)) as {
++        expectedRevision?: number
++        ops: Array<{ op: string; path: string[]; value?: unknown }>
++      }
++      expect(body).toEqual({
++        expectedRevision: 4,
++        ops: [{ op: 'set', path: ['enabled'], value: false }],
++      })
++      return response(view(5, { ...base, enabled: false }, { enabled: false }))
++    })
++    vi.stubGlobal('fetch', fetchMock)
++
++    const scope = new PetAccountSettingsScope()
++    await vi.waitFor(() => expect(scope.getSnapshot()).toMatchObject({ status: 'ready', revision: 4 }))
++    const notified = vi.fn()
++    const unsubscribe = scope.subscribe(notified)
++
++    await expect(scope.set('enabled', false)).resolves.toBe(true)
++
++    expect(scope.getSnapshot()).toMatchObject({
++      status: 'ready',
++      revision: 5,
++      value: { enabled: false },
++      user: { enabled: false },
++    })
++    expect(fetchMock).toHaveBeenCalledTimes(2)
++    expect(notified).toHaveBeenCalledTimes(1)
++    unsubscribe()
++    scope.dispose()
++  })
++
++  it('user batches setting resets and receives the resulting account layer', async () => {
++    // Given account overrides, when resetting size and selecting a pet together, then the snapshot contains the returned account layer.
++    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
++      if (init?.method !== 'POST') {
++        return response(view(1, { ...base, size: 220, petId: 'otter' }, { size: 220, petId: 'otter' }))
++      }
++      const body = JSON.parse(String(init.body)) as { ops: unknown[] }
++      expect(body.ops).toEqual([
++        { op: 'unset', path: ['size'] },
++        { op: 'set', path: ['petId'], value: 'whale-girl' },
++      ])
++      return response(view(2, base, { petId: 'whale-girl' }))
++    })
++    vi.stubGlobal('fetch', fetchMock)
++
++    const scope = new PetAccountSettingsScope()
++    await vi.waitFor(() => expect(scope.getSnapshot().revision).toBe(1))
++    await scope.mutate([
++      { op: 'unset', path: ['size'] },
++      { op: 'set', path: ['petId'], value: 'whale-girl' },
++    ])
++
++    expect(scope.getSnapshot()).toMatchObject({
++      revision: 2,
++      value: base,
++      user: { petId: 'whale-girl' },
++    })
++    scope.dispose()
++  })
++
++  it('user sees a refused write and retries against the refreshed account revision', async () => {
++    // Given another editor changed the account before this form saved
++    let writes = 0
++    vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
++      if (init?.method !== 'POST') return response(view(writes === 0 ? 1 : 2))
++      writes += 1
++      if (writes === 1) return new Response('{}', { status: 409 })
++      expect(JSON.parse(String(init.body)).expectedRevision).toBe(2)
++      return response(view(3, { ...base, enabled: false }))
++    }))
++    const scope = new PetAccountSettingsScope()
++    await vi.waitFor(() => expect(scope.getSnapshot().revision).toBe(1))
++
++    // When the stale write is refused and the user saves again
++    await expect(scope.set('enabled', false)).resolves.toBe(false)
++    await expect(scope.set('enabled', false)).resolves.toBe(true)
++
++    // Then the accepted account snapshot is published with the new revision
++    expect(scope.getSnapshot()).toMatchObject({ revision: 3, value: { enabled: false } })
++    scope.dispose()
++  })
++
++})
+diff --git a/packages/dsh-pet/src/client/pet-settings-scope.ts b/packages/dsh-pet/src/client/pet-settings-scope.ts
+new file mode 100644
+index 00000000..5fa8a4fb
+--- /dev/null
++++ b/packages/dsh-pet/src/client/pet-settings-scope.ts
+@@ -0,0 +1,157 @@
++/**
++ * Account-scoped pet settings transport. The Host settings document remains
++ * the direct desktop account's composition input; browser edits use the pet
++ * API so a trusted gateway principal selects an independent account file.
++ */
++
++import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
++import type { SettingsPathOpView } from '@deepseek-ai/dsh-api-remotes/client'
++import type {
++  PetAccountSettingsView,
++  PetSettingsPathOp,
++  PetSettingsSection,
++} from '../service.ts'
++import type { PetSettings } from './PetSettingsCard.tsx'
++
++const SETTINGS_URL = '/api/pet/settings'
++const SETTINGS_MUTATE_URL = '/api/pet/settings/mutate'
++
++/** Convert one Host account view into the standard settings-scope snapshot. */
++function scopeSnapshot(view: PetAccountSettingsView): ConfigFormSnapshot<PetSettings> {
++  return {
++    status: 'ready',
++    value: view.value,
++    base: view.base,
++    user: view.user,
++    revision: view.revision,
++    writable: view.writable,
++    mode: 'host',
++  }
++}
++
++/** Require the account settings response fields used by the client. */
++function decodeView(value: unknown): PetAccountSettingsView {
++  if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid pet settings')
++  const row = value as Record<string, unknown>
++  if (
++    row.value === null || typeof row.value !== 'object' || Array.isArray(row.value)
++    || row.base === null || typeof row.base !== 'object' || Array.isArray(row.base)
++    || row.user === null || typeof row.user !== 'object' || Array.isArray(row.user)
++    || !Number.isSafeInteger(row.revision) || row.writable !== true
++  ) {
++    throw new Error('invalid pet settings')
++  }
++  return row as unknown as PetAccountSettingsView
++}
++
++/** An HTTP refusal requires a fresh account snapshot before another write. */
++class SettingsResponseError extends Error {}
++
++/** Fetch one account settings view. */
++async function fetchView(url: string = SETTINGS_URL, init?: RequestInit): Promise<PetAccountSettingsView> {
++  const response = await fetch(url, init)
++  if (!response.ok) throw new SettingsResponseError(`pet settings failed: ${response.status}`)
++  return decodeView(await response.json())
++}
++
++/** ConfigForm implementation backed by the principal-aware pet API. */
++export class PetAccountSettingsScope implements ConfigForm<PetSettings> {
++  private snapshot: ConfigFormSnapshot<PetSettings> = {
++    status: 'loading',
++    value: undefined,
++    base: undefined,
++    user: undefined,
++    revision: undefined,
++    writable: false,
++    mode: 'host',
++  }
++  private readonly listeners = new Set<() => void>()
++  private queue: Promise<void> = Promise.resolve()
++  private generation = 0
++  private disposed = false
++
++  constructor() {
++    void this.refresh()
++  }
++
++  getSnapshot(): ConfigFormSnapshot<PetSettings> {
++    return this.snapshot
++  }
++
++  subscribe(listener: () => void): () => void {
++    this.listeners.add(listener)
++    return () => { this.listeners.delete(listener) }
++  }
++
++  /** Reload the current account after a direct pet interaction or failed write. */
++  async refresh(): Promise<void> {
++    const generation = ++this.generation
++    try {
++      const view = await fetchView()
++      if (this.disposed || generation !== this.generation) return
++      this.publish(scopeSnapshot(view))
++    } catch {
++      if (this.disposed || generation !== this.generation) return
++      this.publish({ ...this.snapshot, status: this.snapshot.value === undefined ? 'unavailable' : 'ready' })
++    }
++  }
++
++  async set(field: string, value: unknown): Promise<boolean> {
++    return this.write([{ op: 'set', path: [field as keyof PetSettingsSection], value }])
++  }
++
++  async unset(field: string): Promise<boolean> {
++    return this.write([{ op: 'unset', path: [field as keyof PetSettingsSection] }])
++  }
++
++  /** Apply one atomic alpha.1 settings-scope mutation through the account endpoint. */
++  async mutate(ops: readonly SettingsPathOpView[], expectedRevision?: number): Promise<boolean> {
++    const accountOps: PetSettingsPathOp[] = ops.map((op) => {
++      if (op.path.length !== 1) throw new Error('invalid pet settings path')
++      const field = op.path[0] as keyof PetSettingsSection
++      return op.op === 'set'
++        ? { op: 'set', path: [field], value: op.value }
++        : { op: 'unset', path: [field] }
++    })
++    return this.write(accountOps, expectedRevision)
++  }
++
++  /** Stop publishing after the plugin fiber is disposed. */
++  dispose(): void {
++    this.disposed = true
++    this.generation += 1
++    this.listeners.clear()
++  }
++
++  private async write(ops: PetSettingsPathOp[], expectedRevision?: number): Promise<boolean> {
++    const run = async (): Promise<boolean> => {
++      const revision = expectedRevision ?? this.snapshot.revision
++      try {
++        const view = await fetchView(SETTINGS_MUTATE_URL, {
++          method: 'POST',
++          headers: { 'content-type': 'application/json' },
++          body: JSON.stringify({
++            ops,
++            ...(revision === undefined ? {} : { expectedRevision: revision }),
++          }),
++        })
++        if (this.disposed) return false
++        this.generation += 1
++        this.publish(scopeSnapshot(view))
++        return true
++      } catch (error) {
++        await this.refresh()
++        if (error instanceof SettingsResponseError) return false
++        throw error
++      }
++    }
++    const result = this.queue.then(run, run)
++    this.queue = result.then(() => {}, () => {})
++    return result
++  }
++
++  private publish(snapshot: ConfigFormSnapshot<PetSettings>): void {
++    this.snapshot = snapshot
++    for (const listener of this.listeners) listener()
++  }
++}
+diff --git a/packages/dsh-pet/src/index.test.ts b/packages/dsh-pet/src/index.test.ts
+index 25667332..877c6dc4 100644
+--- a/packages/dsh-pet/src/index.test.ts
++++ b/packages/dsh-pet/src/index.test.ts
+@@ -31,7 +31,7 @@ describe('pet configuration schema', () => {
+       right: 24,
+       bottom: 20,
+       bubbleScale: 1,
+-      enabled: true,
++      enabled: false,
+       decorationEnabled: true,
+     })
+   })
+@@ -91,7 +91,7 @@ describe('petSettingsSection', () => {
+       bottom: 20,
+       bubbleScale: 1,
+       petId: 'doro',
+-      enabled: true,
++      enabled: false,
+       decorationEnabled: true,
+     })
+   })
+diff --git a/packages/dsh-pet/src/index.ts b/packages/dsh-pet/src/index.ts
+index 39af5f57..4c26c271 100644
+--- a/packages/dsh-pet/src/index.ts
++++ b/packages/dsh-pet/src/index.ts
+@@ -24,8 +24,11 @@ import { mountOnce } from './mount-once.ts'
+ 
+ export { PetService, MAX_SESSION_BUBBLES } from './service.ts'
+ export type {
++  PetAccountScope,
++  PetAccountSettingsView,
+   PetConfig,
+   PetInteractResult,
++  PetSettingsPathOp,
+   PetSettingsSection,
+   PetSessionView,
+   PetStateView,
+@@ -83,7 +86,7 @@ export {
+   petHomeDir,
+   savePetPersist,
+ } from './persist.ts'
+-export type { PetDisplayConfig, PetPersist } from './persist.ts'
++export type { PetDisplayConfig, PetPersist, PetSettingField } from './persist.ts'
+ export {
+   DEFAULT_FRAME_COUNTS,
+   DEFAULT_PET_CELL,
+@@ -131,7 +134,7 @@ export const PET_FORM_DEFAULTS = {
+   bottom: 20,
+   bubbleScale: 1,
+   petId: DEFAULT_PET_ID,
+-  enabled: true,
++  enabled: false,
+   decorationEnabled: true,
+ } as const
+ 
+@@ -255,25 +258,14 @@ function applyImpl(ctx: Context, config: PetPluginConfig = {}): void {
+   // loads each pet's atlas from the registry's own media route (RPC domains
+   // are platform-registered, so the pet serves its own API — the same
+   // pattern as dsh-remote-web-ui's /api/pair family). The routes are
+-  // registered while the plugin is enabled; toggling the setting off makes
+-  // the pet API disappear until it is re-enabled.
++  // registered for the full plugin lifetime. The API must remain reachable
++  // when one account hides its pet so that another authenticated account can
++  // still load and update its independently persisted companion.
+   const routes = makePetRoutes({ service, ctx })
+-  let disposeRoutes: (() => void) | undefined
+-  const syncRoutes = (): void => {
+-    const enabled = current().enabled ?? true
+-    if (disposeRoutes === undefined && enabled) {
+-      disposeRoutes = ctx.effect(
+-        () => {
+-          const disposers = routes.map((route) => ctx.webServer.register(route))
+-          return () => { for (const dispose of disposers) dispose() }
+-        },
+-        'pet: routes',
+-      )
+-    } else if (disposeRoutes !== undefined && !enabled) {
+-      disposeRoutes()
+-      disposeRoutes = undefined
+-    }
+-  }
++  ctx.effect(() => {
++    const disposers = routes.map((route) => ctx.webServer.register(route))
++    return () => { for (const dispose of disposers) dispose() }
++  }, 'pet: routes')
+   // Apply the row's config to the running service: pet.json mirrors the live
+   // display the drag / hide / summon interactions write (see
+   // syncSettingsFromPet), so a section the settings surface never touched
+@@ -283,7 +275,6 @@ function applyImpl(ctx: Context, config: PetPluginConfig = {}): void {
+     const section = current()
+     service.applySettingsSection(section)
+     service.setEnabled(section.enabled ?? true)
+-    syncRoutes()
+   }
+   // A settings edit lands in this row's live config reference and is announced
+   // here; the entry is NOT remounted for it, so the pet applies the new section
+diff --git a/packages/dsh-pet/src/ledger.ts b/packages/dsh-pet/src/ledger.ts
+index 158cd6d3..cb30adbb 100644
+--- a/packages/dsh-pet/src/ledger.ts
++++ b/packages/dsh-pet/src/ledger.ts
+@@ -23,7 +23,7 @@ import {
+   type TreatConfig,
+ } from './treats.ts'
+ import { RemarkPicker, type PetRemarks } from './remarks.ts'
+-import type { PetDisplayConfig, PetPersist } from './persist.ts'
++import type { PetDisplayConfig, PetPersist, PetSettingField } from './persist.ts'
+ import type { PetGameplayState } from './gameplay.ts'
+ 
+ /** Tuning overrides for the affinity economy. */
+@@ -105,6 +105,26 @@ export class PetLedger {
+     this.dirty = true
+   }
+ 
++  /** Replace this account's pet master switch. */
++  setEnabled(enabled: boolean): void {
++    if (this.current.enabled === enabled) return
++    this.current = { ...this.current, enabled }
++    this.dirty = true
++  }
++
++  /** Replace this account's status-decoration switch. */
++  setDecorationEnabled(enabled: boolean): void {
++    if (this.current.decorationEnabled === enabled) return
++    this.current = { ...this.current, decorationEnabled: enabled }
++    this.dirty = true
++  }
++
++  /** Replace the explicit per-account setting-field markers. */
++  setSettingsOverrides(fields: readonly PetSettingField[]): void {
++    this.current = { ...this.current, settingsOverrides: [...fields] }
++    this.dirty = true
++  }
++
+   /** Replace the selected pet id (validation stays a caller concern). */
+   setPetId(petId: string): void {
+     if (this.current.petId === petId) return
+diff --git a/packages/dsh-pet/src/persist.test.ts b/packages/dsh-pet/src/persist.test.ts
+index 631342a8..2e33813e 100644
+--- a/packages/dsh-pet/src/persist.test.ts
++++ b/packages/dsh-pet/src/persist.test.ts
+@@ -18,6 +18,7 @@ import {
+   emptyPersist,
+   loadPetPersist,
+   savePetPersist,
++  type PetPersist,
+ } from './persist.ts'
+ 
+ function tempDir(): string {
+@@ -51,7 +52,10 @@ describe('loadPetPersist', () => {
+   it('round-trips a saved persist file', () => {
+     const dir = tempDir()
+     try {
+-      const data = {
++      const data: PetPersist = {
++        enabled: false,
++        decorationEnabled: false,
++        settingsOverrides: ['enabled', 'petId'],
+         petId: 'otter',
+         names: { otter: '泡泡', 'whale-girl': '鲸鱼娘' },
+         skins: { otter: 'lanhainishang' },
+diff --git a/packages/dsh-pet/src/persist.ts b/packages/dsh-pet/src/persist.ts
+index 60ab4d02..a8040499 100644
+--- a/packages/dsh-pet/src/persist.ts
++++ b/packages/dsh-pet/src/persist.ts
+@@ -34,6 +34,29 @@ export interface PetDisplayConfig {
+   bubbleScale: number
+ }
+ 
++/** Pet settings fields that may carry an explicit per-account override. */
++export type PetSettingField =
++  | 'enabled'
++  | 'decorationEnabled'
++  | 'visible'
++  | 'size'
++  | 'right'
++  | 'bottom'
++  | 'bubbleScale'
++  | 'petId'
++
++/** Closed setting-field set used to sanitize persisted override markers. */
++export const PET_SETTING_FIELDS: ReadonlySet<PetSettingField> = new Set([
++  'enabled',
++  'decorationEnabled',
++  'visible',
++  'size',
++  'right',
++  'bottom',
++  'bubbleScale',
++  'petId',
++])
++
+ export const defaultDisplayConfig: PetDisplayConfig = {
+   visible: true,
+   size: 160,
+@@ -85,6 +108,12 @@ export function bubbleScaleFor(display: Pick<PetDisplayConfig, 'size'> & { bubbl
+ 
+ /** Everything persisted for the pet. */
+ export interface PetPersist {
++  /** Whether this account renders and updates its pet. */
++  enabled: boolean
++  /** Whether this account renders status decorations. */
++  decorationEnabled: boolean
++  /** Fields explicitly written for this account; omitted fields inherit defaults. */
++  settingsOverrides: PetSettingField[]
+   /** Selected pet id (a registry entry; clamped at service startup). */
+   petId: string
+   /**
+@@ -111,6 +140,9 @@ export const PET_NAME_MAX_LENGTH = 20
+ 
+ export function emptyPersist(): PetPersist {
+   return {
++    enabled: true,
++    decorationEnabled: true,
++    settingsOverrides: [],
+     petId: DEFAULT_PET_ID,
+     names: {},
+     skins: {},
+@@ -258,6 +290,13 @@ export function loadPetPersist(dir: string = petHomeDir()): PetPersist {
+       names[petId] = parsed.name.trim().slice(0, PET_NAME_MAX_LENGTH)
+     }
+     return {
++      enabled: typeof parsed.enabled === 'boolean' ? parsed.enabled : true,
++      decorationEnabled: typeof parsed.decorationEnabled === 'boolean' ? parsed.decorationEnabled : true,
++      settingsOverrides: Array.isArray(parsed.settingsOverrides)
++        ? [...new Set(parsed.settingsOverrides.filter(
++            (field): field is PetSettingField => typeof field === 'string' && PET_SETTING_FIELDS.has(field as PetSettingField),
++          ))]
++        : [],
+       petId,
+       names,
+       skins: loadPetSkins(parsed),
+diff --git a/packages/dsh-pet/src/routes.ts b/packages/dsh-pet/src/routes.ts
+index 268687ae..8607594b 100644
+--- a/packages/dsh-pet/src/routes.ts
++++ b/packages/dsh-pet/src/routes.ts
+@@ -18,7 +18,12 @@ import { join, sep } from 'node:path'
+ import type { IncomingMessage, ServerResponse } from 'node:http'
+ import type { Context } from '@deepseek-ai/cordis'
+ import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
+-import type { PetService } from './service.ts'
++import type {
++  PetAccountScope,
++  PetService,
++  PetSettingsPathOp,
++  PetSettingsSection,
++} from './service.ts'
+ import type { PetInteraction } from './affinity.ts'
+ import { DECORATION_ASSET_PREFIX, petEntryView, petPackageRoot, type PetEntry, type PetRegistry } from './registry.ts'
+ import { isPetAllowed } from './access.ts'
+@@ -141,15 +146,63 @@ function guard(ctx: Context, req: IncomingMessage, res: ServerResponse): boolean
+   return false
+ }
+ 
+-/** Wrap one async service call as a GET JSON route (request passed through for query params). */
+-function getRoute(ctx: Context, path: string, run: (req: IncomingMessage) => Promise<unknown>): WebRoute {
++/** Optional trusted identity adapter supplied by dsh-passwords. */
++interface RequestPrincipalAdapter {
++  authenticate(request: Request): { source: string; id: string } | undefined
++}
++
++/** A successfully authorized API request and its optional account identity. */
++interface PetApiAccess {
++  scope?: PetAccountScope
++}
++
++/** Resolve a signed account assertion without trusting browser-supplied identity fields. */
++function apiAccess(ctx: Context, req: IncomingMessage, res: ServerResponse): PetApiAccess | undefined {
++  if (!guard(ctx, req, res)) return undefined
++  const principalHeader = req.headers['x-dsh-principal']
++  const signatureHeader = req.headers['x-dsh-principal-signature']
++  const hasAssertion = principalHeader !== undefined || signatureHeader !== undefined
++  const candidate = ctx.get('requestPrincipal', false) as Partial<RequestPrincipalAdapter> | undefined
++  const adapter = typeof candidate?.authenticate === 'function'
++    ? candidate as RequestPrincipalAdapter
++    : undefined
++  if (adapter === undefined) {
++    if (hasAssertion) {
++      writeJson(res, 403, { ok: false, error: 'unverified-account-identity' })
++      return undefined
++    }
++    return {}
++  }
++  const headers = new Headers()
++  for (const [name, value] of Object.entries(req.headers)) {
++    if (typeof value === 'string') headers.set(name, value)
++    else if (Array.isArray(value)) {
++      for (const item of value) headers.append(name, item)
++    }
++  }
++  try {
++    const principal = adapter.authenticate(new Request('http://pet.local/', { headers }))
++    return principal === undefined ? {} : { scope: { source: principal.source, id: principal.id } }
++  } catch {
++    writeJson(res, 403, { ok: false, error: 'invalid-account-identity' })
++    return undefined
++  }
++}
++
++/** Wrap one async service call as a GET JSON route with request and account context. */
++function getRoute(
++  ctx: Context,
++  path: string,
++  run: (req: IncomingMessage, scope?: PetAccountScope) => Promise<unknown>,
++): WebRoute {
+   return {
+     kind: 'exact',
+     path,
+     handler: (req: IncomingMessage, res: ServerResponse): void => {
+-      if (!guard(ctx, req, res)) return
++      const access = apiAccess(ctx, req, res)
++      if (access === undefined) return
+       if (!requireMethod(req, res, 'GET')) return
+-      run(req).then((value) => writeJson(res, 200, value), (error) => {
++      run(req, access.scope).then((value) => writeJson(res, 200, value), (error) => {
+         writeJson(res, 500, { ok: false, error: error instanceof Error ? error.message : String(error) })
+       })
+     },
+@@ -157,12 +210,17 @@ function getRoute(ctx: Context, path: string, run: (req: IncomingMessage) => Pro
+ }
+ 
+ /** Wrap one async service call as a POST JSON route (body passed through). */
+-function postRoute(ctx: Context, path: string, run: (body: Record<string, unknown>) => Promise<unknown>): WebRoute {
++function postRoute(
++  ctx: Context,
++  path: string,
++  run: (body: Record<string, unknown>, scope?: PetAccountScope) => Promise<unknown>,
++): WebRoute {
+   return {
+     kind: 'exact',
+     path,
+     handler: (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+-      if (!guard(ctx, req, res)) return Promise.resolve()
++      const access = apiAccess(ctx, req, res)
++      if (access === undefined) return Promise.resolve()
+       if (!requireMethod(req, res, 'POST')) return Promise.resolve()
+       // Shared lenient reader (64 KiB cap): an empty body yields null and is
+       // restored to {} at the call site (legacy empty-body semantics); invalid
+@@ -171,7 +229,7 @@ function postRoute(ctx: Context, path: string, run: (body: Record<string, unknow
+       return readJsonBody(req, { maxBytes: 64 * 1024 }).then((parsed) => {
+         const payload = parsed ?? {}
+         const record = (typeof payload === 'object' && payload !== null) ? payload as Record<string, unknown> : {}
+-        return run(record).then(
++        return run(record, access.scope).then(
+           (value) => writeJson(res, 200, value),
+           (error) => {
+             writeJson(res, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
+@@ -184,6 +242,45 @@ function postRoute(ctx: Context, path: string, run: (body: Record<string, unknow
+   }
+ }
+ 
++const PET_SETTINGS_FIELDS = new Set<keyof PetSettingsSection>([
++  'enabled',
++  'decorationEnabled',
++  'visible',
++  'size',
++  'right',
++  'bottom',
++  'bubbleScale',
++  'petId',
++])
++
++/** Parse the account settings endpoint's one-level path operations. */
++function settingsOps(body: Record<string, unknown>): PetSettingsPathOp[] {
++  if (!Array.isArray(body.ops) || body.ops.length === 0 || body.ops.length > PET_SETTINGS_FIELDS.size) {
++    throw new Error('invalid-settings-ops')
++  }
++  const ops: PetSettingsPathOp[] = []
++  const fields = new Set<keyof PetSettingsSection>()
++  for (const value of body.ops) {
++    if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid-settings-op')
++    const row = value as Record<string, unknown>
++    if (!Array.isArray(row.path) || row.path.length !== 1 || typeof row.path[0] !== 'string') {
++      throw new Error('invalid-settings-path')
++    }
++    const field = row.path[0] as keyof PetSettingsSection
++    if (!PET_SETTINGS_FIELDS.has(field)) throw new Error('invalid-settings-field')
++    if (fields.has(field)) throw new Error('duplicate-settings-field')
++    fields.add(field)
++    if (row.op === 'unset') {
++      ops.push({ op: 'unset', path: [field] })
++    } else if (row.op === 'set') {
++      ops.push({ op: 'set', path: [field], value: row.value })
++    } else {
++      throw new Error('invalid-settings-op')
++    }
++  }
++  return ops
++}
++
+ /** Legacy URL aliases: each entry's directory basename (e.g. 'whale'). */
+ function dirAliases(registry: PetRegistry): Map<string, PetEntry> {
+   const aliases = new Map<string, PetEntry>()
+@@ -574,65 +671,82 @@ function decorationHandler(ctx: Context, registry: PetRegistry, caps: PetAssetCa
+ export function makePetRoutes(deps: { service: PetService; ctx: Context; assetCaps?: PetAssetCaps } & PetRuntimeRoots): WebRoute[] {
+   const { service, ctx } = deps
+   const apiRoutes: WebRoute[] = [
+-    getRoute(ctx, PET_API_PREFIX + '/state', (req) => {
++    getRoute(ctx, PET_API_PREFIX + '/state', (req, scope) => {
+       // The browser half reports the GUI's current session id so the bubble
+       // stack can lead with the session the user is actually looking at.
+       const current = new URL(req.url ?? '/', 'http://pet.local').searchParams.get('current')
+-      return service.state(current === null || current === '' ? undefined : current)
++      return service.state(current === null || current === '' ? undefined : current, scope)
+     }),
+     getRoute(ctx, PET_API_PREFIX + '/pets', () => service.pets()),
+     getRoute(ctx, PET_API_PREFIX + '/diagnostics', () => service.diagnostics()),
+-    postRoute(ctx, PET_API_PREFIX + '/interact', (body) => {
++    getRoute(ctx, PET_API_PREFIX + '/settings', (_req, scope) => Promise.resolve(service.accountSettings(scope))),
++    postRoute(ctx, PET_API_PREFIX + '/settings/mutate', (body, scope) => {
++      const expectedRevision = body.expectedRevision
++      if (!Number.isSafeInteger(expectedRevision) || (expectedRevision as number) < 0) {
++        return Promise.reject(new Error('invalid-settings-revision'))
++      }
++      try {
++        return Promise.resolve(service.mutateAccountSettings(
++          settingsOps(body),
++          expectedRevision as number,
++          scope,
++        ))
++      } catch (error) {
++        return Promise.reject(error)
++      }
++    }),
++    postRoute(ctx, PET_API_PREFIX + '/interact', (body, scope) => {
+       const kind = body.kind as PetInteraction | undefined
+       if (kind !== 'pet' && kind !== 'feed') return Promise.reject(new Error('invalid-kind'))
+-      return service.interact(kind)
++      return service.interact(kind, scope)
+     }),
+-    postRoute(ctx, PET_API_PREFIX + '/set-visible', (body) => {
++    postRoute(ctx, PET_API_PREFIX + '/set-visible', (body, scope) => {
+       const visible = body.visible
+       if (typeof visible !== 'boolean') return Promise.reject(new Error('invalid-visible'))
+-      return service.setVisible(visible)
++      return service.setVisible(visible, scope)
+     }),
+-    postRoute(ctx, PET_API_PREFIX + '/set-config', (body) => service.setConfig({
++    postRoute(ctx, PET_API_PREFIX + '/set-config', (body, scope) => service.setConfig({
+       ...(typeof body.size === 'number' ? { size: body.size } : {}),
+       ...(typeof body.right === 'number' ? { right: body.right } : {}),
+       ...(typeof body.bottom === 'number' ? { bottom: body.bottom } : {}),
++      ...(typeof body.bubbleScale === 'number' ? { bubbleScale: body.bubbleScale } : {}),
+       ...(typeof body.visible === 'boolean' ? { visible: body.visible } : {}),
+-    })),
+-    postRoute(ctx, PET_API_PREFIX + '/set-name', (body) => {
++    }, scope)),
++    postRoute(ctx, PET_API_PREFIX + '/set-name', (body, scope) => {
+       const name = body.name
+       if (typeof name !== 'string') return Promise.reject(new Error('invalid-name'))
+-      return service.setName(name)
++      return service.setName(name, scope)
+     }),
+-    postRoute(ctx, PET_API_PREFIX + '/set-skin', (body) => {
++    postRoute(ctx, PET_API_PREFIX + '/set-skin', (body, scope) => {
+       const skin = body.skin
+       if (skin !== undefined && typeof skin !== 'string') return Promise.reject(new Error('invalid-skin'))
+-      return service.setSkin(skin === undefined || skin === '' ? undefined : skin)
++      return service.setSkin(skin === undefined || skin === '' ? undefined : skin, scope)
+     }),
+-    postRoute(ctx, PET_API_PREFIX + '/set-pet', (body) => {
++    postRoute(ctx, PET_API_PREFIX + '/set-pet', (body, scope) => {
+       const petId = body.petId
+       if (typeof petId !== 'string') return Promise.reject(new Error('invalid-pet'))
+-      return service.setPetId(petId)
++      return service.setPetId(petId, scope)
+     }),
+     // Gameplay verbs (miku-pet generalization): touch rolls a named zone's
+     // branch; the omitted-zone form is the plain-click boost during a touch
+     // animation. Mode/tick/buy drive the work, sleep and shop loops.
+-    postRoute(ctx, PET_API_PREFIX + '/gameplay/touch', (body) => {
++    postRoute(ctx, PET_API_PREFIX + '/gameplay/touch', (body, scope) => {
+       const zone = body.zone
+       if (zone !== undefined && typeof zone !== 'string') return Promise.reject(new Error('invalid-zone'))
+-      return service.gameplayTouch(zone)
++      return service.gameplayTouch(zone, scope)
+     }),
+-    postRoute(ctx, PET_API_PREFIX + '/gameplay/mode', (body) => {
++    postRoute(ctx, PET_API_PREFIX + '/gameplay/mode', (body, scope) => {
+       const mode = body.mode
+       // The id is checked against the pet's own mode set in the service (work,
+       // sleep, or any declared 'modes' entry).
+       if (mode !== null && typeof mode !== 'string') return Promise.reject(new Error('invalid-mode'))
+-      return service.gameplaySetMode(mode)
++      return service.gameplaySetMode(mode, scope)
+     }),
+-    postRoute(ctx, PET_API_PREFIX + '/gameplay/work-tick', () => service.gameplayWorkTick()),
+-    postRoute(ctx, PET_API_PREFIX + '/gameplay/buy', (body) => {
++    postRoute(ctx, PET_API_PREFIX + '/gameplay/work-tick', (_body, scope) => service.gameplayWorkTick(scope)),
++    postRoute(ctx, PET_API_PREFIX + '/gameplay/buy', (body, scope) => {
+       const item = body.item
+       if (typeof item !== 'string') return Promise.reject(new Error('invalid-item'))
+-      return service.gameplayBuy(item)
++      return service.gameplayBuy(item, scope)
+     }),
+   ]
+ 
+diff --git a/packages/dsh-pet/src/service.ts b/packages/dsh-pet/src/service.ts
+index 4d6c4e08..d976e260 100644
+--- a/packages/dsh-pet/src/service.ts
++++ b/packages/dsh-pet/src/service.ts
+@@ -2,9 +2,9 @@
+  * Pet host service — the `pet.*` RPC domain. A composition facade: it wires
+  * the pure event projection (`event-projection`) onto the state machine,
+  * delegates the affinity economy to the ledger (`ledger`), and routes
+- * persistence through `persist`. The API gateway maps these methods onto
+- * `pet.state` / `pet.pets` / `pet.interact` / `pet.setVisible` /
+- * `pet.setConfig` / `pet.setName` / `pet.setPet` for browser consumers.
++ * persistence through `persist`. The HTTP routes map these methods onto the
++ * same-origin `/api/pet/*` surface and select an account from a verified
++ * request principal when one is present.
+  *
+  * Concurrent sessions each keep their own machine: the sprite animation
+  * follows the most recent meaningful event (the display session) while the
+@@ -15,6 +15,9 @@
+ import { Context, Service } from '@deepseek-ai/cordis'
+ import type { AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
+ import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
++import { createHash } from 'node:crypto'
++import { existsSync } from 'node:fs'
++import { join } from 'node:path'
+ import type { AffinityConfig, PetAffinityView, PetInteraction } from './affinity.ts'
+ import { announcementFresh, parseAnnouncement, type PetAnnouncement } from './announce.ts'
+ import type { TreatConfig } from './treats.ts'
+@@ -35,10 +38,12 @@ import {
+   BUBBLE_SCALE_MIN,
+   DISPLAY_SIZE_MIN,
+   PET_NAME_MAX_LENGTH,
++  emptyPersist,
+   loadPetPersist,
+   petHomeDir,
+   savePetPersist,
+   type PetDisplayConfig,
++  type PetSettingField,
+ } from './persist.ts'
+ import {
+   DEFAULT_DECORATION_ID,
+@@ -86,7 +91,7 @@ export interface PetConfig {
+   treats?: Partial<TreatConfig>
+   /** Persistence directory override (defaults to $DSH_HOME). */
+   persistDir?: string
+-  /** Master switch for the plugin (browser half + host routes). */
++  /** Master switch for the direct desktop account's browser companion. */
+   enabled?: boolean
+   /** Status-decoration master switch (pet-center M5, #567); defaults to on. */
+   decorationEnabled?: boolean
+@@ -116,7 +121,7 @@ export interface PetSettingsSection {
+   bottom: number
+   /** Bubble typography multiplier (#1549); see PetDisplayConfig. */
+   bubbleScale?: number
+-  /** Master switch for the plugin (browser half + host routes). */
++  /** Master switch for this account's browser companion. */
+   enabled?: boolean
+   /**
+    * Status-decoration master switch (pet-center M5, #567). Defaults to on;
+@@ -125,6 +130,33 @@ export interface PetSettingsSection {
+   decorationEnabled?: boolean
+ }
+ 
++/** Stable authenticated account identity supplied by a trusted Host adapter. */
++export interface PetAccountScope {
++  /** Identity issuer, such as `dsh-passwords`. */
++  source: string
++  /** Issuer-local immutable account id. */
++  id: string
++}
++
++/** One account-settings path mutation accepted by the pet API. */
++export type PetSettingsPathOp =
++  | { op: 'set'; path: [keyof PetSettingsSection]; value: unknown }
++  | { op: 'unset'; path: [keyof PetSettingsSection] }
++
++/** Account-scoped settings view consumed by the browser settings card. */
++export interface PetAccountSettingsView {
++  /** Resolved values for this account. */
++  value: PetSettingsSection
++  /** Values restored by a field reset. */
++  base: PetSettingsSection
++  /** Explicit account layer; omitted fields inherit {@link base}. */
++  user: Partial<PetSettingsSection>
++  /** In-process optimistic-concurrency revision. */
++  revision: number
++  /** Account files are writable while the pet service is running. */
++  writable: true
++}
++
+ /** Settings namespace of the pet capability. Spelled here rather than imported: the browser half spells the same value. */
+ export const PET_SETTINGS_NAMESPACE = 'pet'
+ 
+@@ -260,6 +292,13 @@ interface SessionActivity {
+   }
+ }
+ 
++/** One independently persisted account companion. */
++interface PetAccountState {
++  ledger: PetLedger
++  persistDir: string
++  revision: number
++}
++
+ /**
+  * Cordis service exposing the pet RPC domain. Lazy: nothing is scanned or
+  * written until an economic event or interaction arrives; event listeners
+@@ -270,13 +309,14 @@ export class PetService extends Service {
+   static inject: string[] = []
+ 
+   private readonly machine: PetStateMachine
++  private readonly accountIdleSnapshot: PetStateSnapshot
+   private readonly stateConfig: PetStateConfig
+-  private readonly ledger: PetLedger
++  private readonly localAccount: PetAccountState
++  private readonly localSettingsBase: PetSettingsSection
++  private readonly accounts = new Map<string, PetAccountState>()
++  private readonly ledgerConfig: Omit<LedgerConfig, 'remarks'>
+   private readonly registry: PetRegistry
+   private readonly persistDir: string
+-  private enabled: boolean
+-  /** Status-decoration master switch (M5, #567); mirrored from settings. */
+-  private decorationEnabled: boolean
+   /** The freshest plugin-authored announcement (dsh-usage linkage). */
+   private announcement: PetAnnouncement | undefined
+   private disposeActivity: (() => void) | undefined
+@@ -312,6 +352,10 @@ export class PetService extends Service {
+     if (this.registry.entries.length === 0) {
+       throw new Error('[dsh-pet] no valid pet manifests found; nothing to render')
+     }
++    this.ledgerConfig = {
++      affinity: config.affinity,
++      treats: config.treats,
++    }
+     let persist = loadPetPersist(this.persistDir)
+     if (this.registry.byId(persist.petId) === undefined) {
+       // The selected pet no longer exists (removed or a fresh install with a
+@@ -320,21 +364,93 @@ export class PetService extends Service {
+     }
+     const selected = this.registry.byId(persist.petId) ?? this.registry.defaultEntry()
+     const voiceRemarks = mergeVoicePacks(this.registry.globalVoice, selected.voice)?.remarks
+-    const ledgerConfig: LedgerConfig = {
+-      affinity: config.affinity,
+-      treats: config.treats,
+-      remarks: selected.remarks,
+-      voiceRemarks,
++    persist = {
++      ...persist,
++      enabled: config.enabled ?? persist.enabled,
++      decorationEnabled: config.decorationEnabled ?? persist.decorationEnabled,
++    }
++    this.localAccount = {
++      ledger: new PetLedger(persist, { ...this.ledgerConfig, remarks: selected.remarks, voiceRemarks }),
++      persistDir: this.persistDir,
++      revision: 0,
+     }
+-    this.ledger = new PetLedger(persist, ledgerConfig)
++    this.localSettingsBase = this.accountSection(this.localAccount)
+     this.stateConfig = { ...defaultPetStateConfig, ...(config.state ?? {}) }
+     this.machine = new PetStateMachine(this.stateConfig)
+-    this.enabled = config.enabled ?? true
+-    this.decorationEnabled = config.decorationEnabled ?? true
+-
++    this.accountIdleSnapshot = new PetStateMachine(this.stateConfig).render()
+     this.syncActivity()
+   }
+ 
++  /** Map one authenticated issuer/id pair onto an opaque storage directory. */
++  private accountIdentity(scope: PetAccountScope): { key: string; dir: string } {
++    const key = `${scope.source}\u0000${scope.id}`
++    const digest = createHash('sha256').update(key, 'utf8').digest('hex')
++    return { key, dir: join(this.persistDir, 'pet-accounts', digest) }
++  }
++
++  /** Resolve one account companion; a new principal starts disabled and direct Host access keeps the legacy root file. */
++  private account(scope?: PetAccountScope): PetAccountState {
++    if (scope === undefined) return this.localAccount
++    const identity = this.accountIdentity(scope)
++    const cached = this.accounts.get(identity.key)
++    if (cached !== undefined) return cached
++    let persist = existsSync(join(identity.dir, 'pet.json'))
++      ? loadPetPersist(identity.dir)
++      : { ...emptyPersist(), enabled: false }
++    if (this.registry.byId(persist.petId) === undefined) {
++      persist = { ...persist, petId: this.registry.defaultEntry().id }
++    }
++    const selected = this.registry.byId(persist.petId) ?? this.registry.defaultEntry()
++    const voiceRemarks = mergeVoicePacks(this.registry.globalVoice, selected.voice)?.remarks
++    const account: PetAccountState = {
++      ledger: new PetLedger(persist, { ...this.ledgerConfig, remarks: selected.remarks, voiceRemarks }),
++      persistDir: identity.dir,
++      revision: 0,
++    }
++    this.accounts.set(identity.key, account)
++    return account
++  }
++
++  /** Default account values restored by settings-card resets. */
++  private accountBase(scope?: PetAccountScope): PetSettingsSection {
++    if (scope === undefined) return { ...this.localSettingsBase }
++    const defaults = emptyPersist()
++    return {
++      enabled: false,
++      decorationEnabled: defaults.decorationEnabled,
++      visible: defaults.display.visible,
++      size: defaults.display.size,
++      right: defaults.display.right,
++      bottom: defaults.display.bottom,
++      bubbleScale: defaults.display.bubbleScale,
++      petId: this.registry.defaultEntry().id,
++    }
++  }
++
++  /** Project one account ledger onto the browser settings section. */
++  private accountSection(account: PetAccountState): PetSettingsSection {
++    const snapshot = account.ledger.snapshot
++    return {
++      enabled: snapshot.enabled,
++      decorationEnabled: snapshot.decorationEnabled,
++      visible: snapshot.display.visible,
++      size: snapshot.display.size,
++      right: snapshot.display.right,
++      bottom: snapshot.display.bottom,
++      bubbleScale: snapshot.display.bubbleScale,
++      petId: snapshot.petId,
++    }
++  }
++
++  /** Project only explicitly written fields as the settings user layer. */
++  private accountUser(account: PetAccountState, value: PetSettingsSection): Partial<PetSettingsSection> {
++    const user: Partial<PetSettingsSection> = {}
++    for (const field of account.ledger.snapshot.settingsOverrides) {
++      Object.assign(user, { [field]: value[field] })
++    }
++    return user
++  }
++
+   /**
+    * The draw-time voice-pool provider handed to every projection runtime.
+    * It re-resolves when the selected pet changes, so live engines re-voice
+@@ -354,12 +470,23 @@ export class PetService extends Service {
+ 
+   /** Whether the pet service consumes session activity while enabled. */
+   isEnabled(): boolean {
+-    return this.enabled
++    return this.localAccount.ledger.snapshot.enabled
+   }
+ 
+   /** RPC: current pet state snapshot. */
+-  async state(currentSessionId?: string): Promise<PetStateView> {
+-    return this.view(currentSessionId)
++  async state(scope?: PetAccountScope): Promise<PetStateView>
++  async state(currentSessionId?: string, scope?: PetAccountScope): Promise<PetStateView>
++  async state(
++    currentSessionIdOrScope?: string | PetAccountScope,
++    scope?: PetAccountScope,
++  ): Promise<PetStateView> {
++    const currentSessionId = typeof currentSessionIdOrScope === 'string'
++      ? currentSessionIdOrScope
++      : undefined
++    const accountScope = typeof currentSessionIdOrScope === 'object'
++      ? currentSessionIdOrScope
++      : scope
++    return this.view(currentSessionId, accountScope)
+   }
+ 
+   /**
+@@ -376,8 +503,8 @@ export class PetService extends Service {
+   }
+ 
+   /** Current persisted display config (read-only view). */
+-  display(): PetDisplayConfig {
+-    return { ...this.ledger.snapshot.display }
++  display(scope?: PetAccountScope): PetDisplayConfig {
++    return { ...this.account(scope).ledger.snapshot.display }
+   }
+ 
+   /** RPC: the registry entries the browser half renders and selects from. */
+@@ -399,44 +526,53 @@ export class PetService extends Service {
+    * The active status decoration view (M5, #567): the default 'whale' entry
+    * (user directories override built-ins by id), gated by the master switch.
+    */
+-  private activeDecoration(): DecorationView | undefined {
+-    if (!this.decorationEnabled) return undefined
++  private activeDecoration(scope?: PetAccountScope): DecorationView | undefined {
++    if (!this.account(scope).ledger.snapshot.decorationEnabled) return undefined
+     const entry = this.registry.decorationById?.(DEFAULT_DECORATION_ID)
+     return entry === undefined ? undefined : decorationView(entry)
+   }
+ 
+   /** The selected pet's registry entry. */
+-  activeEntry(): NonNullable<PetRegistry['entries'][number]> {
+-    return this.registry.byId(this.selectedPetId()) ?? this.registry.defaultEntry()
++  activeEntry(scope?: PetAccountScope): NonNullable<PetRegistry['entries'][number]> {
++    return this.registry.byId(this.selectedPetId(scope)) ?? this.registry.defaultEntry()
+   }
+ 
+   /** Currently selected pet id (persisted). */
+-  selectedPetId(): string {
+-    return this.ledger.snapshot.petId
++  selectedPetId(scope?: PetAccountScope): string {
++    return this.account(scope).ledger.snapshot.petId
+   }
+ 
+   /** The display name of one pet (user rename or manifest displayName). */
+-  petName(petId: string = this.selectedPetId()): string {
+-    const stored = this.ledger.snapshot.names[petId]
++  petName(petId?: string, scope?: PetAccountScope): string {
++    const account = this.account(scope)
++    const selectedPetId = petId ?? account.ledger.snapshot.petId
++    const stored = account.ledger.snapshot.names[selectedPetId]
+     if (stored !== undefined && stored.trim() !== '') return stored
+-    return this.registry.byId(petId)?.displayName ?? DEFAULT_PET_NAME
++    return this.registry.byId(selectedPetId)?.displayName ?? DEFAULT_PET_NAME
+   }
+ 
+   /** RPC: switch the selected pet (persisted, settings document mirrored). */
+-  async setPetId(petId: string): Promise<{ ok: true; petId: string } | { ok: false; error: string }> {
++  async setPetId(petId: string, scope?: PetAccountScope): Promise<{ ok: true; petId: string } | { ok: false; error: string }> {
+     const entry = this.registry.byId(petId)
+     if (entry === undefined) return { ok: false, error: 'unknown-pet' }
+-    this.ledger.setPetId(entry.id)
++    const account = this.account(scope)
++    account.ledger.setPetId(entry.id)
+     const voiceRemarks = mergeVoicePacks(this.registry.globalVoice, entry.voice)?.remarks
+-    this.ledger.setRemarks(entry.remarks, voiceRemarks)
+-    this.flush()
+-    this.syncSettingsFromPet()
++    account.ledger.setRemarks(entry.remarks, voiceRemarks)
++    account.ledger.setSettingsOverrides([
++      ...new Set([...account.ledger.snapshot.settingsOverrides, 'petId' as PetSettingField]),
++    ])
++    account.revision += 1
++    this.flush(account)
++    if (scope === undefined) this.syncSettingsFromPet()
+     return { ok: true, petId: entry.id }
+   }
+ 
+   /** Start or stop the session-activity listeners that drive the pet. */
+   setEnabled(enabled: boolean): void {
+-    this.enabled = enabled
++    this.localAccount.ledger.setEnabled(enabled)
++    this.localAccount.revision += 1
++    this.flush(this.localAccount)
+     this.syncActivity()
+     if (!enabled) this.resetActivity()
+   }
+@@ -446,7 +582,7 @@ export class PetService extends Service {
+       this.disposeActivity()
+       this.disposeActivity = undefined
+     }
+-    if (!this.enabled) return
++    if (!this.localAccount.ledger.snapshot.enabled) return
+     this.disposeActivity = (() => {
+       const disposers = [
+         this.ctx.on('session/event', (session: Session, event: SessionEvent) => {
+@@ -490,7 +626,7 @@ export class PetService extends Service {
+           this.applyActivity(session, transition.input, transition.whisper)
+         }),
+         this.ctx.on('session/disposed', (session: Session) => {
+-          this.ledger.forgetSession(String(session.id))
++          this.localAccount.ledger.forgetSession(String(session.id))
+           this.officialEventSessions.delete(session)
+           this.sessionActivity.delete(session)
+           if (session !== this.displaySession) return
+@@ -561,10 +697,11 @@ export class PetService extends Service {
+   }
+ 
+   /** RPC: pet or feed the pet. */
+-  async interact(kind: PetInteraction): Promise<PetInteractResult> {
++  async interact(kind: PetInteraction, scope?: PetAccountScope): Promise<PetInteractResult> {
+     const nowMs = Date.now()
+-    const result = this.ledger.interact(kind, nowMs)
+-    if (this.ledger.takeDirty()) this.flush()
++    const account = this.account(scope)
++    const result = account.ledger.interact(kind, nowMs)
++    if (account.ledger.takeDirty()) this.flush(account)
+     return result
+   }
+ 
+@@ -575,15 +712,21 @@ export class PetService extends Service {
+    * ---------------------------------------------------------------- */
+ 
+   /** The active pet's gameplay block, if it declares one. */
+-  private gameplayDef(): PetGameplayManifest | undefined {
+-    return this.activeEntry().gameplay
++  private gameplayDef(scope?: PetAccountScope): PetGameplayManifest | undefined {
++    return this.activeEntry(scope).gameplay
+   }
+ 
+   /** The persisted (or fresh) gameplay state of the selected pet. */
+-  private gameplayState(def: PetGameplayManifest, now: number): { petId: string; state: PetGameplayState } {
+-    const petId = this.selectedPetId()
+-    const stored = this.ledger.snapshot.gameplay[petId]
++  private gameplayState(
++    def: PetGameplayManifest,
++    now: number,
++    scope?: PetAccountScope,
++  ): { account: PetAccountState; petId: string; state: PetGameplayState } {
++    const account = this.account(scope)
++    const petId = account.ledger.snapshot.petId
++    const stored = account.ledger.snapshot.gameplay[petId]
+     return {
++      account,
+       petId,
+       state: stored === undefined
+         ? initialGameplayState(def, now)
+@@ -597,7 +740,7 @@ export class PetService extends Service {
+   }
+ 
+   /** Display view of one gameplay state (rounded stats; treats ride the shared treat ledger). */
+-  private gameplayViewOf(state: PetGameplayState): PetGameplayStateView {
++  private gameplayViewOf(state: PetGameplayState, def: PetGameplayManifest): PetGameplayStateView {
+     const stats: Record<string, number> = {}
+     for (const [name, value] of Object.entries(state.stats)) stats[name] = Math.round(value)
+     // A persisted mode the manifest no longer declares (a pet.json edit after
+@@ -605,8 +748,7 @@ export class PetService extends Service {
+     // latch a mode it cannot resolve: the mode chip prints a raw i18n key, and
+     // the client's roam roll — suppressed while any mode is active — would
+     // never fire again.
+-    const def = this.gameplayDef()
+-    const mode = state.mode !== null && def !== undefined && !isDeclaredMode(def, state.mode) ? null : state.mode
++    const mode = state.mode !== null && !isDeclaredMode(def, state.mode) ? null : state.mode
+     return { stats, mode }
+   }
+ 
+@@ -616,58 +758,59 @@ export class PetService extends Service {
+    * the stock cap. The engine keeps its generic currency record for settle
+    * math; this drain is the only bridge to the wallet-free economy.
+    */
+-  private drainGameplayTreats(state: PetGameplayState): void {
++  private drainGameplayTreats(state: PetGameplayState, account: PetAccountState): void {
+     const pending = Math.floor(state.currencies[GAMEPLAY_TREATS_CURRENCY] ?? 0)
+     delete state.currencies[GAMEPLAY_TREATS_CURRENCY]
+-    if (pending > 0) this.ledger.grantTreats(pending)
++    if (pending > 0) account.ledger.grantTreats(pending)
+   }
+ 
+   /** Persist the mutated gameplay state of one verb call. */
+-  private commitGameplay(petId: string, state: PetGameplayState): void {
+-    this.ledger.setGameplay(petId, state)
+-    if (this.ledger.takeDirty()) this.flush()
++  private commitGameplay(account: PetAccountState, petId: string, state: PetGameplayState): void {
++    account.ledger.setGameplay(petId, state)
++    if (account.ledger.takeDirty()) this.flush(account)
+   }
+ 
+   /**
+    * RPC: a touch on the pet. 'zone' names a touch zone (roll a branch);
+    * omitted means a plain click while a touch animation holds (clickBoost).
+    */
+-  async gameplayTouch(zone?: string): Promise<PetGameplayVerbResult> {
+-    const def = this.gameplayDef()
++  async gameplayTouch(zone?: string, scope?: PetAccountScope): Promise<PetGameplayVerbResult> {
++    const def = this.gameplayDef(scope)
+     if (def === undefined) return { ok: false, error: 'no-gameplay' }
+     const now = Date.now()
+-    const { petId, state } = this.gameplayState(def, now)
+-    settleGameplay(state, def, now, { sessionActive: this.machine.render().sessionActive })
++    const { account, petId, state } = this.gameplayState(def, now, scope)
++    const sessionActive = scope === undefined && this.machine.render().sessionActive
++    settleGameplay(state, def, now, { sessionActive })
+     if (zone === undefined) {
+       const boost = def.touch?.clickBoost
+       if (boost === undefined) return { ok: false, error: 'no-touch' }
+       const amount = boost.min + Math.floor(Math.random() * (boost.max - boost.min + 1))
+       if (amount > 0) applyGameplayEffects(state, def, [{ stat: boost.stat, amount }])
+-      this.drainGameplayTreats(state)
+-      this.commitGameplay(petId, state)
+-      return { ok: true, hit: false, view: this.gameplayViewOf(state) }
++      this.drainGameplayTreats(state, account)
++      this.commitGameplay(account, petId, state)
++      return { ok: true, hit: false, view: this.gameplayViewOf(state, def) }
+     }
+     const target = def.touch?.zones.find(entry => entry.name === zone)
+     if (target === undefined) return { ok: false, error: 'unknown-zone' }
+     const branch = rollTouchBranch(target, Math.random)
+     if (branch === undefined) {
+-      this.drainGameplayTreats(state)
+-      this.commitGameplay(petId, state)
+-      return { ok: true, hit: false, view: this.gameplayViewOf(state) }
++      this.drainGameplayTreats(state, account)
++      this.commitGameplay(account, petId, state)
++      return { ok: true, hit: false, view: this.gameplayViewOf(state, def) }
+     }
+     if (branch.effects !== undefined) applyGameplayEffects(state, def, branch.effects)
+     const phrase = branch.phrases !== undefined && branch.phrases.length > 0
+       ? branch.phrases[Math.floor(Math.random() * branch.phrases.length)]
+       : undefined
+-    this.drainGameplayTreats(state)
+-    this.commitGameplay(petId, state)
++    this.drainGameplayTreats(state, account)
++    this.commitGameplay(account, petId, state)
+     return {
+       ok: true,
+       hit: true,
+       ...(branch.state === undefined ? {} : { state: branch.state }),
+       ...(branch.stateMs === undefined ? {} : { stateMs: branch.stateMs }),
+       ...(phrase === undefined ? {} : { phrase }),
+-      view: this.gameplayViewOf(state),
++      view: this.gameplayViewOf(state, def),
+     }
+   }
+ 
+@@ -676,58 +819,60 @@ export class PetService extends Service {
+    * manifest declares is accepted: 'work', 'sleep', or one of the extra
+    * 'modes' entries (a bath, a play session…).
+    */
+-  async gameplaySetMode(mode: string | null): Promise<PetGameplayVerbResult> {
+-    const def = this.gameplayDef()
++  async gameplaySetMode(mode: string | null, scope?: PetAccountScope): Promise<PetGameplayVerbResult> {
++    const def = this.gameplayDef(scope)
+     if (def === undefined) return { ok: false, error: 'no-gameplay' }
+     if (mode === 'work' && def.work === undefined) return { ok: false, error: 'no-work' }
+     if (mode === 'sleep' && def.sleep === undefined) return { ok: false, error: 'no-sleep' }
+     if (mode !== null && !isDeclaredMode(def, mode)) return { ok: false, error: 'unknown-mode' }
+     const now = Date.now()
+-    const { petId, state } = this.gameplayState(def, now)
+-    settleGameplay(state, def, now, { sessionActive: this.machine.render().sessionActive })
+-    // Switching modes restarts the restore cadence: a leftover carry from the
+-    // previous mode must not advance the new mode's first tick.
++    const { account, petId, state } = this.gameplayState(def, now, scope)
++    const sessionActive = scope === undefined && this.machine.render().sessionActive
++    settleGameplay(state, def, now, { sessionActive })
++    // Each mode starts its own restore interval.
+     if (state.mode !== mode) state.restoreCarryMs = 0
+     state.mode = mode
+-    this.drainGameplayTreats(state)
+-    this.commitGameplay(petId, state)
+-    return { ok: true, view: this.gameplayViewOf(state) }
++    this.drainGameplayTreats(state, account)
++    this.commitGameplay(account, petId, state)
++    return { ok: true, view: this.gameplayViewOf(state, def) }
+   }
+ 
+   /** RPC: one work-round adjudication (only while the work mode holds). */
+-  async gameplayWorkTick(): Promise<PetGameplayVerbResult> {
+-    const def = this.gameplayDef()
++  async gameplayWorkTick(scope?: PetAccountScope): Promise<PetGameplayVerbResult> {
++    const def = this.gameplayDef(scope)
+     if (def?.work === undefined) return { ok: false, error: 'no-work' }
+     const now = Date.now()
+-    const { petId, state } = this.gameplayState(def, now)
++    const { account, petId, state } = this.gameplayState(def, now, scope)
+     if (state.mode !== 'work') return { ok: false, error: 'not-working' }
+-    settleGameplay(state, def, now, { sessionActive: this.machine.render().sessionActive })
++    const sessionActive = scope === undefined && this.machine.render().sessionActive
++    settleGameplay(state, def, now, { sessionActive })
+     const outcome = rollWorkOutcome(def.work, Math.random)
+     const effects = outcome === 'success' ? def.work.success?.effects : def.work.fail?.effects
+     if (effects !== undefined) applyGameplayEffects(state, def, effects)
+-    this.drainGameplayTreats(state)
+-    this.commitGameplay(petId, state)
+-    return { ok: true, outcome, view: this.gameplayViewOf(state) }
++    this.drainGameplayTreats(state, account)
++    this.commitGameplay(account, petId, state)
++    return { ok: true, outcome, view: this.gameplayViewOf(state, def) }
+   }
+ 
+   /** RPC: buy one shop item (effects, currency swap, or a lottery draw). */
+-  async gameplayBuy(itemId: string): Promise<PetGameplayVerbResult> {
+-    const def = this.gameplayDef()
++  async gameplayBuy(itemId: string, scope?: PetAccountScope): Promise<PetGameplayVerbResult> {
++    const def = this.gameplayDef(scope)
+     if (def === undefined) return { ok: false, error: 'no-gameplay' }
+     const item = def.shop?.items.find(entry => entry.id === itemId)
+     if (item === undefined) return { ok: false, error: 'unknown-item' }
+     const now = Date.now()
+-    const { petId, state } = this.gameplayState(def, now)
+-    settleGameplay(state, def, now, { sessionActive: this.machine.render().sessionActive })
++    const { account, petId, state } = this.gameplayState(def, now, scope)
++    const sessionActive = scope === undefined && this.machine.render().sessionActive
++    settleGameplay(state, def, now, { sessionActive })
+     // The unified currency is the shared treat ledger (wallet removed): shop
+     // prices and prizes ride the same balance the panel shows and feeding
+     // consumes, capped by the stock cap.
+     const treats = item.currency === GAMEPLAY_TREATS_CURRENCY
+-    const balance = treats ? this.ledger.snapshot.treats.treats : (state.currencies[item.currency] ?? 0)
++    const balance = treats ? account.ledger.snapshot.treats.treats : (state.currencies[item.currency] ?? 0)
+     if (balance < item.price) {
+-      return { ok: false, error: 'insufficient-funds', view: this.gameplayViewOf(state) }
++      return { ok: false, error: 'insufficient-funds', view: this.gameplayViewOf(state, def) }
+     }
+-    if (treats) this.ledger.spendTreats(item.price)
++    if (treats) account.ledger.spendTreats(item.price)
+     else state.currencies[item.currency] = balance - item.price
+     if (item.effects !== undefined) applyGameplayEffects(state, def, item.effects)
+     let prize: PetGameplayVerbResult['prize']
+@@ -735,21 +880,26 @@ export class PetService extends Service {
+       if (item.lottery.effects !== undefined) applyGameplayEffects(state, def, item.lottery.effects)
+       const tier = drawLotteryTier(item.lottery, Math.random)
+       const prizeCurrency = tier.currency ?? item.lottery.currency ?? item.currency
+-      if (prizeCurrency === GAMEPLAY_TREATS_CURRENCY) this.ledger.grantTreats(tier.prize)
++      if (prizeCurrency === GAMEPLAY_TREATS_CURRENCY) account.ledger.grantTreats(tier.prize)
+       else state.currencies[prizeCurrency] = (state.currencies[prizeCurrency] ?? 0) + tier.prize
+       prize = { amount: tier.prize, currency: prizeCurrency }
+     }
+-    this.drainGameplayTreats(state)
+-    this.commitGameplay(petId, state)
+-    return { ok: true, ...(prize === undefined ? {} : { prize }), view: this.gameplayViewOf(state) }
++    this.drainGameplayTreats(state, account)
++    this.commitGameplay(account, petId, state)
++    return { ok: true, ...(prize === undefined ? {} : { prize }), view: this.gameplayViewOf(state, def) }
+   }
+ 
+   /** RPC: show or hide the pet. */
+-  async setVisible(visible: boolean): Promise<{ ok: true; display: PetDisplayConfig }> {
+-    this.ledger.setDisplay({ ...this.ledger.snapshot.display, visible })
+-    this.flush()
+-    this.syncSettingsFromPet()
+-    return { ok: true, display: this.ledger.snapshot.display }
++  async setVisible(visible: boolean, scope?: PetAccountScope): Promise<{ ok: true; display: PetDisplayConfig }> {
++    const account = this.account(scope)
++    account.ledger.setDisplay({ ...account.ledger.snapshot.display, visible })
++    account.ledger.setSettingsOverrides([
++      ...new Set([...account.ledger.snapshot.settingsOverrides, 'visible' as PetSettingField]),
++    ])
++    account.revision += 1
++    this.flush(account)
++    if (scope === undefined) this.syncSettingsFromPet()
++    return { ok: true, display: account.ledger.snapshot.display }
+   }
+ 
+   /**
+@@ -757,8 +907,8 @@ export class PetService extends Service {
+    * stale id (skin removed from the manifest, pet swapped) reads as "default"
+    * rather than pinning a track the browser half cannot resolve.
+    */
+-  private persistedSkin(entry: NonNullable<PetRegistry['entries'][number]>): string | undefined {
+-    const stored = this.ledger.petSkin(entry.id)
++  private persistedSkin(entry: NonNullable<PetRegistry['entries'][number]>, scope?: PetAccountScope): string | undefined {
++    const stored = this.account(scope).ledger.petSkin(entry.id)
+     if (stored === undefined) return undefined
+     return entry.frames2d?.skins?.some(skin => skin.id === stored) === true ? stored : undefined
+   }
+@@ -768,40 +918,59 @@ export class PetService extends Service {
+    * pet's default look). The choice is stored per pet, so every later state
+    * view (reload, client restart, pet re-selection) serves it back.
+    */
+-  async setSkin(skin: string | undefined): Promise<{ ok: true; skin?: string } | { ok: false; error: string }> {
+-    const entry = this.activeEntry()
++  async setSkin(skin: string | undefined, scope?: PetAccountScope): Promise<{ ok: true; skin?: string } | { ok: false; error: string }> {
++    const account = this.account(scope)
++    const entry = this.activeEntry(scope)
+     const declared = entry.frames2d?.skins ?? []
+     if (skin === undefined) {
+-      this.ledger.setPetSkin(entry.id, undefined)
+-      this.flush()
++      account.ledger.setPetSkin(entry.id, undefined)
++      account.revision += 1
++      this.flush(account)
+       return { ok: true }
+     }
+     if (!declared.some(candidate => candidate.id === skin)) return { ok: false, error: 'unknown-skin' }
+-    this.ledger.setPetSkin(entry.id, skin)
+-    this.flush()
++    account.ledger.setPetSkin(entry.id, skin)
++    account.revision += 1
++    this.flush(account)
+     return { ok: true, skin }
+   }
+ 
+   /** RPC: update display config (size / position / bubble scale). Pixel values are clamped to whole pixels. */
+-  async setConfig(patch: Partial<PetDisplayConfig>): Promise<{ ok: true; display: PetDisplayConfig }> {
+-    const next = { ...this.ledger.snapshot.display, ...patch }
++  async setConfig(
++    patch: Partial<PetDisplayConfig>,
++    scope?: PetAccountScope,
++  ): Promise<{ ok: true; display: PetDisplayConfig }> {
++    const account = this.account(scope)
++    const next = { ...account.ledger.snapshot.display, ...patch }
+     next.size = Math.round(Math.min(DISPLAY_SIZE_MAX, Math.max(DISPLAY_SIZE_MIN, next.size)))
+     next.right = Math.round(Math.min(DISPLAY_INSET_MAX, Math.max(0, next.right)))
+     next.bottom = Math.round(Math.min(DISPLAY_INSET_MAX, Math.max(0, next.bottom)))
+     next.bubbleScale = Math.min(BUBBLE_SCALE_MAX, Math.max(BUBBLE_SCALE_MIN, next.bubbleScale))
+-    this.ledger.setDisplay(next)
+-    this.flush()
+-    this.syncSettingsFromPet()
+-    return { ok: true, display: this.ledger.snapshot.display }
++    account.ledger.setDisplay(next)
++    const overrides = new Set(account.ledger.snapshot.settingsOverrides)
++    if (patch.visible !== undefined) overrides.add('visible')
++    if (patch.size !== undefined) overrides.add('size')
++    if (patch.right !== undefined) overrides.add('right')
++    if (patch.bottom !== undefined) overrides.add('bottom')
++    if (patch.bubbleScale !== undefined) overrides.add('bubbleScale')
++    account.ledger.setSettingsOverrides([...overrides])
++    account.revision += 1
++    this.flush(account)
++    if (scope === undefined) this.syncSettingsFromPet()
++    return { ok: true, display: account.ledger.snapshot.display }
+   }
+ 
+   /** RPC: rename the selected pet (trimmed, 1–20 chars, per-pet storage). */
+-  async setName(name: string): Promise<{ ok: true; name: string } | { ok: false; error: string }> {
++  async setName(
++    name: string,
++    scope?: PetAccountScope,
++  ): Promise<{ ok: true; name: string } | { ok: false; error: string }> {
+     const trimmed = name.trim()
+     if (trimmed === '') return { ok: false, error: 'name-empty' }
+     if (trimmed.length > PET_NAME_MAX_LENGTH) return { ok: false, error: 'name-too-long' }
+-    this.ledger.setPetName(this.selectedPetId(), trimmed)
+-    this.flush()
++    const account = this.account(scope)
++    account.ledger.setPetName(account.ledger.snapshot.petId, trimmed)
++    this.flush(account)
+     return { ok: true, name: trimmed }
+   }
+ 
+@@ -812,36 +981,113 @@ export class PetService extends Service {
+    * @param section - the resolved settings section.
+    */
+   applySettingsSection(section: PetSettingsSection): void {
+-    this.decorationEnabled = section.decorationEnabled ?? true
++    const account = this.localAccount
++    account.ledger.setEnabled(section.enabled ?? true)
++    account.ledger.setDecorationEnabled(section.decorationEnabled ?? true)
+     const selected = typeof section.petId === 'string' ? this.registry.byId(section.petId) : undefined
+     if (selected !== undefined) {
+-      this.ledger.setPetId(selected.id)
+-      this.ledger.setRemarks(selected.remarks)
++      account.ledger.setPetId(selected.id)
++      const voiceRemarks = mergeVoicePacks(this.registry.globalVoice, selected.voice)?.remarks
++      account.ledger.setRemarks(selected.remarks, voiceRemarks)
+     } else if (section.petId !== undefined) {
+       // The stored selection names a pet the registry no longer has: keep the
+       // current selection and repair the settings document.
+       this.syncSettingsFromPet()
+     }
+-    const next = { ...this.ledger.snapshot.display }
+-    next.visible = section.visible && (section.enabled ?? true)
++    const next = { ...account.ledger.snapshot.display }
++    next.visible = section.visible
+     next.size = Math.round(Math.min(DISPLAY_SIZE_MAX, Math.max(DISPLAY_SIZE_MIN, section.size)))
+     next.right = Math.round(Math.min(DISPLAY_INSET_MAX, Math.max(0, section.right)))
+     next.bottom = Math.round(Math.min(DISPLAY_INSET_MAX, Math.max(0, section.bottom)))
+-    next.bubbleScale = Math.min(BUBBLE_SCALE_MAX, Math.max(BUBBLE_SCALE_MIN, section.bubbleScale ?? next.bubbleScale))
+-    this.ledger.setDisplay(next)
+-    this.flush()
++    next.bubbleScale = Math.min(BUBBLE_SCALE_MAX, Math.max(BUBBLE_SCALE_MIN, section.bubbleScale ?? 1))
++    account.ledger.setDisplay(next)
++    this.flush(account)
++    account.revision += 1
++    this.syncActivity()
++    if (!(section.enabled ?? true)) this.resetActivity()
++  }
++
++  /** Read the account-specific settings section served to the browser card. */
++  accountSettings(scope?: PetAccountScope): PetAccountSettingsView {
++    const account = this.account(scope)
++    const value = this.accountSection(account)
++    return {
++      value,
++      base: this.accountBase(scope),
++      user: this.accountUser(account, value),
++      revision: account.revision,
++      writable: true,
++    }
++  }
++
++  /** Apply one revision-fenced settings mutation to exactly one account. */
++  mutateAccountSettings(
++    ops: readonly PetSettingsPathOp[],
++    expectedRevision: number | undefined,
++    scope?: PetAccountScope,
++  ): PetAccountSettingsView {
++    const account = this.account(scope)
++    if (expectedRevision !== undefined && expectedRevision !== account.revision) {
++      throw new Error('settings-conflict')
++    }
++    const next = this.accountSection(account)
++    const base = this.accountBase(scope)
++    const overrides = new Set(account.ledger.snapshot.settingsOverrides)
++    for (const op of ops) {
++      const field = op.path[0]
++      const value = op.op === 'unset' ? base[field] : op.value
++      if (op.op === 'unset') overrides.delete(field as PetSettingField)
++      else overrides.add(field as PetSettingField)
++      if (field === 'enabled' || field === 'decorationEnabled' || field === 'visible') {
++        if (typeof value !== 'boolean') throw new Error(`invalid-${field}`)
++        next[field] = value
++      } else if (field === 'size' || field === 'right' || field === 'bottom' || field === 'bubbleScale') {
++        if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error(`invalid-${field}`)
++        next[field] = value
++      } else if (field === 'petId') {
++        if (typeof value !== 'string' || this.registry.byId(value) === undefined) throw new Error('invalid-petId')
++        next.petId = value
++      } else {
++        throw new Error('invalid-settings-field')
++      }
++    }
++    const selected = this.registry.byId(next.petId ?? '') ?? this.registry.defaultEntry()
++    account.ledger.setEnabled(next.enabled ?? true)
++    account.ledger.setDecorationEnabled(next.decorationEnabled ?? true)
++    account.ledger.setPetId(selected.id)
++    const voiceRemarks = mergeVoicePacks(this.registry.globalVoice, selected.voice)?.remarks
++    account.ledger.setRemarks(selected.remarks, voiceRemarks)
++    account.ledger.setSettingsOverrides([...overrides])
++    account.ledger.setDisplay({
++      visible: next.visible,
++      size: Math.round(Math.min(DISPLAY_SIZE_MAX, Math.max(DISPLAY_SIZE_MIN, next.size))),
++      right: Math.round(Math.min(DISPLAY_INSET_MAX, Math.max(0, next.right))),
++      bottom: Math.round(Math.min(DISPLAY_INSET_MAX, Math.max(0, next.bottom))),
++      bubbleScale: Math.min(BUBBLE_SCALE_MAX, Math.max(BUBBLE_SCALE_MIN, next.bubbleScale ?? 1)),
++    })
++    account.revision += 1
++    this.flush(account)
++    if (scope === undefined) {
++      this.syncSettingsFromPet()
++      this.syncActivity()
++      if (!(next.enabled ?? true)) this.resetActivity()
++    }
++    return this.accountSettings(scope)
+   }
+ 
+   /** Mirror the persisted display config into the settings document (best-effort). */
+   private syncSettingsFromPet(): void {
+     const settings = this.ctx.get('settings', false) as { update(ns: string, patch: object): Promise<void> } | undefined
+     if (settings === undefined) return
+-    const snapshot = this.ledger.snapshot
++    const snapshot = this.localAccount.ledger.snapshot
+     void settings.update(PET_SETTINGS_NAMESPACE, {
++      enabled: snapshot.enabled,
++      decorationEnabled: snapshot.decorationEnabled,
+       visible: snapshot.display.visible,
+       size: snapshot.display.size,
+       right: snapshot.display.right,
+       bottom: snapshot.display.bottom,
++      bubbleScale: snapshot.display.bubbleScale,
+       petId: snapshot.petId,
+     }).catch(() => {
+       // A settings write failure must not break the pet's own persistence.
+@@ -850,17 +1096,18 @@ export class PetService extends Service {
+ 
+   /** Award the turn reward once per completed turn (idempotent per session + turn). */
+   private rewardTurn(sessionId: string, turn: number): void {
+-    if (this.ledger.rewardTurn(sessionId, turn, Date.now())) this.flush()
++    if (this.localAccount.ledger.rewardTurn(sessionId, turn, Date.now())) this.flush(this.localAccount)
+   }
+ 
+   /** Preserve turn rewards for installations that only emit legacy activity. */
+   private rewardLegacyTurn(): void {
+-    if (this.ledger.rewardLegacyTurn(Date.now())) this.flush()
++    if (this.localAccount.ledger.rewardLegacyTurn(Date.now())) this.flush(this.localAccount)
+   }
+ 
+-  private view(currentSessionId?: string): PetStateView {
+-    const snapshot = this.machine.render()
+-    const entry = this.activeEntry()
++  private view(currentSessionId?: string, scope?: PetAccountScope): PetStateView {
++    const account = this.account(scope)
++    const snapshot = scope === undefined ? this.machine.render() : this.accountIdleSnapshot
++    const entry = this.activeEntry(scope)
+     // One bubble per concurrently active TOP-LEVEL session. The GUI's current
+     // session leads the stack when reported (the browser half passes its
+     // session list's 'current'); everything else keeps the most recent
+@@ -870,7 +1117,7 @@ export class PetService extends Service {
+     // subagents are not). Sessions whose own machine has settled (no bubble
+     // copy) drop out, so a finished turn does not leave a stale bubble behind.
+     const sessions: PetSessionView[] = []
+-    for (const [session, activity] of [...this.sessionActivity.entries()].reverse()) {
++    for (const [session, activity] of (scope === undefined ? [...this.sessionActivity.entries()].reverse() : [])) {
+       if (sessions.length >= MAX_SESSION_BUBBLES) break
+       if (session.header?.origin === 'subagent') continue
+       const perSession = activity.machine.render()
+@@ -897,15 +1144,15 @@ export class PetService extends Service {
+       const index = sessions.findIndex(session => session.sessionId === currentSessionId)
+       if (index > 0) sessions.unshift(sessions.splice(index, 1)[0]!)
+     }
+-    const decoration = this.activeDecoration()
++    const decoration = this.activeDecoration(scope)
+     // Gameplay view: a read-only projection. The settle runs on a copy, so
+     // polling never writes pet.json (verbs settle and persist).
+-    const gameplayDef = this.gameplayDef()
++    const gameplayDef = this.gameplayDef(scope)
+     let gameplay: PetGameplayStateView | undefined
+     if (gameplayDef !== undefined) {
+-      const { state } = this.gameplayState(gameplayDef, Date.now())
++      const { state } = this.gameplayState(gameplayDef, Date.now(), scope)
+       settleGameplay(state, gameplayDef, Date.now(), { sessionActive: snapshot.sessionActive })
+-      gameplay = this.gameplayViewOf(state)
++      gameplay = this.gameplayViewOf(state, gameplayDef)
+     }
+     // Read-only: the ledger settles on economic events only, never on a read,
+     // so polling the state cannot trigger pet.json writes.
+@@ -914,7 +1161,7 @@ export class PetService extends Service {
+     const announcement = this.announcement !== undefined && announcementFresh(this.announcement, Date.now())
+       ? this.announcement
+       : undefined
+-    const skin = this.persistedSkin(entry)
++    const skin = this.persistedSkin(entry, scope)
+     return {
+       animation: snapshot.animation,
+       ...(snapshot.bubble === undefined ? {} : { bubble: snapshot.bubble }),
+@@ -923,26 +1170,26 @@ export class PetService extends Service {
+       sessions,
+       ...(decoration === undefined ? {} : { decoration }),
+       ...(announcement === undefined ? {} : { announcement }),
+-      affinity: this.ledger.affinityView(Date.now()),
+-      display: { ...this.ledger.snapshot.display },
++      affinity: account.ledger.affinityView(Date.now()),
++      display: { ...account.ledger.snapshot.display },
+       pet: {
+         id: entry.id,
+         displayName: entry.displayName,
+         description: entry.description,
+       },
+-      name: this.petName(),
++      name: this.petName(undefined, scope),
+       ...(skin === undefined ? {} : { skin }),
+       treats: {
+-        stocked: this.ledger.snapshot.treats.treats,
+-        max: this.ledger.treatMax,
++        stocked: account.ledger.snapshot.treats.treats,
++        max: account.ledger.treatMax,
+       },
+       ...(gameplay === undefined ? {} : { gameplay }),
+     }
+   }
+ 
+-  private flush(): void {
++  private flush(account: PetAccountState): void {
+     try {
+-      savePetPersist(this.ledger.snapshot, this.persistDir)
++      savePetPersist(account.ledger.snapshot, account.persistDir)
+     } catch {
+       // Persistence is best-effort; the in-memory ledger keeps working.
+     }
+diff --git a/packages/dsh-pet/tests/account-gameplay.spec.ts b/packages/dsh-pet/tests/account-gameplay.spec.ts
+new file mode 100644
+index 00000000..8296fe49
+--- /dev/null
++++ b/packages/dsh-pet/tests/account-gameplay.spec.ts
+@@ -0,0 +1,108 @@
++/** Declared gameplay modes use the authenticated account's selected pet. */
++import { afterEach, describe, expect, it } from 'vitest'
++import { createServer, type Server } from 'node:http'
++import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
++import { tmpdir } from 'node:os'
++import { join } from 'node:path'
++import { once } from 'node:events'
++import type { AddressInfo } from 'node:net'
++import { Context } from '@deepseek-ai/cordis'
++import { loadPetRegistry } from '../src/registry.ts'
++import { makePetRoutes } from '../src/routes.ts'
++import { PetService } from '../src/service.ts'
++
++const ALICE = { source: 'dsh-passwords', id: 'alice' }
++const BOB = { source: 'dsh-passwords', id: 'bob' }
++
++function fixture(root: string): PetService {
++  for (const [id, mode] of [['plain', 'rest'], ['washing', 'wash']] as const) {
++    const petRoot = join(root, 'assets', id)
++    mkdirSync(join(petRoot, 'thumb', 'idle'), { recursive: true })
++    writeFileSync(join(petRoot, 'thumb', 'idle', '1.webp'), Buffer.from('RIFF0000WEBP'))
++    writeFileSync(join(petRoot, 'pet.json'), JSON.stringify({
++      petManifestVersion: 2, id, displayName: id, license: 'MIT', renderer: 'frames2d',
++      frames2d: { dir: 'thumb', tracks: { idle: { frames: ['1.webp'] } }, phases: { idle: 'idle' } },
++      gameplay: { stats: { mood: { max: 100 } }, modes: { [mode]: { label: mode, state: 'idle' } } },
++    }))
++  }
++  return new PetService(new Context(), {
++    persistDir: join(root, 'home'),
++    registry: loadPetRegistry({ packageRoot: root, petsDir: '', dshPetsDir: '' }),
++  })
++}
++
++describe('account-scoped declared gameplay modes', () => {
++  let root: string | undefined
++  let server: Server | undefined
++
++  afterEach(async () => {
++    if (server !== undefined) await new Promise<void>(resolve => server!.close(() => resolve()))
++    if (root !== undefined) rmSync(root, { recursive: true, force: true })
++    server = undefined
++    root = undefined
++  })
++
++  it('user retains the selected pet mode across responses and reloads without changing other accounts', async () => {
++    // Given accounts with different selected pets and declared modes.
++    root = mkdtempSync(join(tmpdir(), 'dsh-pet-account-gameplay-'))
++    const service = fixture(root)
++    await service.setPetId('plain')
++    await service.setPetId('plain', BOB)
++    await service.setPetId('washing', ALICE)
++
++    // When Alice enters her pet's declared mode.
++    const entered = await service.gameplaySetMode('wash', ALICE)
++
++    // Then both the immediate response and persisted view use Alice's manifest.
++    expect(entered).toMatchObject({ ok: true, view: { mode: 'wash' } })
++    expect((await service.state(ALICE)).gameplay?.mode).toBe('wash')
++    expect((await service.state(BOB)).gameplay?.mode).toBeNull()
++    expect((await service.state()).gameplay?.mode).toBeNull()
++    expect(await service.gameplaySetMode('wash', BOB)).toEqual({ ok: false, error: 'unknown-mode' })
++    const reloaded = fixture(root)
++    expect((await reloaded.state(ALICE)).gameplay?.mode).toBe('wash')
++    expect((await reloaded.state(BOB)).gameplay?.mode).toBeNull()
++  })
++
++  it('user changes declared modes only through the verified request principal', async () => {
++    // Given the real HTTP routes and a verifier that rejects forged identities.
++    root = mkdtempSync(join(tmpdir(), 'dsh-pet-account-mode-route-'))
++    const service = fixture(root)
++    await service.setPetId('plain')
++    await service.setPetId('washing', ALICE)
++    const ctx = {
++      get: (name: string) => name === 'requestPrincipal' ? {
++        authenticate: (request: Request) => {
++          const id = request.headers.get('x-dsh-principal')
++          if (id === null || request.headers.get('x-dsh-principal-signature') !== 'trusted') throw new Error('invalid identity')
++          return { source: 'dsh-passwords', id }
++        },
++      } : undefined,
++    } as unknown as Context
++    const routes = makePetRoutes({ service, ctx })
++    server = createServer((req, res) => {
++      const route = routes.find(candidate => candidate.kind === 'exact' && candidate.path === req.url)
++      if (route === undefined) { res.writeHead(404); res.end(); return }
++      void route.handler(req, res)
++    })
++    server.listen(0, '127.0.0.1')
++    await once(server, 'listening')
++    const port = (server.address() as AddressInfo).port
++    const post = (mode: string | null, signature: string): Promise<Response> => fetch(`http://127.0.0.1:${port}/api/pet/gameplay/mode`, {
++      method: 'POST',
++      headers: { 'content-type': 'application/json', 'x-dsh-principal': 'alice', 'x-dsh-principal-signature': signature },
++      body: JSON.stringify({ mode }),
++    })
++
++    // When an authenticated change is followed by a forged change.
++    const accepted = await post('wash', 'trusted')
++    const rejected = await post(null, 'tampered')
++
++    // Then the route preserves Alice's mode and does not select the desktop account.
++    expect(accepted.status).toBe(200)
++    expect(await accepted.json()).toMatchObject({ ok: true, view: { mode: 'wash' } })
++    expect(rejected.status).toBe(403)
++    expect((await service.state(ALICE)).gameplay?.mode).toBe('wash')
++    expect((await service.state()).gameplay?.mode).toBeNull()
++  })
++})
+diff --git a/packages/dsh-pet/tests/account-skin.spec.ts b/packages/dsh-pet/tests/account-skin.spec.ts
+new file mode 100644
+index 00000000..c6ab7802
+--- /dev/null
++++ b/packages/dsh-pet/tests/account-skin.spec.ts
+@@ -0,0 +1,129 @@
++import { afterEach, describe, expect, it } from 'vitest'
++import { createServer, type Server } from 'node:http'
++import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
++import { tmpdir } from 'node:os'
++import { join } from 'node:path'
++import { once } from 'node:events'
++import type { AddressInfo } from 'node:net'
++import { Context } from '@deepseek-ai/cordis'
++import { loadPetRegistry } from '../src/registry.ts'
++import { makePetRoutes } from '../src/routes.ts'
++import { PetService, type PetAccountScope } from '../src/service.ts'
++
++const FRAME = Buffer.from('RIFF0000WEBP')
++
++function fixture(root: string): { service: PetService; routes: ReturnType<typeof makePetRoutes> } {
++  const packageRoot = join(root, 'package')
++  const petsRoot = join(root, 'pets')
++  const petRoot = join(petsRoot, 'skin-pet')
++  mkdirSync(join(packageRoot, 'assets'), { recursive: true })
++  mkdirSync(join(petRoot, 'thumb', 'idle'), { recursive: true })
++  mkdirSync(join(petRoot, 'thumb', 'blue'), { recursive: true })
++  mkdirSync(join(petRoot, 'thumb', 'red'), { recursive: true })
++  writeFileSync(join(petRoot, 'thumb', 'idle', '1.webp'), FRAME)
++  writeFileSync(join(petRoot, 'thumb', 'blue', '1.webp'), FRAME)
++  writeFileSync(join(petRoot, 'thumb', 'red', '1.webp'), FRAME)
++  writeFileSync(join(petRoot, 'pet.json'), JSON.stringify({
++    petManifestVersion: 2,
++    id: 'skin-pet',
++    displayName: 'Skin Pet',
++    license: 'MIT',
++    renderer: 'frames2d',
++    frames2d: {
++      dir: 'thumb',
++      tracks: { idle: { frames: ['1.webp'] }, blue: { frames: ['1.webp'] }, red: { frames: ['1.webp'] } },
++      phases: { idle: 'idle' },
++      skins: [
++        { id: 'blue', label: 'Blue', idleTrack: 'blue' },
++        { id: 'red', label: 'Red', idleTrack: 'red' },
++      ],
++    },
++  }), 'utf8')
++  const registry = loadPetRegistry({ packageRoot, petsDir: '', dshPetsDir: petsRoot })
++  const ctx = new Context()
++  const service = new PetService(ctx, { persistDir: join(root, 'home'), registry })
++  return { service, routes: makePetRoutes({ service, ctx }) }
++}
++
++function principalContext(): Context {
++  return {
++    get: (name: string) => name === 'requestPrincipal' ? {
++      authenticate: (request: Request) => {
++        const id = request.headers.get('x-dsh-principal')
++        const signature = request.headers.get('x-dsh-principal-signature')
++        if (id === null && signature === null) return undefined
++        if (id === null || signature !== 'trusted') throw new Error('invalid identity')
++        return { source: 'dsh-passwords', id }
++      },
++    } : undefined,
++  } as unknown as Context
++}
++
++describe('account-scoped pet skins', () => {
++  let root: string | undefined
++  let server: Server | undefined
++
++  afterEach(async () => {
++    if (server !== undefined) await new Promise<void>(resolve => server!.close(() => resolve()))
++    if (root !== undefined) rmSync(root, { recursive: true, force: true })
++    server = undefined
++    root = undefined
++  })
++
++  it('user retains an independent skin selection after reload', async () => {
++    // Given two accounts, when each selects a skin, then reload preserves both independent choices.
++    root = mkdtempSync(join(tmpdir(), 'dsh-pet-account-skin-'))
++    const { service } = fixture(root)
++    const alice: PetAccountScope = { source: 'dsh-passwords', id: 'alice' }
++    const bob: PetAccountScope = { source: 'dsh-passwords', id: 'bob' }
++
++    expect(await service.setSkin('blue', alice)).toEqual({ ok: true, skin: 'blue' })
++    expect(await service.setSkin('red', bob)).toEqual({ ok: true, skin: 'red' })
++    expect((await service.state(alice)).skin).toBe('blue')
++    expect((await service.state(bob)).skin).toBe('red')
++
++    const reloaded = fixture(root).service
++    expect((await reloaded.state(alice)).skin).toBe('blue')
++    expect((await reloaded.state(bob)).skin).toBe('red')
++  })
++
++  it('user changes skins only through a verified principal', async () => {
++    // Given signed account requests, when a forged skin mutation follows valid writes, then the forgery is rejected and both choices remain isolated.
++    root = mkdtempSync(join(tmpdir(), 'dsh-pet-account-skin-route-'))
++    const { service } = fixture(root)
++    const ctx = principalContext()
++    const routes = makePetRoutes({ service, ctx })
++    server = createServer((req, res) => {
++      const path = (req.url ?? '').split('?')[0]
++      const route = routes.find(candidate => candidate.kind === 'exact' && candidate.path === path)
++      if (route === undefined) { res.writeHead(404); res.end(); return }
++      void route.handler(req, res)
++    })
++    server.listen(0, '127.0.0.1')
++    await once(server, 'listening')
++    const port = (server.address() as AddressInfo).port
++    const endpoint = (path: string): string => `http://127.0.0.1:${port}${path}`
++    const headers = (id: string, signature = 'trusted'): Record<string, string> => ({
++      'content-type': 'application/json',
++      'x-dsh-principal': id,
++      'x-dsh-principal-signature': signature,
++    })
++
++    const changed = await fetch(endpoint('/api/pet/set-skin'), {
++      method: 'POST', headers: headers('alice'), body: JSON.stringify({ skin: 'blue' }),
++    })
++    expect(changed.status).toBe(200)
++    const bobChanged = await fetch(endpoint('/api/pet/set-skin'), {
++      method: 'POST', headers: headers('bob'), body: JSON.stringify({ skin: 'red' }),
++    })
++    expect(bobChanged.status).toBe(200)
++    expect((await fetch(endpoint('/api/pet/state'), { headers: headers('alice') }).then(res => res.json())).skin).toBe('blue')
++    expect((await fetch(endpoint('/api/pet/state'), { headers: headers('bob') }).then(res => res.json())).skin).toBe('red')
++
++    const rejected = await fetch(endpoint('/api/pet/set-skin'), {
++      method: 'POST', headers: headers('alice', 'tampered'), body: JSON.stringify({ skin: undefined }),
++    })
++    expect(rejected.status).toBe(403)
++    expect((await fetch(endpoint('/api/pet/state'), { headers: headers('alice') }).then(res => res.json())).skin).toBe('blue')
++  })
++})
+diff --git a/packages/dsh-pet/tests/gameplay.spec.ts b/packages/dsh-pet/tests/gameplay.spec.ts
+index 1356b1de..4a9828b6 100644
+--- a/packages/dsh-pet/tests/gameplay.spec.ts
++++ b/packages/dsh-pet/tests/gameplay.spec.ts
+@@ -232,6 +232,33 @@ describe('gameplay routes', () => {
+     expect(persisted.treats?.treats).toBe(20)
+   })
+ 
++  it('user retains independent gameplay state across reloads', async () => {
++    // Given two authenticated accounts, when Alice works and interacts, then Bob remains unchanged and reload preserves Alice's state.
++    const registry = loadPetRegistry({ packageRoot: dir, petsDir: '', dshPetsDir: '' })
++    const accountHome = join(dir, 'account-gameplay-home')
++    const alice = { source: 'dsh-passwords', id: '2' }
++    const bob = { source: 'dsh-passwords', id: '3' }
++    const scoped = new PetService(new Context(), { persistDir: accountHome, registry })
++
++    expect((await scoped.gameplaySetMode('work', alice)).view?.mode).toBe('work')
++    expect((await scoped.gameplayTouch('head', alice)).view?.stats.affection).toBe(105)
++    expect((await scoped.state(alice)).gameplay).toMatchObject({
++      mode: 'work',
++      stats: { affection: 105 },
++    })
++    expect((await scoped.state(bob)).gameplay).toMatchObject({
++      mode: null,
++      stats: { affection: 100 },
++    })
++
++    const reloaded = new PetService(new Context(), { persistDir: accountHome, registry })
++    expect((await reloaded.state(alice)).gameplay).toMatchObject({
++      mode: 'work',
++      stats: { affection: 105 },
++    })
++    expect((await reloaded.state(bob)).gameplay?.mode).toBeNull()
++  })
++
+   it('rejects gameplay verbs for a pet without a gameplay block', async () => {
+     // Switch to a plain sprite2d pet, then every verb reports no-gameplay.
+     await post('/api/pet/set-pet', { petId: 'miku' }) // ensure known starting point
+diff --git a/packages/dsh-pet/tests/pet-host-settings.spec.ts b/packages/dsh-pet/tests/pet-host-settings.spec.ts
+index 610a75a1..d8e7e48f 100644
+--- a/packages/dsh-pet/tests/pet-host-settings.spec.ts
++++ b/packages/dsh-pet/tests/pet-host-settings.spec.ts
+@@ -138,15 +138,19 @@ describe('pet row configuration lifecycle', () => {
+     expect(loadPetPersist(home).petId).toBe('otter')
+   })
+ 
+-  it('user turns the pet off in the settings page and the pet API stops serving', () => {
+-    // Given a committed config that switches the plugin off
++  it('user disables the Host pet while other account settings remain reachable', () => {
++    // Given another account has explicitly enabled its own pet
++    const account = { source: 'test', id: 'another-user' }
++    ctx.pet.mutateAccountSettings([{ op: 'set', path: ['enabled'], value: true }], 0, account)
+     enabled.set(false)
+     // When the Loader announces the volatile commit
+     commitSettings()
+-    // Then the routes are withdrawn
+-    expect([...served]).toEqual([])
++    // Then the local pet is disabled and account routes keep serving
++    expect(ctx.pet.accountSettings().value.enabled).toBe(false)
++    expect(ctx.pet.accountSettings(account).value.enabled).toBe(true)
++    expect([...served]).toContain('/api/pet/settings')
+ 
+-    // And the next edit brings them back for an enabled plugin
++    // And the next edit enables the local pet without replacing the routes
+     enabled.set(true)
+     commitSettings()
+     expect([...served]).toContain('/api/pet/state')
+diff --git a/packages/dsh-pet/tests/pet-section.spec.tsx b/packages/dsh-pet/tests/pet-section.spec.tsx
+index 71e68228..28802a42 100644
+--- a/packages/dsh-pet/tests/pet-section.spec.tsx
++++ b/packages/dsh-pet/tests/pet-section.spec.tsx
+@@ -251,4 +251,3 @@ describe('atlas image load retry mechanism', () => {
+     }
+   })
+ })
+-
+diff --git a/packages/dsh-pet/tests/routes.spec.ts b/packages/dsh-pet/tests/routes.spec.ts
+index 54cd6027..f836755d 100644
+--- a/packages/dsh-pet/tests/routes.spec.ts
++++ b/packages/dsh-pet/tests/routes.spec.ts
+@@ -243,6 +243,95 @@ describe('pet routes', () => {
+     await assetRoute!.handler({ ...lanRequest, url: '/pet/whale-girl/pet.json' } as never, asset.res as never)
+     expect(asset.status()).toBe(200)
+   })
++
++  it('guest cannot assert a pet identity without a trusted verifier', async () => {
++    // Given no trusted verifier, when a request supplies identity headers, then the pet route refuses access.
++    const response = await fetch(url('/api/pet/state'), {
++      headers: {
++        'x-dsh-principal': 'forged-account',
++        'x-dsh-principal-signature': 'forged-signature',
++      },
++    })
++    expect(response.status).toBe(403)
++    expect(await response.json()).toMatchObject({ error: 'unverified-account-identity' })
++  })
++
++  it('user selects an independent pet account through the trusted gateway', async () => {
++    // Given a trusted principal verifier, when accounts read and mutate pet settings, then each account sees its own state and forged signatures are rejected.
++    const accountService = new PetService(new Context(), {
++      persistDir: join(dir, 'account-home'),
++      registry: service.registrySnapshot(),
++    })
++    const accountCtx = {
++      get: (name: string) => name === 'requestPrincipal'
++        ? {
++            authenticate: (request: Request) => {
++              const id = request.headers.get('x-dsh-principal')
++              const signature = request.headers.get('x-dsh-principal-signature')
++              if (id === null && signature === null) return undefined
++              if (id === null || signature !== 'trusted') throw new Error('invalid identity')
++              return { source: 'dsh-passwords', id }
++            },
++          }
++        : undefined,
++    }
++    const accountRoutes = makePetRoutes({ service: accountService, ctx: accountCtx as never })
++    const accountServer = createServer((req, res) => {
++      const pathname = (req.url ?? '').split('?')[0]!
++      const route = accountRoutes.find(candidate => candidate.kind === 'exact' && candidate.path === pathname)
++      if (route === undefined) {
++        res.writeHead(404)
++        res.end()
++        return
++      }
++      void route.handler(req, res)
++    })
++    accountServer.listen(0, '127.0.0.1')
++    await once(accountServer, 'listening')
++    const accountPort = (accountServer.address() as AddressInfo).port
++    const accountUrl = (path: string): string => `http://127.0.0.1:${accountPort}${path}`
++    const principalHeaders = (id: string): Record<string, string> => ({
++      'content-type': 'application/json',
++      'x-dsh-principal': id,
++      'x-dsh-principal-signature': 'trusted',
++    })
++    try {
++      const changed = await fetch(accountUrl('/api/pet/settings/mutate'), {
++        method: 'POST',
++        headers: principalHeaders('2'),
++        body: JSON.stringify({
++          expectedRevision: 0,
++          ops: [
++            { op: 'set', path: ['petId'], value: 'otter' },
++            { op: 'set', path: ['bubbleScale'], value: 1.7 },
++            { op: 'set', path: ['enabled'], value: false },
++          ],
++        }),
++      })
++      expect(changed.status).toBe(200)
++
++      const alice = await fetch(accountUrl('/api/pet/settings'), {
++        headers: principalHeaders('2'),
++      }).then(response => response.json()) as { value: { enabled: boolean; petId: string } }
++      expect(alice.value).toMatchObject({ enabled: false, petId: 'otter', bubbleScale: 1.7 })
++
++      const bob = await fetch(accountUrl('/api/pet/settings'), {
++        headers: principalHeaders('3'),
++      }).then(response => response.json()) as { value: { enabled: boolean; petId: string } }
++      expect(bob.value).toMatchObject({ enabled: false, petId: 'whale-girl', bubbleScale: 1 })
++
++      const rejected = await fetch(accountUrl('/api/pet/state'), {
++        headers: {
++          'x-dsh-principal': '2',
++          'x-dsh-principal-signature': 'tampered',
++        },
++      })
++      expect(rejected.status).toBe(403)
++      expect(await rejected.json()).toMatchObject({ error: 'invalid-account-identity' })
++    } finally {
++      await new Promise<void>(resolve => accountServer.close(() => resolve()))
++    }
++  })
+ })
+ describe('decoration routes (pet-center M5, #567)', () => {
+   it('serves the strip and descriptor from the declaration allow-list', async () => {
+diff --git a/packages/dsh-pet/tests/service-enabled.spec.ts b/packages/dsh-pet/tests/service-enabled.spec.ts
+index 091de7f9..94e7a3d0 100644
+--- a/packages/dsh-pet/tests/service-enabled.spec.ts
++++ b/packages/dsh-pet/tests/service-enabled.spec.ts
+@@ -3,10 +3,9 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+ import { tmpdir } from 'node:os'
+ import { join } from 'node:path'
+ import { Context } from '@deepseek-ai/cordis'
+-import type { Agent, AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
+-import type { LlmAttemptId } from '@deepseek-ai/dsh-llm'
+ import { SessionSeq } from '@deepseek-ai/dsh-session'
+ import type { Session, SessionEvent, TurnEndReason } from '@deepseek-ai/dsh-session'
++import type { Agent, AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
+ import { loadPetPersist } from '../src/persist.ts'
+ import { PetService } from '../src/service.ts'
+ import { WHISPER_CATEGORY_POOLS, WHISPER_RESULT_POOLS } from '../src/chatter.ts'
+@@ -93,36 +92,26 @@ function stepStart(turn: number, step: number, seq: number): SessionEvent<'step/
+   return { type: 'step/start', seq: SessionSeq(seq), time: seq, data: { turn, step } }
+ }
+ 
+-function attemptId(value: string): LlmAttemptId {
+-  return value as LlmAttemptId
++function emitAssistantFrame(ctx: Context, session: Session, frame: AssistantStreamFrame): void {
++  ctx.emit('agent/assistant-stream', { agent: { session } as Agent, frame })
+ }
+ 
+-/** The `agent/assistant-stream` payload routing frames to one session. */
+-interface AssistantStreamPayload {
+-  agent: Agent
+-  frame: AssistantStreamFrame
+-}
+-
+-function assistantChunk(
++function emitAssistantChunk(
++  ctx: Context,
+   session: Session,
+   turn: number,
+   step: number,
+   chunk: AssistantChunk,
+-  seq: number,
+-): AssistantStreamPayload {
+-  void turn
+-  void step
+-  return {
+-    agent: { session } as Agent,
+-    frame: {
+-      type: 'chunk',
+-      attemptId: attemptId(`attempt-${seq}`),
+-      revision: 1,
+-      index: seq,
+-      time: seq,
+-      chunk,
+-    },
+-  }
++  index: number,
++): void {
++  emitAssistantFrame(ctx, session, {
++    type: 'chunk',
++    attemptId: `attempt-${turn}-${step}` as AssistantStreamFrame['attemptId'],
++    revision: step,
++    index: index - 1,
++    time: index,
++    chunk,
++  })
+ }
+ 
+ function assistantMessage(
+@@ -138,11 +127,11 @@ function assistantMessage(
+     content: [{ type: 'text', text }],
+   }
+   return {
+-    type: 'assistant/message',
+-    seq: SessionSeq(seq),
+-    time: seq,
+-    surfaceOp: 'append',
+-    data: { turn, step, message, stream: [] },
++    type: 'assistant/message', seq: SessionSeq(seq), time: seq, surfaceOp: 'append',
++    data: {
++      turn, step, message,
++      stream: [{ type: 'text-chunks', time0: seq, index: 0, dt: [0], texts: [text] }],
++    },
+   }
+ }
+ 
+@@ -218,7 +207,7 @@ function tempDir(): string {
+   return mkdtempSync(join(tmpdir(), 'dsh-pet-spec-'))
+ }
+ 
+-describe('PetService (rc.6 session events)', () => {
++describe('PetService host activity', () => {
+   it('stops consuming session events while disabled and resumes on re-enable', async () => {
+     const ctx = new Context()
+     const dir = tempDir()
+@@ -243,6 +232,43 @@ describe('PetService (rc.6 session events)', () => {
+     }
+   })
+ 
++  it('user receives no rewards from stream lifecycle frames and can disable live activity', async () => {
++    // Given a pet observing stream events, when lifecycle frames arrive and the pet is disabled, then lifecycle frames award nothing and disabled activity detaches.
++    const ctx = new Context()
++    const dir = tempDir()
++    const session = makeSession('live')
++    const attemptId = 'attempt-1-1' as AssistantStreamFrame['attemptId']
++    try {
++      const service = new PetService(ctx, { persistDir: dir })
++      emitAssistantFrame(ctx, session, { type: 'start', attemptId, revision: 1, turn: 1, step: 1 })
++      expect((await service.state()).phase).toBe('idle')
++
++      emitAssistantChunk(ctx, session, 1, 1, { type: 'reasoning-delta', index: 0, text: 'thinking' }, 1)
++      expect((await service.state()).phase).toBe('thinking')
++      emitAssistantFrame(ctx, session, {
++        type: 'end', attemptId, revision: 1, index: 1, outcome: { kind: 'abandoned' },
++      })
++      expect((await service.state()).phase).toBe('thinking')
++      expect((await service.state()).affinity.turns).toBe(0)
++
++      service.setEnabled(false)
++      emitAssistantChunk(ctx, session, 1, 1, { type: 'text-delta', index: 0, text: 'hidden' }, 2)
++      expect((await service.state()).phase).toBe('idle')
++
++      service.setEnabled(true)
++      emitAssistantChunk(ctx, session, 1, 1, { type: 'text-delta', index: 0, text: 'writing' }, 3)
++      expect((await service.state()).phase).toBe('review')
++      expect((await service.state()).affinity.turns).toBe(0)
++
++      await ctx.fiber.dispose()
++      emitAssistantChunk(ctx, session, 1, 1, { type: 'reasoning-delta', index: 0, text: 'disposed' }, 4)
++      expect((await service.state()).phase).toBe('review')
++    } finally {
++      await ctx.fiber.dispose()
++      rmSync(dir, { recursive: true, force: true })
++    }
++  })
++
+   it('does not restore in-flight activity whose terminal event was missed while disabled', async () => {
+     const ctx = new Context()
+     const dir = tempDir()
+@@ -269,44 +295,65 @@ describe('PetService (rc.6 session events)', () => {
+     }
+   })
+ 
+-  it('projects the full official work sequence onto animations and bubbles', async () => {
++  it('user sees local live activity and receives one reward per committed turn', async () => {
++    // Given stream and durable session events, when a committed turn is repeated, then activity is projected and the reward remains deduplicated.
+     const ctx = new Context()
+     const dir = tempDir()
+     const session = makeSession('s1')
++    const attemptId = 'attempt-1-1' as AssistantStreamFrame['attemptId']
++    const accounts = [{ source: 'test', id: 'alice' }, { source: 'test', id: 'bob' }]
+     try {
+       const service = new PetService(ctx, { persistDir: dir })
++      for (const scope of accounts) {
++        service.mutateAccountSettings([{ op: 'set', path: ['enabled'], value: true }], undefined, scope)
++      }
++      const expectAccountIdle = async () => {
++        for (const scope of accounts) {
++          expect(await service.state(scope)).toMatchObject({
++            phase: 'idle', sessionActive: false, sessions: [], affinity: { turns: 0 },
++          })
++        }
++      }
+ 
+       ctx.emit('session/event', session, turnStart(1, 1))
+       expect(await service.state()).toMatchObject({ animation: 'waiting', bubble: '准备开始' })
+-
+       ctx.emit('session/event', session, stepStart(1, 1, 2))
+       expect(await service.state()).toMatchObject({ animation: 'waiting', bubble: '等待模型响应' })
+-
+-      ctx.emit('agent/assistant-stream', assistantChunk(session, 1, 1, {
++      emitAssistantFrame(ctx, session, { type: 'start', attemptId, revision: 1, turn: 1, step: 1 })
++      emitAssistantChunk(ctx, session, 1, 1, {
+         type: 'reasoning-delta', index: 0, text: '分析',
+-      }, 3))
++      }, 1)
+       expect(await service.state()).toMatchObject({ animation: 'running', bubble: '正在思考' })
++      await expectAccountIdle()
+ 
+-      ctx.emit('session/event', session, assistantMessage(1, 1, '完整回复', 4))
+-      expect(await service.state()).toMatchObject({ animation: 'review', bubble: '整理回复中' })
+-
+-      ctx.emit('agent/assistant-stream', assistantChunk(session, 1, 1, {
+-        type: 'text-delta', index: 0, text: '回答',
+-      }, 5))
++      emitAssistantChunk(ctx, session, 1, 1, {
++        type: 'text-delta', index: 1, text: '完整回复',
++      }, 2)
+       expect(await service.state()).toMatchObject({ animation: 'review', bubble: '整理回复中' })
++      await expectAccountIdle()
++      ctx.emit('session/event', session, assistantMessage(1, 1, '完整回复', 3))
++      emitAssistantFrame(ctx, session, {
++        type: 'end', attemptId, revision: 1, index: 2,
++        outcome: { kind: 'committed', eventType: 'assistant/message', seq: SessionSeq(3) },
++      })
++      expect(await service.state()).toMatchObject({ phase: 'review', affinity: { turns: 0 } })
+ 
+-      ctx.emit('session/event', session, toolCall(1, 1, 'call-1', 'shell', 6))
++      ctx.emit('session/event', session, toolCall(1, 1, 'call-1', 'shell', 4))
+       expect(await service.state()).toMatchObject({
+-        animation: 'running-right',
+-        bubble: '正在使用 shell',
++        animation: 'running-right', bubble: '正在使用 shell',
+       })
+-
+-      ctx.emit('session/event', session, toolResult(1, 1, 'call-1', 7))
++      ctx.emit('session/event', session, toolResult(1, 1, 'call-1', 5))
+       expect(await service.state()).toMatchObject({ animation: 'running', bubble: '处理工具结果' })
+-
+-      ctx.emit('session/event', session, turnEnd(1, { kind: 'completed' }, 8))
+-      expect(await service.state()).toMatchObject({ animation: 'jumping', bubble: '完成啦' })
++      const completed = turnEnd(1, { kind: 'completed' }, 6)
++      ctx.emit('session/event', session, completed)
++      expect(await service.state()).toMatchObject({
++        animation: 'jumping', bubble: '完成啦', affinity: { turns: 1 },
++      })
++      ctx.emit('session/event', session, completed)
++      expect((await service.state()).affinity.turns).toBe(1)
++      await expectAccountIdle()
+     } finally {
++      await ctx.fiber.dispose()
+       rmSync(dir, { recursive: true, force: true })
+     }
+   })
+@@ -319,18 +366,18 @@ describe('PetService (rc.6 session events)', () => {
+       const service = new PetService(ctx, { persistDir: dir })
+       // The SITUATION wakes the whisper, not the words: a reasoning chunk
+       // speaks the thinking category while the status bubble reports as usual.
+-      ctx.emit('agent/assistant-stream', assistantChunk(session, 1, 1, {
++      emitAssistantChunk(ctx, session, 1, 1, {
+         type: 'reasoning-delta', index: 0, text: '这里有个错误要修',
+-      }, 1))
++      }, 1)
+       const view = await service.state()
+       expect(view.bubble).toBe('正在思考')
+       expect(view.sessions?.[0]?.whisper).toBe(WHISPER_CATEGORY_POOLS.thinking[0])
+ 
+       // The cooldown keeps the next chunk quiet right after; the same
+       // whisper keeps riding the session's bubble.
+-      ctx.emit('agent/assistant-stream', assistantChunk(session, 1, 1, {
++      emitAssistantChunk(ctx, session, 1, 1, {
+         type: 'reasoning-delta', index: 0, text: '又一个错误',
+-      }, 2))
++      }, 2)
+       expect((await service.state()).sessions?.[0]?.whisper).toBe(WHISPER_CATEGORY_POOLS.thinking[0])
+ 
+       // Past the TTL the whisper leaves the session's bubble.
+@@ -351,16 +398,16 @@ describe('PetService (rc.6 session events)', () => {
+     const session = makeSession('s1')
+     try {
+       const service = new PetService(ctx, { persistDir: dir })
+-      ctx.emit('agent/assistant-stream', assistantChunk(session, 1, 1, {
++      emitAssistantChunk(ctx, session, 1, 1, {
+         type: 'text-delta', index: 0, text: '在整理回复',
+-      }, 1))
++      }, 1)
+       const view = await service.state()
+       expect(view.bubble).toBe('整理回复中')
+       expect(view.sessions?.[0]?.whisper).toBe(WHISPER_CATEGORY_POOLS.writing[0])
+       // An empty chunk stays quiet and does not disturb the bubble.
+-      ctx.emit('agent/assistant-stream', assistantChunk(session, 1, 1, {
++      emitAssistantChunk(ctx, session, 1, 1, {
+         type: 'text-delta', index: 0, text: '',
+-      }, 2))
++      }, 2)
+       expect((await service.state()).sessions?.[0]?.whisper).toBe(WHISPER_CATEGORY_POOLS.writing[0])
+     } finally {
+       rmSync(dir, { recursive: true, force: true })
+@@ -416,9 +463,9 @@ describe('PetService (rc.6 session events)', () => {
+     try {
+       const service = new PetService(ctx, { persistDir: dir })
+ 
+-      ctx.emit('agent/assistant-stream', assistantChunk(sessionA, 1, 1, {
++      emitAssistantChunk(ctx, sessionA, 1, 1, {
+         type: 'reasoning-delta', index: 0, text: 'A',
+-      }, 1))
++      }, 1)
+       expect(await service.state()).toMatchObject({ animation: 'running', bubble: '正在思考' })
+ 
+       ctx.emit('session/event', sessionB, toolCall(1, 1, 'call-b', 'search', 1))
+@@ -427,18 +474,18 @@ describe('PetService (rc.6 session events)', () => {
+         bubble: '正在使用 search',
+       })
+ 
+-      ctx.emit('agent/assistant-stream', assistantChunk(sessionA, 1, 1, {
++      emitAssistantChunk(ctx, sessionA, 1, 1, {
+         type: 'text-delta', index: 0, text: 'A',
+-      }, 2))
++      }, 2)
+       expect(await service.state()).toMatchObject({ animation: 'review', bubble: '整理回复中' })
+ 
+       ctx.emit('session/event', sessionB, turnEnd(1, { kind: 'completed' }, 2))
+       expect(await service.state()).toMatchObject({ animation: 'jumping', bubble: '完成啦' })
+       expect((await service.state()).affinity.turns).toBe(1)
+ 
+-      ctx.emit('agent/assistant-stream', assistantChunk(sessionA, 1, 1, {
++      emitAssistantChunk(ctx, sessionA, 1, 1, {
+         type: 'text-delta', index: 0, text: 'A2',
+-      }, 3))
++      }, 3)
+       ctx.emit('session/disposed', sessionB)
+       expect(await service.state()).toMatchObject({
+         animation: 'review',
+@@ -463,9 +510,9 @@ describe('PetService (rc.6 session events)', () => {
+     try {
+       const service = new PetService(ctx, { persistDir: dir })
+ 
+-      ctx.emit('agent/assistant-stream', assistantChunk(sessionA, 1, 1, {
++      emitAssistantChunk(ctx, sessionA, 1, 1, {
+         type: 'reasoning-delta', index: 0, text: 'A',
+-      }, 1))
++      }, 1)
+       ctx.emit('session/event', sessionB, toolCall(1, 1, 'call-b', 'search', 1))
+ 
+       let view = await service.state()
+@@ -482,9 +529,9 @@ describe('PetService (rc.6 session events)', () => {
+       ])
+ 
+       // A new event on A moves A to the top of the stack.
+-      ctx.emit('agent/assistant-stream', assistantChunk(sessionA, 1, 1, {
++      emitAssistantChunk(ctx, sessionA, 1, 1, {
+         type: 'text-delta', index: 0, text: 'A',
+-      }, 2))
++      }, 2)
+       view = await service.state()
+       expect(view.sessions?.map(session => session.sessionId)).toEqual(['s-a', 's-b'])
+ 
+@@ -516,12 +563,12 @@ describe('PetService (rc.6 session events)', () => {
+     try {
+       const service = new PetService(ctx, { persistDir: dir })
+ 
+-      ctx.emit('agent/assistant-stream', assistantChunk(sessionA, 1, 1, {
++      emitAssistantChunk(ctx, sessionA, 1, 1, {
+         type: 'reasoning-delta', index: 0, text: 'A',
+-      }, 1))
+-      ctx.emit('agent/assistant-stream', assistantChunk(sessionB, 1, 1, {
++      }, 1)
++      emitAssistantChunk(ctx, sessionB, 1, 1, {
+         type: 'reasoning-delta', index: 0, text: 'B',
+-      }, 2))
++      }, 2)
+ 
+       // B was the most recent event, so it leads without a current report.
+       expect((await service.state()).sessions?.map(session => session.sessionId)).toEqual(['s-b', 's-a'])
+@@ -544,9 +591,9 @@ describe('PetService (rc.6 session events)', () => {
+       const service = new PetService(ctx, { persistDir: dir })
+ 
+       ctx.emit('session/event', sessionA, toolCall(1, 1, 'call-a', 'search', 1))
+-      ctx.emit('agent/assistant-stream', assistantChunk(sessionB, 1, 1, {
++      emitAssistantChunk(ctx, sessionB, 1, 1, {
+         type: 'reasoning-delta', index: 0, text: 'B',
+-      }, 2))
++      }, 2)
+ 
+       const view = await service.state('s-a')
+       expect(view.sessions?.[0]).toMatchObject({ sessionId: 's-a', whisper: WHISPER_CATEGORY_POOLS.reading[0] })
+@@ -630,9 +677,9 @@ describe('PetService (rc.6 session events)', () => {
+     try {
+       const service = new PetService(ctx, { persistDir: dir })
+ 
+-      ctx.emit('agent/assistant-stream', assistantChunk(sessionA, 1, 1, {
++      emitAssistantChunk(ctx, sessionA, 1, 1, {
+         type: 'reasoning-delta', index: 0, text: 'A',
+-      }, 1))
++      }, 1)
+       ctx.emit('session/event', sessionB, toolCall(1, 1, 'call-b', 'search', 1))
+       // The subagent's activity is the most recent meaningful event: the
+       // sprite follows it, but it must not occupy its own bubble.
+@@ -681,9 +728,9 @@ describe('PetService (rc.6 session events)', () => {
+     const sessionB = makeSession('s-b')
+     try {
+       const service = new PetService(ctx, { persistDir: dir })
+-      ctx.emit('agent/assistant-stream', assistantChunk(sessionA, 1, 1, {
++      emitAssistantChunk(ctx, sessionA, 1, 1, {
+         type: 'reasoning-delta', index: 0, text: 'A',
+-      }, 1))
++      }, 1)
+       ctx.emit('session/event', sessionB, toolCall(1, 1, 'call-b', 'search', 1))
+       expect(await service.state()).toMatchObject({ animation: 'running-right' })
+ 
+@@ -1265,9 +1312,9 @@ describe('voice packs in PetService (pet-center M4, issue #677)', () => {
+           whispers: { categories: { thinking: ['自定义思考'] } },
+         }),
+       })
+-      ctx.emit('agent/assistant-stream', assistantChunk(session, 1, 1, {
++      emitAssistantChunk(ctx, session, 1, 1, {
+         type: 'reasoning-delta', index: 0, text: '想想怎么改',
+-      }, 1))
++      }, 1)
+       expect((await service.state()).sessions?.[0]?.whisper).toBe('自定义思考')
+     } finally {
+       rmSync(dir, { recursive: true, force: true })
+@@ -1373,3 +1420,64 @@ describe('status decorations in PetService (pet-center M5, #567)', () => {
+     }
+   })
+ })
++
++describe('account-scoped pet persistence', () => {
++  it('user retains pet preferences independently by immutable account id', async () => {
++    // Given two immutable account identities, when pet preferences and interactions change, then each account retains only its own values across reload.
++    const dir = tempDir()
++    const alice = { source: 'dsh-passwords', id: '2' }
++    const bob = { source: 'dsh-passwords', id: '3' }
++    const carol = { source: 'dsh-passwords', id: '4' }
++    try {
++      const service = new PetService(new Context(), { persistDir: dir, registry: fixtureRegistry() })
++      await service.setPetId('otter', alice)
++      await service.setName('阿獭', alice)
++      await service.setConfig({ size: 222, right: 71, bottom: 93, bubbleScale: 1.6 }, alice)
++      await service.interact('pet', alice)
++      service.mutateAccountSettings([
++        { op: 'set', path: ['enabled'], value: false },
++        { op: 'set', path: ['decorationEnabled'], value: false },
++      ], 2, alice)
++      expect(() => service.mutateAccountSettings([
++        { op: 'set', path: ['visible'], value: false },
++      ], 2, alice)).toThrow('settings-conflict')
++      service.mutateAccountSettings([
++        { op: 'set', path: ['enabled'], value: true },
++      ], 0, bob)
++
++      const aliceView = await service.state(alice)
++      expect(aliceView).toMatchObject({
++        pet: { id: 'otter' },
++        name: '阿獭',
++        display: { size: 222, right: 71, bottom: 93, bubbleScale: 1.6 },
++        affinity: { points: 1, pets: 1 },
++      })
++      expect(service.accountSettings(alice).value).toMatchObject({ enabled: false, decorationEnabled: false })
++
++      expect(await service.state(bob)).toMatchObject({
++        pet: { id: 'whale-girl' },
++        name: '鲸鱼娘',
++        display: { visible: true, size: 160, bubbleScale: 1 },
++        affinity: { points: 0, pets: 0 },
++      })
++      expect(await service.state()).toMatchObject({
++        pet: { id: 'whale-girl' },
++        display: { visible: true, size: 160, bubbleScale: 1 },
++        affinity: { points: 0, pets: 0 },
++      })
++
++      const reloaded = new PetService(new Context(), { persistDir: dir, registry: fixtureRegistry() })
++      expect(await reloaded.state(alice)).toMatchObject({
++        pet: { id: 'otter' },
++        name: '阿獭',
++        display: { size: 222, right: 71, bottom: 93, bubbleScale: 1.6 },
++        affinity: { points: 1, pets: 1 },
++      })
++      expect(reloaded.accountSettings(alice).value.enabled).toBe(false)
++      expect(reloaded.accountSettings(bob).value.enabled).toBe(true)
++      expect(reloaded.accountSettings(carol).value.enabled).toBe(false)
++    } finally {
++      rmSync(dir, { recursive: true, force: true })
++    }
++  })
++})

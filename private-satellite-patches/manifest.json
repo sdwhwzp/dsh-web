@@ -1,0 +1,30 @@
+{
+  "sourceCommit": "f22f30d50e3f7e10a3b83f5d6fac702833ed234a",
+  "patchBase": "de9fe2320db051b6f3eb27a5b76c2f8477954fbd",
+  "satellites": [
+    {
+      "name": "@linxin666/dsh-client-ui-community-plugins",
+      "version": "0.3.24-dsh.20260923.4",
+      "file": "linxin666-dsh-client-ui-community-plugins-0.3.24-dsh.20260923.4.tgz",
+      "sha256": "fe5d61b4233fec5c8dc071540df535f7c03880931cd746d4d898a2ca63696b97",
+      "bytes": 42258,
+      "commit": "f22f30d50e3f7e10a3b83f5d6fac702833ed234a"
+    },
+    {
+      "name": "@linxin666/dsh-pet",
+      "version": "0.3.24-dsh.20260923.4",
+      "file": "linxin666-dsh-pet-0.3.24-dsh.20260923.4.tgz",
+      "sha256": "c4a8f6e435cc1f367e31d9a96c518bee635e811ab54ffbe250b98e5297a608e6",
+      "bytes": 10803503,
+      "commit": "f22f30d50e3f7e10a3b83f5d6fac702833ed234a"
+    },
+    {
+      "name": "@linxin666/dsh-client-ui-skin-center",
+      "version": "0.3.24-dsh.20260923.4",
+      "file": "linxin666-dsh-client-ui-skin-center-0.3.24-dsh.20260923.4.tgz",
+      "sha256": "68b98cd0d1e776063b2efad0577a5dd63ec66bd98185e2383723ebd68c67b347",
+      "bytes": 860200,
+      "commit": "f22f30d50e3f7e10a3b83f5d6fac702833ed234a"
+    }
+  ]
+}

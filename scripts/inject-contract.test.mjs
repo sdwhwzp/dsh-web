@@ -33,13 +33,15 @@ const APPROVED_INJECT_MODULES = [
   '@deepseek-ai/dsh-client-ui-settings',
   '@deepseek-ai/dsh-client-ui-sidebar',
   '@deepseek-ai/dsh-client-ui-slots',
-  '@deepseek-ai/dsh-client-ui-theme',
   '@deepseek-ai/dsh-client-ui-workspace',
 ]
 
 function collectInjects() {
   const files = []
   for (const base of [join(ROOT, 'packages'), join(ROOT, 'packages/skins')]) {
+    // packages/skins/ is empty after the skin collection moved out and is
+    // absent from a fresh clone.
+    if (!existsSync(base)) continue
     for (const entry of readdirSync(base)) {
       const pkg = join(base, entry, 'package.json')
       if (existsSync(pkg)) files.push(pkg)

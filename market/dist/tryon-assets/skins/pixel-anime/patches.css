@@ -580,6 +580,7 @@ html[data-dsh-skin="pixel-anime"] body[data-dsh-backdrop-active]::after {
   background-image: none;
 }
 
+
 html[data-dsh-skin="pixel-anime"] [id="root"] { background: transparent; }
 
 html[data-dsh-skin="pixel-anime"] body { --shiki-background: var(--dsw-alias-markdown-code-block); }

@@ -2,29 +2,30 @@
 
 ## 范围
 
-本版本统一发布 `packages/` 与 `packages/skins/` 下由 `scripts/lib/family-packages.mjs` 发现的 19 个公开家族包；根 package.json 与 shared 私有包不发布。所有家族包采用统一版本号（当前为 0.3.24-dsh.20260923.4），皮肤中心只随包分发 `blue-fantasy`，其余皮肤由 Workshop 按需安装。
+本版本统一发布 `packages/` 下由 `scripts/lib/family-packages.mjs` 发现的 16 个公开家族包；根 package.json 与 shared 私有包不发布。所有家族包采用统一版本号（当前为 0.4.0-dsh.20260924.1），皮肤中心只随包分发 `blue-fantasy`，其余皮肤由 Workshop 按需安装。
+
+皮肤中心、宠物与社区插件索引已拆分为独立仓库并各自发版：`@linxin666/dsh-client-ui-skin-center`（[dsh-skins](https://github.com/zhu1090093659/dsh-skins)）、`@linxin666/dsh-pet`（[dsh-pet](https://github.com/zhu1090093659/dsh-pet)）、`@linxin666/dsh-client-ui-community-plugins`（[dsh-community-plugins](https://github.com/zhu1090093659/dsh-community-plugins)）。本仓的聚合包按 semver 依赖它们，市场站按 [market-inputs.lock.json](../market-inputs.lock.json) 固定的提交拉取皮肤与宠物内容，三者不再随本仓统一版本发布。
 
 | 目录 | npm 包 | 版本 | 发布状态 |
 | --- | --- | --- | --- |
-| packages/dsh-community-plugins | @linxin666/dsh-client-ui-community-plugins | 0.3.24-dsh.20260923.4 | public |
-| packages/dsh-git-graph | @linxin666/dsh-client-ui-git-graph | 0.3.24-dsh.20260923.4 | public |
-| packages/dsh-i18n | @linxin666/dsh-i18n | 0.3.24-dsh.20260923.4 | public |
-| packages/dsh-liangshen | @linxin666/dsh-liangshen | 0.3.24-dsh.20260923.4 | public |
-| packages/dsh-market | @linxin666/dsh-client-ui-market | 0.3.24-dsh.20260923.4 | public |
-| packages/dsh-model-capabilities | @linxin666/dsh-client-ui-model-capabilities | 0.3.24-dsh.20260923.4 | public |
-| packages/dsh-pet | @linxin666/dsh-pet | 0.3.24-dsh.20260923.4 | public |
-| packages/dsh-plugin-manager | @linxin666/dsh-client-ui-plugin-manager | 0.3.24-dsh.20260923.4 | public |
-| packages/dsh-preset-center | @linxin666/dsh-client-ui-preset-center | 0.3.24-dsh.20260923.4 | public |
-| packages/dsh-remote-web-ui | @linxin666/dsh-remote-web-ui | 0.3.24-dsh.20260923.4 | public |
-| packages/dsh-session-archive | @linxin666/dsh-session-archive | 0.3.24-dsh.20260923.4 | public |
-| packages/dsh-session-id | @linxin666/dsh-client-ui-session-id | 0.3.24-dsh.20260923.4 | public |
-| packages/dsh-skill-explorer | @linxin666/dsh-client-ui-skill-explorer | 0.3.24-dsh.20260923.4 | public |
-| packages/dsh-ssh | @linxin666/dsh-ssh | 0.3.24-dsh.20260923.4 | public |
-| packages/dsh-task-board | @linxin666/dsh-client-ui-task-board | 0.3.24-dsh.20260923.4 | public |
-| packages/dsh-usage | @linxin666/dsh-usage | 0.3.24-dsh.20260923.4 | public |
-| packages/dsh-web-all | @linxin666/dsh-web-all | 0.3.24-dsh.20260923.4 | public |
-| packages/dsh-web-settings | @linxin666/dsh-client-ui-web-ui-settings | 0.3.24-dsh.20260923.4 | public |
-| packages/skins/skin-center | @linxin666/dsh-client-ui-skin-center | 0.3.24-dsh.20260923.4 | public |
+| packages/dsh-git-graph | @linxin666/dsh-client-ui-git-graph | 0.4.0-dsh.20260924.1 | public |
+| packages/dsh-i18n | @linxin666/dsh-i18n | 0.4.0-dsh.20260924.1 | public |
+| packages/dsh-liangshen | @linxin666/dsh-liangshen | 0.4.0-dsh.20260924.1 | public |
+| packages/dsh-market | @linxin666/dsh-client-ui-market | 0.4.0-dsh.20260924.1 | public |
+| packages/dsh-model-capabilities | @linxin666/dsh-client-ui-model-capabilities | 0.4.0-dsh.20260924.1 | public |
+| packages/dsh-plugin-manager | @linxin666/dsh-client-ui-plugin-manager | 0.4.0-dsh.20260924.1 | public |
+| packages/dsh-preset-center | @linxin666/dsh-client-ui-preset-center | 0.4.0-dsh.20260924.1 | public |
+| packages/dsh-remote-web-ui | @linxin666/dsh-remote-web-ui | 0.4.0-dsh.20260924.1 | public |
+| packages/dsh-session-archive | @linxin666/dsh-session-archive | 0.4.0-dsh.20260924.1 | public |
+| packages/dsh-session-id | @linxin666/dsh-client-ui-session-id | 0.4.0-dsh.20260924.1 | public |
+| packages/dsh-skill-explorer | @linxin666/dsh-client-ui-skill-explorer | 0.4.0-dsh.20260924.1 | public |
+| packages/dsh-ssh | @linxin666/dsh-ssh | 0.4.0-dsh.20260924.1 | public |
+| packages/dsh-task-board | @linxin666/dsh-client-ui-task-board | 0.4.0-dsh.20260924.1 | public |
+| packages/dsh-usage | @linxin666/dsh-usage | 0.4.0-dsh.20260924.1 | public |
+| packages/dsh-web-all | @linxin666/dsh-web-all | 0.4.0-dsh.20260924.1 | public |
+| packages/dsh-web-settings | @linxin666/dsh-client-ui-web-ui-settings | 0.4.0-dsh.20260924.1 | public |
+
+个人部署的卫星包沿用已验收制品，详见 [部署锁定清单](../private-satellite-patches/README.md)。本次只构建私有部署制品，不向 npm 发布。
 
 ## 外部依赖与迁移说明
 
@@ -33,7 +34,7 @@
 
 ## 兼容性边界
 
-所有 `web-ui-*` bundle id、`dsh-web-ui-market`、`/api/dsh-web-ui-settings` 与 `dsh-web-ui-settings-proxy-token` 请求头保持冻结。Doctor 迁移与插件管理器迁移采用共享映射；Doctor 经受限 `cmd.exe` 参数调用 Windows `.cmd` shim。直接执行 `dsh web` 旁路 Doctor 迁移。皮肤中心对当前工坊安装保持来源验证路径，仅当已安装 manifest 与钩子字节匹配审查通过的生成标识时才恢复预置钩子效果；`pnpm skin-center:check` 拦截标识漂移。创意工坊目录包含声明式 `whalechan-harness` 皮肤（本地 CC BY-NC-SA 4.0 资产，无执行钩子），其细粒度生成类选择器作为明确记录的前端重新构建兼容性边界保留。
+所有 `web-ui-*` bundle id、`dsh-web-ui-market`、`/api/dsh-web-ui-settings` 与 `dsh-web-ui-settings-proxy-token` 请求头保持冻结。Doctor 迁移与插件管理器迁移采用共享映射；Doctor 经受限 `cmd.exe` 参数调用 Windows `.cmd` shim。直接执行 `dsh web` 旁路 Doctor 迁移。皮肤中心对当前工坊安装保持来源验证路径，仅当已安装 manifest 与钩子字节匹配审查通过的生成标识时才恢复预置钩子效果；该门禁已随皮肤中心迁至 dsh-skins 仓。创意工坊目录包含声明式 `whalechan-harness` 皮肤（本地 CC BY-NC-SA 4.0 资产，无执行钩子），其细粒度生成类选择器作为明确记录的前端重新构建兼容性边界保留。
 
 本版本具有全新安装、单元迁移与 Linux CI 挂载证据。
 
@@ -48,12 +49,11 @@ pnpm aggregate:check
 pnpm runtime-deps:check
 pnpm docs:check
 pnpm i18n:check
-pnpm skin-center:check
-pnpm community:check
+pnpm market:fetch
 pnpm market:check
 pnpm libs:check
 pnpm build
-node scripts/verify-version.mjs 0.3.24-dsh.20260923.4
+node scripts/verify-version.mjs 0.4.0-dsh.20260924.1
 ```
 
 CI 与发布挂载冒烟测试挂载目标为 `@deepseek-ai/dsh@0.1.7-rc.1`，与家族包通过 `dsh.engines.dsh >=0.1.7-rc.1` 声明的最低宿主版本一致。

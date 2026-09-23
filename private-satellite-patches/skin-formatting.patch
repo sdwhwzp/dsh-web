@@ -1,0 +1,37 @@
+diff --git a/packages/skins/skin-center/skins/cafe-roastery/skin.css b/packages/skins/skin-center/skins/cafe-roastery/skin.css
+index 0c974717..2d3db1f0 100644
+--- a/packages/skins/skin-center/skins/cafe-roastery/skin.css
++++ b/packages/skins/skin-center/skins/cafe-roastery/skin.css
+@@ -283,6 +283,3 @@ body[data-ds-dark-theme] {
+   --cr-steam: rgba(247, 236, 216, 0.85);
+   --cr-ring: rgba(242, 201, 138, 0.18);
+ }
+-
+-
+-
+diff --git a/packages/skins/skin-center/skins/observatory/patches.css b/packages/skins/skin-center/skins/observatory/patches.css
+index 7a42af67..6de7a2c5 100644
+--- a/packages/skins/skin-center/skins/observatory/patches.css
++++ b/packages/skins/skin-center/skins/observatory/patches.css
+@@ -36,7 +36,6 @@ body {
+   --sk-bubble-edge: #7a653038;
+   --sk-approval-edge: #9e3a3073;
+ }
+-
+ body {
+   --sk-ground: #0a0c12;
+   --sk-pane: url(assets/dome-plate-dark.svg),
+@@ -673,4 +672,3 @@ body[data-dsh-backdrop-active]::after {
+   -webkit-mask-image: linear-gradient(90deg, #000 0 38%, rgba(0, 0, 0, 0.4) 48%, transparent 55%);
+   mask-image: linear-gradient(90deg, #000 0 38%, rgba(0, 0, 0, 0.4) 48%, transparent 55%);
+ }
+-
+diff --git a/packages/skins/skin-center/skins/pixel-anime/patches.css b/packages/skins/skin-center/skins/pixel-anime/patches.css
+index 6f11ef69..88620eee 100644
+--- a/packages/skins/skin-center/skins/pixel-anime/patches.css
++++ b/packages/skins/skin-center/skins/pixel-anime/patches.css
+@@ -579,4 +579,3 @@ body[data-dsh-backdrop-active]::after {
+   background-color: transparent;
+   background-image: none;
+ }
+-

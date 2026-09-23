@@ -35,3 +35,9 @@ scripts/* text eol=lf
 # Windows 批处理脚本（如未来新增）保持 CRLF
 *.bat text eol=crlf
 *.cmd text eol=crlf
+
+# Byte-preserved satellite content, pinned by market-inputs.lock.json.
+# EOF blank lines belong to the source assets; market:check verifies every byte.
+market/dist/assets/skins/cafe-roastery/skin.css whitespace=-blank-at-eof
+market/dist/assets/skins/observatory/patches.css whitespace=-blank-at-eof
+market/dist/assets/skins/pixel-anime/patches.css whitespace=-blank-at-eof

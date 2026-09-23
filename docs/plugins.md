@@ -40,7 +40,7 @@ packages/<name>/
 - `patchFrom`：该包的 `cordis.patch.yml` insert 行会被汇总进聚合包 patch；
 - `deps`：解析为包名写入聚合包 `package.json` 的 `dependencies`（`workspace:*`）。
 
-皮肤（新增或改动）不需要进任何 aggregate.yml：皮肤是纯资产目录，仓库内位于 `packages/skins/skin-center/skins/<id>/`（市场构建与预览的共同来源）；npm 包 `files` 白名单只随发默认皮肤 `blue-fantasy`，其余皮肤由市场按需安装到 `$DSH_HOME/skins/<id>/` 后由皮肤中心管理。改完皮肤后运行 `pnpm skin-center:check` 与 `pnpm market:build` 刷新 market/dist。皮肤启用互斥由 `dsh-skin use` 管理（客户端原子切换，不改 cordis.patch.yml）。
+皮肤（新增或改动）不需要进任何 aggregate.yml：皮肤是纯资产目录，位于独立仓 [dsh-skins](https://github.com/zhu1090093659/dsh-skins) 的 `skins/<id>/`（市场构建与预览的共同来源，本仓按 market-inputs.lock.json 固定的提交拉取）；npm 包 `files` 白名单只随发默认皮肤 `blue-fantasy`，其余皮肤由市场按需安装到 `$DSH_HOME/skins/<id>/` 后由皮肤中心管理。皮肤仓的 CI 跑 `skin-center:check`，本仓在 `pnpm market:fetch` 之后运行 `pnpm market:build` 刷新 market/dist。皮肤启用互斥由 `dsh-skin use` 管理（客户端原子切换，不改 cordis.patch.yml）。
 
 ### 4. 重新生成聚合包
 
@@ -105,8 +105,8 @@ dsh plugin --profile web add link:<dsh-web>/packages/dsh-web-all
 
 第三方插件作者可把自己的插件登记进创意工坊商店的插件目录（设置 → 创意工坊 → 插件）与 dsh-market.com 创意工坊站：
 
-1. 在 `packages/dsh-community-plugins/community.json` 追加条目：`id` / `name` / `nameEn` / `author` / `repo`（https:// 仓库 URL）必填，`description` / `descriptionEn` / `npm` 可选；`category`（一级分类）与 `subcategory`（二级分类）可选，合法枚举见 `scripts/community-index` 的 `CATEGORIES` 与 `SUBCATEGORIES`，且 `subcategory` 只在 `category` 已填时被接受——分类与二级分类一同驱动创意工坊的两级筛选；
-2. 运行 `node scripts/community-index` 校验数据（CI 门禁同款校验）；
+1. 在 [dsh-community-plugins](https://github.com/zhu1090093659/dsh-community-plugins) 仓根目录的 `community.json` 追加条目：`id` / `name` / `nameEn` / `author` / `repo`（https:// 仓库 URL）必填，`description` / `descriptionEn` / `npm` 可选；`category`（一级分类）与 `subcategory`（二级分类）可选，合法枚举见该仓 `scripts/community-index.cjs` 的 `CATEGORIES` 与 `SUBCATEGORIES`，且 `subcategory` 只在 `category` 已填时被接受——分类与二级分类一同驱动创意工坊的两级筛选；
+2. 在该仓运行 `pnpm community:check` 校验数据（CI 门禁同款校验）；
 3. 运行 `node scripts/market-build` 重新生成 `market/dist` 清单（`manifest/plugins.json` 由 community.json 派生）并提交生成物（`market:check` 校验一致）。
 
 索引只收录链接、不搬代码，条目版权归原作者，由维护者审核合并。
@@ -148,7 +148,7 @@ dsh plugin --profile web add link:<dsh-web>/packages/dsh-web-all
 - **设置页插件配置（20260811+ 可选能力）**：DSH web 的插件管理页为每个 bundle 的页面提供一片配置区（`plugins.bundle.config` 槽，按 bundle 包名分派）。Web 插件组、皮肤中心、社区插件、桌面宠物各注册一级设置分区（`settings.section`，`label` 用 thunk 跟随语言，内容直接展开）；Web 插件组声明 `web-ui.plugin.item` 子槽归组 task-board 等卡片。插件接入只需两步：
   1. **host 半区**：插件的 `Config`（schemastery）就是它的设置面——`@deepseek-ai/dsh-settings` 按 profile entry 自身的 schema 生成设置表单，因此注册命名空间、`installSection`、`setSource`、`onChange` 都不再存在。需要可编辑的字段必须标记 `.volatile()`（只有 `@deepseek-ai/schemastery` 提供；未标记 volatile 的 entry 根本不生成表单），并在插件运行时通过宿主交付的引用读取当前值，用 `loader/volatile-update` 事件让已派生的行为跟随已提交的修改，无需重启。
   2. **browser 半区**：注入 `configForms`（`@deepseek-ai/dsh-client-ui-settings` 提供 `ctx.configForms`），`ctx.configForms.get(entryId)` 读写该 profile entry 自身的配置——设置命名空间即所属 profile entry id，不再由插件自选名称；一次写入返回布尔值，`false` 表示宿主拒绝或跳过，必须当作保存失败上报。然后注册卡片：家族归组用 `web-ui.plugin.item`，官方 bundle 配置页用 `plugins.bundle.config`，一级菜单用 `settings.section`（自行 `declare module '@deepseek-ai/dsh-client-ui-slots'` 声明该槽，shape 与官方一致；`order` 用 100+；一级分区卡片加 `alwaysOpen` 直接展开）。样板见 `packages/dsh-remote-web-ui`（自包含 staged 表单，不依赖兄弟 UI 包）。家族插件用共享的 `installPluginCard`（`shared/client/settings/plugin-card-seat.ts`）选席位：`dsh-web-settings` 已加载（`ctx.get('webUiSettings')` 有值）时进 `web-ui.plugin.item`，否则进官方 keyed 槽 `plugins.bundle.config`（key 用自身 bundle 包名）；**不要**用「官方席位是否已声明」判定——官方插件面属于 harness bundle，其席位在每个 web 构建上都先于外部插件声明，据此判定会让家族分区永远为空。家族插件经 `dsh-web-settings` 的 `webUiSettings` 绑定时按包身份别名表把家族 namespace 解析成所属 entry id，再走原生 `configForms`；解析不到时回落到该包的 loopback HTTP 桥。
-- **皮肤类插件**：改用 `scripts/dsh-skin-new` 脚手架（皮肤规范见 skin-center / 各皮肤包 README），不经过本流程第 3-4 步的 `dsh-web-all` 注册。皮肤中心（skin-center）虽是皮肤聚合，其 GUI 是一级设置分区（设置 → 皮肤中心），自带启用开关。
+- **皮肤类插件**：皮肤已迁至独立仓 [dsh-skins](https://github.com/zhu1090093659/dsh-skins)，用该仓的 `node scripts/dsh-skin-new.cjs <id>` 脚手架生成纯资产目录（皮肤规范见该仓 README），不经过本流程第 3-4 步的 `dsh-web-all` 注册。皮肤中心（skin-center）虽是皮肤聚合，其 GUI 是一级设置分区（设置 → 皮肤中心），自带启用开关。
 
 ## 移植 harness 插件的挂载约束
 

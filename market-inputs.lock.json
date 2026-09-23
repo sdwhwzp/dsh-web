@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "comment": "Content sources for the market build. Each input is an independent repository; the market build reads its content at this exact commit. Update the sha when the repository publishes content the site should serve.",
+  "inputs": {
+    "skins": {
+      "repo": "zhu1090093659/dsh-skins",
+      "sha": "3f813b43f83c476faa4620aed120813f2ce42048",
+      "path": "skins",
+      "target": "skins"
+    },
+    "pet": {
+      "repo": "zhu1090093659/dsh-pet",
+      "sha": "4ee0c7657d9f04d41801ba25c74258cc93d348ef",
+      "path": "assets",
+      "target": "pet"
+    },
+    "community": {
+      "repo": "zhu1090093659/dsh-community-plugins",
+      "sha": "fe4843ab851e317c432b245a40f835a27382570f",
+      "path": ".",
+      "target": "community"
+    }
+  }
+}

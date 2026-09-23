@@ -15,12 +15,10 @@
 patchFrom:
   - ../dsh-web-settings
   - ../dsh-plugin-manager
-  - ../dsh-community-plugins
   - ../dsh-market
   - ../dsh-task-board
   - ../dsh-git-graph
   - ../dsh-remote-web-ui
-  - ../dsh-pet
   - ../dsh-ssh
   - ../dsh-liangshen
   - ../dsh-skill-explorer
@@ -30,7 +28,6 @@ patchFrom:
   # preset-center 排在 dsh-market 之后：创意工坊卡片先声明 dsh-workshop.panel
   # 子槽位，预设面板再注册进该槽位（见 packages/dsh-preset-center）。
   - ../dsh-preset-center
-  - ../skins/skin-center
   # dsh-i18n 语言包无宿主行为、无时序依赖，放列表末尾：注册 ru 语言与全部
   # 家族插件命名空间的 ru 字典（见 packages/dsh-i18n）。
   - ../dsh-i18n
@@ -38,11 +35,9 @@ self:
   - web-ui-compat
 deps:
   - ../dsh-plugin-manager
-  - ../dsh-community-plugins
   - ../dsh-market
   - ../dsh-task-board
   - ../dsh-git-graph
-  - ../dsh-pet
   - ../dsh-remote-web-ui
   - ../dsh-ssh
   - ../dsh-liangshen
@@ -52,10 +47,21 @@ deps:
   - ../dsh-model-capabilities
   - ../dsh-preset-center
   - ../dsh-web-settings
-  - ../skins/skin-center
   - ../dsh-i18n
+
+# 独立仓库卫星（npm 外部行）：皮肤中心、宠物、社区插件索引迁出本单一仓库后由各自
+# 仓库独立发版，这里只按 registry 版本内置。行 id 与 patchFrom 时期逐字一致
+# （web-ui-* 命名空间不变），老 profile 无需迁移；remote-web-ui 仍排在 pet 之前
+# （patchFrom 行整体先于外部行渲染）。
+# 依赖版本由 packages/dsh-web-all/package.json 手写并随生成器保留。
+# 代价：外部行不带聚合包的 fault-isolation shell，且客户端不再内联进本包 lib
+# （改由卫星自带的 loader entry 挂载）。
+rows:
+  - {"id": "community-plugins", "name": "@linxin666/dsh-client-ui-community-plugins"}
+  - {"id": "pet", "name": "@linxin666/dsh-pet"}
+  - {"id": "skin-center", "name": "@linxin666/dsh-client-ui-skin-center"}
+
 # 外部右侧面板由 profile 独立安装；本全家桶不依赖或挂载 dsh-better-sidebar。
-# 可通过 dsh plugin --profile <name> add dsh-better-sidebar@latest 安装适配宿主的版本。
 # @mlgbnb/dsh-archive-manager 仍然排除：其 latest 1.0.7 仍 import 已移除面。
 # 出厂默认关闭的可选行（2026-09-09 产品决策）：工具/探索类家族插件对新装用户
 # 不加载（设置入口也不出现），在 设置 → 插件 → 插件管理 的聚合子行里逐个开启；
@@ -78,3 +84,9 @@ tombstones:
   - dsh-perf
   - describe-image
   - doctor
+  # 迁出为独立仓库的家族子路径：行已改为 npm 外部行（直挂真实包名），但旧 profile
+  # 里记录的行名仍是 @linxin666/dsh-web-all/<family>。保留这三个 shell 子路径导出
+  # 让那些 profile 仍可 import，不抛 ERR_PACKAGE_PATH_NOT_EXPORTED。
+  - pet
+  - skin-center
+  - community-plugins

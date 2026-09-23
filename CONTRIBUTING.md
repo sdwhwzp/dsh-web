@@ -20,22 +20,23 @@
 
 ## PR 范围：只接受四类内容贡献
 
-本仓库对外部贡献者**只接受**以下四类 PR：
+本仓库对外部贡献者**只接受**以下内容贡献；其中插件申请、皮肤增加、宠物增加在各自的独立仓提交，预设增加在本仓提交：
 
 - **插件申请（社区插件索引登记）**：第三方插件由作者在自己的仓库按官方
-  cordis bundle 标准实现，向本仓库申请登记进社区插件索引——在
-  `packages/dsh-community-plugins/community.json` 追加条目并重新生成
-  注册表，随 PR 提交；
-- **皮肤增加（新皮肤收录）**：新皮肤作为纯资产收录进皮肤中心
-  （`packages/skins/skin-center/skins/<id>/`），收录到我们部署的
-  dsh-market.com 服务器（Workshop 商店）供用户按需安装——**默认安装不带**：
-  skin-center npm 包只随附 `blue-fantasy`，新皮肤由用户经 Workshop
-  按需安装到 `$DSH_HOME/skins/<id>/`。**低质皮肤 PR 不予接受**（没有
+  cordis bundle 标准实现，然后向
+  [dsh-community-plugins](https://github.com/zhu1090093659/dsh-community-plugins)
+  仓提交索引登记——在该仓根目录的 `community.json` 追加条目，运行
+  `pnpm community:check` 校验后随该仓 PR 提交；
+- **皮肤增加（新皮肤收录）**：新皮肤作为纯资产提交到
+  [dsh-skins](https://github.com/zhu1090093659/dsh-skins) 仓的 `skins/<id>/`，
+  收录到我们部署的 dsh-market.com 服务器（Workshop 商店）供用户按需安装——
+  **默认安装不带**：skin-center npm 包只随附 `blue-fantasy`，新皮肤由用户经
+  Workshop 按需安装到 `$DSH_HOME/skins/<id>/`。**低质皮肤 PR 不予接受**（没有
   背景图、仅简单改色且样式存在明显问题，如暗色缺失、对比度不足、布局
   错位），请完善样式并附亮 / 暗试穿截图后再提交；
-- **宠物增加（新宠物收录）**：按宠物契约新增
-  `packages/dsh-pet/assets/<id>/`（`pet.json` manifest + 图集，可选
-  语音包 / 预览 / 装饰），随 PR 收录为内置宠物。
+- **宠物增加（新宠物收录）**：按宠物契约在
+  [dsh-pet](https://github.com/zhu1090093659/dsh-pet) 仓的 `assets/<id>/` 新增
+  （`pet.json` manifest + 图集，可选语音包 / 预览 / 装饰），随该仓 PR 提交。
 - **预设增加（agent 预设收录）**：按
   [presets README](packages/dsh-preset-center/presets/README.md) 的发布格式新增
   `packages/dsh-preset-center/presets/<id>/`（`preset.yml` + `agent.cordis.yml`）
@@ -82,8 +83,8 @@ active panel (#76 #87)`。提交信息禁止 emoji（全仓规则）。
 ## 提 PR 前检查清单
 
 1. **门禁全绿**：`pnpm typecheck` / `pnpm test` / `pnpm test:scripts` /
-   `pnpm docs:check`；涉及聚合包、市场、皮肤中心时另跑
-   `pnpm aggregate:check` / `pnpm market:check` / `pnpm skin-center:check`。
+   `pnpm docs:check`；涉及聚合包或市场时另跑
+   `pnpm aggregate:check` / `pnpm market:check`。
 2. **文档同步**：改包 README 必须同 PR 维护中英双语三件套（`README.md` +
    `README.zh.md` + `README.i18n.yaml`），改完任一侧后重录配对记录：
 
@@ -110,32 +111,28 @@ pnpm docs:write-pair <包目录名>   # 如 dsh-ssh 或 xp
 
 插件在贡献者自己的仓库实现（官方 cordis bundle 标准：`dsh.bundle.patch`
 指向 `cordis.patch.yml`、`dsh.client` 浏览器半区、仅基于
-`@deepseek-ai/*` NPM SDK，不修改 DSH 源码），然后按
-[docs/plugins.md](docs/plugins.md) 的登记说明在
-`packages/dsh-community-plugins/community.json` 追加条目，运行
-`node scripts/community-index` 重新生成注册表并提交（含生成的
-`src/client/generated/community.ts`），随 PR 提交，PR 类别勾选
-「社区插件索引」。
+`@deepseek-ai/*` NPM SDK，不修改 DSH 源码），然后向
+[dsh-community-plugins](https://github.com/zhu1090093659/dsh-community-plugins)
+仓提交索引登记：在该仓根目录的 `community.json` 追加条目，运行
+`pnpm community:check` 校验后随该仓 PR 提交。
 
 ### 皮肤增加（新皮肤收录）
 
-`node scripts/dsh-skin-new` 生成纯资产骨架（无 package.json），
-`node scripts/dsh-skin validate` 校验后按皮肤契约完善（skin.json v2、
-skin.css token 重映射，可选 patches.css / hooks.mjs / assets/），用
-`node scripts/capture-previews <id>` 重拍 `preview/{light,dark}.png`，
-`pnpm market:build` 与 `pnpm skin-center:check` 通过后随 PR 提交，
-PR 类别勾选「皮肤 / 皮肤中心」。皮肤收录到我们部署的 dsh-market.com
-服务器（Workshop）供用户按需安装，默认安装不带（见上文 PR 范围）。
+在 [dsh-skins](https://github.com/zhu1090093659/dsh-skins) 仓用
+`node scripts/dsh-skin-new.cjs <id>` 生成纯资产骨架（无 package.json），
+`node scripts/dsh-skin.cjs` 校验后按皮肤契约完善（skin.json v2、
+skin.css token 重映射，可选 patches.css / hooks.mjs / assets/），按该仓
+README 生成 `preview/{light,dark}.png`，`pnpm skin-center:check` 通过后随
+该仓 PR 提交。皮肤收录到我们部署的 dsh-market.com 服务器（Workshop）供
+用户按需安装，默认安装不带（见上文 PR 范围）。
 
 ### 宠物增加（新宠物收录）
 
-按 [dsh-pet README](packages/dsh-pet/README.zh.md) 的宠物契约新增
-`packages/dsh-pet/assets/<id>/`（`pet.json` v2 + 8 列 × 9 行图集，
-可选 `previews/`、`voice.json` 与状态装饰），在
-`src/registry.test.ts` 增加该 manifest 的归一化断言，同步维护 dsh-pet
-README 中英三件套（`pnpm docs:write-pair dsh-pet`），
-`pnpm --filter @linxin666/dsh-pet build`、`pnpm --filter @linxin666/dsh-pet test`
-与 `pnpm typecheck` 通过后随 PR 提交，PR 类别勾选「插件功能」（该类别括号内含宠物项），PR 类型勾选「新宠物收录」。
+宠物已迁至独立仓 [dsh-pet](https://github.com/zhu1090093659/dsh-pet)：按该仓 README 的宠物契约
+在 `assets/<id>/` 下新增（`pet.json` v2 + 8 列 × 9 行图集，
+可选 `previews/`、`voice.json` 与状态装饰），在该仓补齐该 manifest 的归一化
+测试与构建产物，同步维护该仓 README 中英三件套，运行该仓的
+`pnpm test` 与 `pnpm typecheck` 后随该仓 PR 提交。
 
 ### 预设增加（agent 预设收录）
 

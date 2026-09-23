@@ -5,9 +5,13 @@
  * market-build — regenerate the dsh-market.com static site assets.
  *
  * Single source of truth: the repository itself.
- *   skins   — packages/skins/skin-center/skins/<id>/skin.json        (v2)
- *   pets    — packages/dsh-pet/assets/<dir>/pet.json                 (v2)
- *   plugins — packages/dsh-community-plugins/community.json
+ *   skins   — .market-inputs/skins/<id>/skin.json                   (v2)
+ *   pets    — .market-inputs/pet/<dir>/pet.json                      (v2)
+ *   plugins — .market-inputs/community/community.json
+ *
+ * The skin, pet and community-index content lives in its own repositories;
+ * scripts/market-fetch-inputs.mjs unpacks the commits pinned in
+ * market-inputs.lock.json into .market-inputs/.
  *   presets — packages/dsh-preset-center/presets/<id>/preset.yml
  *             + presets/catalog.json (market metadata: author, version,
  *               tags, English copy); the preset directory is the asset
@@ -36,14 +40,52 @@
 
 const fs = require('node:fs')
 const path = require('node:path')
+const { createRequire } = require('node:module')
 const { pathToFileURL } = require('node:url')
 const crypto = require('node:crypto')
 const { crc32 } = require('node:zlib')
 
 const ROOT = path.resolve(__dirname, '..')
-const SKINS_DIR = path.join(ROOT, 'packages', 'skins', 'skin-center', 'skins')
-const PETS_DIR = path.join(ROOT, 'packages', 'dsh-pet', 'assets')
-const PLUGINS_FILE = path.join(ROOT, 'packages', 'dsh-community-plugins', 'community.json')
+/**
+ * Content sources. The skin and pet assets live in their own repositories
+ * (dsh-skins, dsh-pet) since the family split; scripts/market-fetch-inputs.mjs
+ * unpacks the pinned commits into MARKET_INPUTS_DIR. The in-repo paths remain
+ * as a fallback so the build keeps working from a checkout that still carries
+ * the packages (migration window and the fixture-based script tests).
+ */
+const MARKET_INPUTS_DIR = process.env.MARKET_INPUTS_DIR
+  ? path.resolve(process.env.MARKET_INPUTS_DIR)
+  : path.join(ROOT, '.market-inputs')
+const IN_REPO_SKINS_DIR = path.join(ROOT, 'packages', 'skins', 'skin-center', 'skins')
+const IN_REPO_PETS_DIR = path.join(ROOT, 'packages', 'dsh-pet', 'assets')
+const SKINS_DIR = fs.existsSync(path.join(MARKET_INPUTS_DIR, 'skins')) ? path.join(MARKET_INPUTS_DIR, 'skins') : IN_REPO_SKINS_DIR
+const PETS_DIR = fs.existsSync(path.join(MARKET_INPUTS_DIR, 'pet')) ? path.join(MARKET_INPUTS_DIR, 'pet') : IN_REPO_PETS_DIR
+/**
+ * Data sources that ship inside a published package: the community index and
+ * the skin-center CSS pipeline. Resolving through the aggregate's dependency
+ * tree keeps them pinned to the same version the runtime consumes, and keeps
+ * working after the packages leave this repository.
+ */
+const AGGREGATE_DIR = path.join(ROOT, 'packages', 'dsh-web-all')
+const marketRequire = createRequire(path.join(ROOT, 'scripts', 'market-build'))
+function resolveFamilyAsset(specifier, fallback) {
+  try {
+    return marketRequire.resolve(specifier, { paths: [AGGREGATE_DIR, ROOT] })
+  } catch {
+    return fallback
+  }
+}
+const INPUT_COMMUNITY_INDEX = path.join(MARKET_INPUTS_DIR, 'community', 'community.json')
+const PLUGINS_FILE = fs.existsSync(INPUT_COMMUNITY_INDEX)
+  ? INPUT_COMMUNITY_INDEX
+  : resolveFamilyAsset(
+      '@linxin666/dsh-client-ui-community-plugins/community.json',
+      path.join(ROOT, 'packages', 'dsh-community-plugins', 'community.json'),
+    )
+const SKIN_CENTER_LIB = resolveFamilyAsset(
+  '@linxin666/dsh-client-ui-skin-center',
+  path.join(ROOT, 'packages', 'skins', 'skin-center', 'lib', 'index.js'),
+)
 const PRESETS_DIR = path.join(ROOT, 'packages', 'dsh-preset-center', 'presets')
 const PRESET_CATALOG = path.join(PRESETS_DIR, 'catalog.json')
 const INSTALLER_SOURCE = path.join(ROOT, 'packages', 'dsh-market', 'src', 'core', 'installer.ts')
@@ -134,7 +176,7 @@ function scanSkins() {
   if (!fs.existsSync(SKINS_DIR)) return []
   const skins = []
   const dirs = fs.readdirSync(SKINS_DIR).sort()
-  if (!dirs.length) throw new Error('no skins found under packages/skins/skin-center/skins/')
+  if (!dirs.length) throw new Error(`no skins found under ${SKINS_DIR}; run node scripts/market-fetch-inputs.mjs`)
   for (const name of dirs) {
     const dir = path.join(SKINS_DIR, name)
     if (!fs.statSync(dir).isDirectory()) continue
@@ -195,7 +237,7 @@ function scanSkins() {
     item.files = listFiles(dir)
     // Source GitHub link: preserve an explicit sourceUrl, otherwise point to
     // this repository's catalog directory so every published skin is discoverable.
-    item.repo = meta.sourceUrl || `https://github.com/zhu1090093659/dsh-web/tree/dev/packages/skins/skin-center/skins/${name}`
+    item.repo = meta.sourceUrl || `https://github.com/zhu1090093659/dsh-skins/tree/main/skins/${name}`
     if (Object.keys(contributes).length) item.contributes = contributes
     if (meta.requires) item.requires = meta.requires
     if (meta.facets) item.facets = meta.facets
@@ -746,7 +788,7 @@ async function main() {
     pet: new Set(pets.map(({ item }) => item.id)),
     plugin: new Set(plugins.map(({ item }) => item.id)),
   })
-  const skinCenter = await import(pathToFileURL(path.join(ROOT, 'packages', 'skins', 'skin-center', 'lib', 'index.js')).href)
+  const skinCenter = await import(pathToFileURL(SKIN_CENTER_LIB).href)
   const transformSkinCss = skinCenter.transformSkinCss
 
   // static sources

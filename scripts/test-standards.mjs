@@ -70,6 +70,8 @@ const SKIP_DIRS = new Set([
   '.git', 'node_modules', 'lib', 'dist', 'coverage', 'playwright-report',
   'test-results', '.codegraph', '.zcode', '.pnpm-store', '.dsh', '.wrangler',
   'gui-test-screenshots', 'marketing',
+  // Fetched market content sources (market-inputs.lock.json): not our tests.
+  '.market-inputs',
 ])
 
 /** Vendored subtrees whose tests are not ours to standardize. */

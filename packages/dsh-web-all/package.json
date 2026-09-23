@@ -1,7 +1,7 @@
 {
   "name": "@linxin666/dsh-web-all",
   "description": "DSH Web UI 全家桶聚合插件：一键安装全部功能插件（task-board / git-graph / pet / remote-web-ui / web-ui-settings / skin-center / community-plugins / compat shim）。compat 桥接层已并入本包（src/client），无需独立 compat npm 包。",
-  "version": "0.3.24-dsh.20260923.4",
+  "version": "0.4.0-dsh.20260924.1",
   "icon": "icon.svg",
   "type": "module",
   "main": "lib/index.js",
@@ -29,7 +29,8 @@
     "./settings": "./lib/shells/shell.js",
     "./ssh": "./lib/shells/shell.js",
     "./task-board": "./lib/shells/shell.js",
-    "./usage": "./lib/shells/shell.js"
+    "./usage": "./lib/shells/shell.js",
+    "./skin-center": "./lib/shells/shell.js"
   },
   "dsh": {
     "engines": {
@@ -93,11 +94,9 @@
   },
   "dependencies": {
     "@linxin666/dsh-client-ui-plugin-manager": "workspace:*",
-    "@linxin666/dsh-client-ui-community-plugins": "workspace:*",
     "@linxin666/dsh-client-ui-market": "workspace:*",
     "@linxin666/dsh-client-ui-task-board": "workspace:*",
     "@linxin666/dsh-client-ui-git-graph": "workspace:*",
-    "@linxin666/dsh-pet": "workspace:*",
     "@linxin666/dsh-remote-web-ui": "workspace:*",
     "@linxin666/dsh-ssh": "workspace:*",
     "@linxin666/dsh-liangshen": "workspace:*",
@@ -107,7 +106,9 @@
     "@linxin666/dsh-client-ui-model-capabilities": "workspace:*",
     "@linxin666/dsh-client-ui-preset-center": "workspace:*",
     "@linxin666/dsh-client-ui-web-ui-settings": "workspace:*",
-    "@linxin666/dsh-client-ui-skin-center": "workspace:*",
-    "@linxin666/dsh-i18n": "workspace:*"
+    "@linxin666/dsh-i18n": "workspace:*",
+    "@linxin666/dsh-client-ui-community-plugins": "^0.3.24",
+    "@linxin666/dsh-client-ui-skin-center": "^0.3.24",
+    "@linxin666/dsh-pet": "^0.3.24"
   }
 }

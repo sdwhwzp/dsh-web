@@ -53,12 +53,6 @@ jobs:
       - name: Shared host copy consistency
         run: pnpm sync-shared:check
 
-      - name: Skin center consistency
-        run: pnpm skin-center:check
-
-      - name: Community index consistency
-        run: pnpm community:check
-
       # Fingerprints the committed lib/ bundles against the sources they were
       # built from; it must run BEFORE the Build step, which would otherwise
       # leave the working tree freshly rebuilt and mask a stale commit.
@@ -183,7 +177,7 @@ jobs:
       - name: Pack family tarballs from this checkout
         run: |
           mkdir -p "$RUNNER_TEMP/family-tgzs"
-          for dir in packages/dsh-* packages/skins/skin-center; do
+          for dir in packages/dsh-*; do
             (cd "$dir" && pnpm pack --pack-destination "$RUNNER_TEMP/family-tgzs" >/dev/null)
           done
 

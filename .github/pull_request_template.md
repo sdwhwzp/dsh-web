@@ -15,9 +15,9 @@
 - [ ] 右侧面板 `packages/dsh-aionui-panel`
 - [ ] 远程 Web UI `packages/dsh-remote-web-ui`
 - [ ] SSH 远程运维 `packages/dsh-ssh`
-- [ ] 宠物 `packages/dsh-pet`
+- [ ] 宠物（[dsh-pet](https://github.com/zhu1090093659/dsh-pet) 仓）
 - [ ] 预设中心 `packages/dsh-preset-center`
-- [ ] 皮肤 / 皮肤中心 `packages/dsh-skins` / `packages/skins`
+- [ ] 皮肤 / 皮肤中心（[dsh-skins](https://github.com/zhu1090093659/dsh-skins) 仓）
 - [ ] 聚合包 / 设置 `packages/dsh-web-all` / `packages/dsh-web-settings`
 - [ ] 其他（请说明）
 
@@ -102,23 +102,23 @@
 
 ## 新皮肤收录（New Skin）
 
-<!-- 仅当本 PR 新增皮肤时必填；其余改动可跳过本节。新皮肤属于内容贡献，欢迎直接提交（无需先提 issue）；但没有任何背景图、仅简单改色且样式存在明显问题（如暗色缺失、对比度不足、布局错位）的低质皮肤 PR 不予接受。皮肤收录进本仓库部署的 dsh-market.com 服务器（Workshop），用户按需安装到 `$DSH_HOME/skins/<id>/`，默认安装（skin-center npm 包）不带新皮肤。 -->
+<!-- 仅当本 PR 新增皮肤时必填；其余改动可跳过本节。新皮肤属于内容贡献，在 [dsh-skins](https://github.com/zhu1090093659/dsh-skins) 仓提交（无需先提 issue）；但没有任何背景图、仅简单改色且样式存在明显问题（如暗色缺失、对比度不足、布局错位）的低质皮肤 PR 不予接受。皮肤收录进本仓库部署的 dsh-market.com 服务器（Workshop），用户按需安装到 `$DSH_HOME/skins/<id>/`，默认安装（skin-center npm 包）不带新皮肤。 -->
 
-- [ ] 纯资产目录契约：`packages/skins/skin-center/skins/<name>/` 只含 skin.json + skin.css（+ 可选 patches.css / hooks.mjs / assets/），无 package.json 与构建文件；`node scripts/dsh-skin validate` 通过；纯呈现层约束满足（不注入服务、不发事件、不触及模型请求）。
+- [ ] 纯资产目录契约：dsh-skins 仓的 `skins/<name>/` 只含 skin.json + skin.css（+ 可选 patches.css / hooks.mjs / assets/），无 package.json 与构建文件；该仓 `node scripts/dsh-skin.cjs` 通过；纯呈现层约束满足（不注入服务、不发事件、不触及模型请求）。
 - [ ] `skin.json` 符合 v2 清单（contracts/skin-manifest-v2.schema.json：skinManifestVersion / id / name / nameEn / version / author / contributes，另含 tagline / description / tags / accent / preview / order）。
-- [ ] `pnpm skin-center:check` 通过（新皮肤出现在设置 → 皮肤中心）；已重跑 `pnpm market:build` 并提交市场产物（`market/dist`）。
-- [ ] 已用 `node scripts/capture-previews` 重拍并提交 `preview/{light,dark}.png`。
+- [ ] dsh-skins 仓的 `pnpm skin-center:check` 通过（新皮肤出现在设置 → 皮肤中心）；本仓 `pnpm market:fetch` 拉到固定的新提交后运行 `node scripts/market-build` 重新生成市场产物（`market/dist`），由维护者随集成提交。
+- [ ] 已按 dsh-skins 仓的说明重拍并提交 `preview/{light,dark}.png`。
 - [ ] README 中英双语、LICENSE 与贡献者版权声明齐全；PR 描述附市场试穿截图（亮 / 暗）。
 - [ ] 非低质皮肤：亮 / 暗双态样式完整（无暗色缺失、对比度不足、布局错位），不是无背景图、仅简单改色的低质皮肤（此类 PR 不予接受）。
 
 ## 新宠物收录（New Pet）
 
-<!-- 仅当本 PR 新增宠物时必填；其余改动可跳过本节。新宠物属于内容贡献，欢迎直接提交（无需先提 issue）；需满足宠物契约，否则条目会被跳过或拒绝。 -->
+<!-- 仅当本 PR 新增宠物时必填；其余改动可跳过本节。新宠物属于内容贡献，在 [dsh-pet](https://github.com/zhu1090093659/dsh-pet) 仓提交（无需先提 issue）；需满足宠物契约，否则条目会被跳过或拒绝。 -->
 
-- [ ] 按宠物契约新增 `packages/dsh-pet/assets/<id>/`：`pet.json` 使用 v2 manifest（petManifestVersion / id 小写 kebab / displayName / license 必填 / renderer / sprite2d{} 或 live2d{} / sequences / remarks；未知顶层键 fail-closed 拒绝），资产路径全部为安全相对路径。
-- [ ] 图集为 8 列 × 9 行（v2 可声明 11 行），行序固定（0 idle / 1 running-right / 2 running-left / 3 waving / 4 jumping / 5 failed / 6 waiting / 7 running / 8 review），未用格子全透明；`node scripts/dsh-pet validate <dir>` 通过。
-- [ ] 在 `packages/dsh-pet/src/registry.test.ts` 增加该 manifest 的归一化断言；`pnpm --filter @linxin666/dsh-pet build` / `test` 与 `pnpm typecheck` 通过；提交重建的 `lib/`。
-- [ ] 同步维护 dsh-pet README 中英三件套（`README.md` / `README.zh.md` / `README.i18n.yaml`）并重录配对（`pnpm docs:write-pair dsh-pet`）。
+- [ ] 按宠物契约在 dsh-pet 仓新增 `assets/<id>/`：`pet.json` 使用 v2 manifest（petManifestVersion / id 小写 kebab / displayName / license 必填 / renderer / sprite2d{} 或 live2d{} / sequences / remarks；未知顶层键 fail-closed 拒绝），资产路径全部为安全相对路径。
+- [ ] 图集为 8 列 × 9 行（v2 可声明 11 行），行序固定（0 idle / 1 running-right / 2 running-left / 3 waving / 4 jumping / 5 failed / 6 waiting / 7 running / 8 review），未用格子全透明；dsh-pet 仓的 `pnpm pet:cli validate <dir>` 通过。
+- [ ] 在 dsh-pet 仓补齐该 manifest 的归一化断言；该仓的 `pnpm test` 与 `pnpm typecheck` 通过；提交重建的 `lib/`。
+- [ ] 同步维护 dsh-pet 仓 README 中英三件套（`README.md` / `README.zh.md` / `README.i18n.yaml`）并重录配对。
 - [ ] README 动画预览与「许可证 / 版权」说明齐全；PR 描述附宠物实测截图（设置页「宠物」选择器出现新宠物、切换后动画正常）。
 
 ## 新预设收录（New Agent Preset）
@@ -134,7 +134,7 @@
 
 ## 社区插件索引登记（Community Plugin Index）
 
-<!-- 仅当本 PR 新增接入一个社区插件时必填；其余改动可跳过本节。新接入的社区插件对下述要求逐项确认。 -->
+<!-- 仅当本 PR 新增接入一个社区插件时必填；其余改动可跳过本节。社区插件索引登记在 [dsh-community-plugins](https://github.com/zhu1090093659/dsh-community-plugins) 仓提交，新接入的社区插件对下述要求逐项确认。 -->
 
 插件 GitHub 仓库链接：
 
@@ -144,7 +144,7 @@
 
 <!-- 必填。提供插件的功能、用途、依赖、已知限制等详细说明，供协作者评审参考。 -->
 
-- [ ] 已按 [docs/plugins.md](../docs/plugins.md) 的登记说明在 `packages/dsh-community-plugins/community.json` 追加条目，并运行 `node scripts/community-index` 重新生成注册表（提交生成的 `packages/dsh-community-plugins/src/client/generated/community.ts`）。
+- [ ] 已按 [docs/plugins.md](../docs/plugins.md) 的登记说明向 [dsh-community-plugins](https://github.com/zhu1090093659/dsh-community-plugins) 仓提交：在该仓根目录的 `community.json` 追加条目，并运行 `pnpm community:check` 校验。
 - [ ] 已确认插件与 dsh-web 插件体系兼容：遵循官方 cordis bundle 独立标准（package.json 声明 `dsh.bundle.patch` 指向 `cordis.patch.yml`、`dsh.client` 浏览器半区），类型仅基于官方 `@deepseek-ai/*` NPM SDK，未修改 DSH 源码；已在本仓库最新代码上验证插件可被 `dsh web` 挂载并正常运行。
 - [ ] 承诺负责后续更新跟进：插件与 DSH / dsh-web 生态保持同步，生态升级导致不兼容时主动跟进修复；条目信息（description / npm 等）变动或插件停更时，及时更新索引登记或提交移除。
 

@@ -12,6 +12,10 @@ import { fileURLToPath } from 'node:url'
 const DIST = fileURLToPath(new URL('../market/dist', import.meta.url))
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url))
 
+/** Skin sources live in their own repository; the lockfile pins the commit. */
+const SKINS_SOURCE = path.join(REPO_ROOT, '.market-inputs', 'skins')
+const SKINS_REPO = 'https://github.com/zhu1090093659/dsh-skins/tree/main/skins'
+
 function readJson(rel) {
   return JSON.parse(fs.readFileSync(path.join(DIST, rel), 'utf8'))
 }
@@ -37,11 +41,18 @@ test('skins.json 契约与资产存在性', () => {
     ids.add(item.id)
     assert.ok(exists(item.preview.light), 'preview.light missing: ' + item.preview.light)
     assert.ok(exists(item.preview.dark), 'preview.dark missing: ' + item.preview.dark)
-    const skinJson = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'packages', 'skins', 'skin-center', 'skins', item.id, 'skin.json'), 'utf8'))
-    if (skinJson.sourceUrl) {
-      assert.equal(item.repo, skinJson.sourceUrl, 'skin repo must mirror sourceUrl: ' + item.id)
-    } else {
-      assert.equal(item.repo, `https://github.com/zhu1090093659/dsh-web/tree/dev/packages/skins/skin-center/skins/${item.id}`, 'skin repo must point to catalog source: ' + item.id)
+    // The catalog source lives in the dsh-skins repository. When that content
+    // has been fetched, the manifest must mirror the skin's own declaration.
+    const sourceManifest = path.join(SKINS_SOURCE, item.id, 'skin.json')
+    if (fs.existsSync(sourceManifest)) {
+      const skinJson = JSON.parse(fs.readFileSync(sourceManifest, 'utf8'))
+      const expected = skinJson.sourceUrl ?? `${SKINS_REPO}/${item.id}`
+      assert.equal(item.repo, expected, 'skin repo must mirror the catalog source: ' + item.id)
+      // Only a skin without an upstream sourceUrl of its own points at the
+      // catalog path; one that declares a sourceUrl legitimately points there.
+      if (!skinJson.sourceUrl) {
+        assert.ok(item.repo.startsWith(SKINS_REPO), 'skin repo must point at the catalog repository: ' + item.id)
+      }
     }
     assert.ok(/^https:\/\//.test(item.repo), 'skin repo must be https: ' + item.id)
     const bg = item.contributes && item.contributes.backgroundMedia

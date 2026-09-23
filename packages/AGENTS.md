@@ -44,7 +44,7 @@
   `--dsw-alias-label-primary-foreground`，明暗两组），不得把
   `--dsw-alias-brand-primary` 当填充色（官方主题下它与前景同值，会出现
   黑底黑字/白底白字），契约见
-  [skins/skin-center/contracts/primary-action-tokens-v1.md](skins/skin-center/contracts/primary-action-tokens-v1.md)。
+  [primary-action-tokens-v1.md](https://github.com/zhu1090093659/dsh-skins/blob/main/contracts/primary-action-tokens-v1.md)（契约随皮肤中心迁至 dsh-skins 仓）。
 
 ## Agent 公告约定（issue #839）
 
@@ -75,7 +75,7 @@
 - 插件根容器与关键部件必须输出语义属性：根容器打 `data-dsh-plugin="<插件短名>"`，
   部件打裸值 `data-dsh-part`（归属交给 plugin 属性，如 `column` 而非
   `task-board-column`）；枚举、owner 与锚定方式见
-  [skins/skin-center/contracts/semantic-attrs-v1.md](skins/skin-center/contracts/semantic-attrs-v1.md)。
+  [semantic-attrs-v1.md](https://github.com/zhu1090093659/dsh-skins/blob/main/contracts/semantic-attrs-v1.md)（契约随皮肤中心迁至 dsh-skins 仓）。
 - 新增/修改枚举值必须与该契约表同 PR 更新；每个值要有 owner、含义与锚定方式，
   不得只堆字符串。
 - 不输出语义属性的插件只享受 L1 token 基础换肤覆盖，不承诺完整覆盖。

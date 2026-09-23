@@ -30,11 +30,6 @@
     "source": "packages/dsh-remote-web-ui/src/client/index.ts"
   },
   {
-    "name": "@linxin666/dsh-pet",
-    "specifier": "@linxin666/dsh-pet/client",
-    "source": "packages/dsh-pet/src/client/index.ts"
-  },
-  {
     "name": "@linxin666/dsh-ssh",
     "specifier": "@linxin666/dsh-ssh/client",
     "source": "packages/dsh-ssh/src/client/index.ts"

@@ -24,13 +24,6 @@
       config:
         plugin: '@linxin666/dsh-client-ui-plugin-manager'
 
-# from ../dsh-community-plugins
-- insert:
-    - id: web-ui-community-plugins
-      name: '@linxin666/dsh-web-all/community-plugins'
-      config:
-        plugin: '@linxin666/dsh-client-ui-community-plugins'
-
 # from ../dsh-market
 - insert:
     - id: web-ui-market
@@ -58,13 +51,6 @@
       name: '@linxin666/dsh-web-all/remote-web-ui'
       config:
         plugin: '@linxin666/dsh-remote-web-ui'
-
-# from ../dsh-pet
-- insert:
-    - id: web-ui-pet
-      name: '@linxin666/dsh-web-all/pet'
-      config:
-        plugin: '@linxin666/dsh-pet'
 
 # from ../dsh-ssh
 - insert:
@@ -115,11 +101,6 @@
       config:
         plugin: '@linxin666/dsh-client-ui-preset-center'
 
-# from ../skins/skin-center
-- insert:
-    - id: web-ui-skin-center
-      name: '@linxin666/dsh-client-ui-skin-center'
-
 # from ../dsh-i18n
 - insert:
     - id: web-ui-i18n
@@ -133,3 +114,24 @@
   disabled: true
 - id: web-ui-skill-explorer
   disabled: true
+
+# external bundle: @linxin666/dsh-client-ui-community-plugins
+
+# from external bundle @linxin666/dsh-client-ui-community-plugins (insert row web-ui-community-plugins)
+- insert:
+    - id: web-ui-community-plugins
+      name: '@linxin666/dsh-client-ui-community-plugins'
+
+# external bundle: @linxin666/dsh-pet
+
+# from external bundle @linxin666/dsh-pet (insert row web-ui-pet)
+- insert:
+    - id: web-ui-pet
+      name: '@linxin666/dsh-pet'
+
+# external bundle: @linxin666/dsh-client-ui-skin-center
+
+# from external bundle @linxin666/dsh-client-ui-skin-center (insert row web-ui-skin-center)
+- insert:
+    - id: web-ui-skin-center
+      name: '@linxin666/dsh-client-ui-skin-center'
