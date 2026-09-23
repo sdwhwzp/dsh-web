@@ -19,7 +19,10 @@
  * 4. the subpath exports the rows used to mount stay in the package exports as
  *    compat tombstones, so a profile that recorded
  *    `@linxin666/dsh-web-all/pet` still imports instead of throwing
- *    ERR_PACKAGE_PATH_NOT_EXPORTED.
+ *    ERR_PACKAGE_PATH_NOT_EXPORTED;
+ * 5. the declared ranges exclude every satellite build older than the 0.1.7-rc.1
+ *    migration, because a profile upgrade keeps whatever version its lockfile
+ *    already resolved.
  */
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -107,6 +110,23 @@ describe('satellite rows mount published npm packages', () => {
     for (const range of ranges) {
       expect(range).not.toBe('workspace:*')
       expect(range).toMatch(/^\^?\d+\.\d+\.\d+/)
+    }
+  })
+
+  it('operator cannot admit a satellite build older than the host migration', () => {
+    // Given the satellites version on their own line and a profile upgrade
+    // keeps the version its lockfile already resolved,
+    const floors = SATELLITES.map(s => packageJson.dependencies[s.pkg])
+    // When the operator inspects the declared ranges,
+    // Then none of them admits 0.3.24: that build still injects the retired
+    // settingsScope service, so a satisfied range would silently keep a client
+    // half that waits for it forever.
+    for (const range of floors) {
+      const floor = String(range).replace(/^[^\d]*/, '').split('.').map(Number)
+      const atOrAboveMigration = floor[0] > 0
+        || floor[1] > 3
+        || (floor[1] === 3 && floor[2] >= 25)
+      expect(atOrAboveMigration).toBe(true)
     }
   })
 

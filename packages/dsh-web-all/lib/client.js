@@ -671,7 +671,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$7() {
 			try {
-				return "0.4.0-dsh.20260924.1";
+				return "0.4.1-dsh.20260924.2";
 			} catch {
 				return;
 			}
@@ -1896,7 +1896,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$6() {
 			try {
-				return "0.4.0-dsh.20260924.1";
+				return "0.4.1-dsh.20260924.2";
 			} catch {
 				return;
 			}
@@ -4498,7 +4498,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$5() {
 			try {
-				return "0.4.0-dsh.20260924.1";
+				return "0.4.1-dsh.20260924.2";
 			} catch {
 				return;
 			}
@@ -10115,7 +10115,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$4() {
 			try {
-				return "0.4.0-dsh.20260924.1";
+				return "0.4.1-dsh.20260924.2";
 			} catch {
 				return;
 			}
@@ -12238,7 +12238,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$3() {
 			try {
-				return "0.4.0-dsh.20260924.1";
+				return "0.4.1-dsh.20260924.2";
 			} catch {
 				return;
 			}
@@ -14686,7 +14686,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$2() {
 			try {
-				return "0.4.0-dsh.20260924.1";
+				return "0.4.1-dsh.20260924.2";
 			} catch {
 				return;
 			}
@@ -32538,7 +32538,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$1() {
 			try {
-				return "0.4.0-dsh.20260924.1";
+				return "0.4.1-dsh.20260924.2";
 			} catch {
 				return;
 			}
@@ -36004,7 +36004,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion() {
 			try {
-				return "0.4.0-dsh.20260924.1";
+				return "0.4.1-dsh.20260924.2";
 			} catch {
 				return;
 			}

@@ -11,7 +11,7 @@ importers:
   .:
     dependencies:
       '@linxin666/dsh-web-all':
-        specifier: 0.4.0-dsh.20260924.1
+        specifier: 0.4.1-dsh.20260924.2
         version: link:packages/dsh-web-all
     devDependencies:
       '@deepseek-ai/cordis':
@@ -1139,8 +1139,8 @@ importers:
   packages/dsh-web-all:
     dependencies:
       '@linxin666/dsh-client-ui-community-plugins':
-        specifier: ^0.3.24
-        version: 0.3.24(react@18.3.1)
+        specifier: ^0.3.25
+        version: 0.3.25(react@18.3.1)
       '@linxin666/dsh-client-ui-git-graph':
         specifier: workspace:*
         version: link:../dsh-git-graph
@@ -1160,8 +1160,8 @@ importers:
         specifier: workspace:*
         version: link:../dsh-skill-explorer
       '@linxin666/dsh-client-ui-skin-center':
-        specifier: ^0.3.24
-        version: 0.3.24(react@18.3.1)
+        specifier: ^0.3.25
+        version: 0.3.25(react@18.3.1)
       '@linxin666/dsh-client-ui-task-board':
         specifier: workspace:*
         version: link:../dsh-task-board
@@ -1175,8 +1175,8 @@ importers:
         specifier: workspace:*
         version: link:../dsh-liangshen
       '@linxin666/dsh-pet':
-        specifier: ^0.3.24
-        version: 0.3.24(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        specifier: ^0.3.25
+        version: 0.3.25(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@linxin666/dsh-remote-web-ui':
         specifier: workspace:*
         version: link:../dsh-remote-web-ui
@@ -2015,20 +2015,23 @@ packages:
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
 
-  '@linxin666/dsh-client-ui-community-plugins@0.3.24':
-    resolution: {integrity: sha512-RBYNuQPWOnTQlpmF39AtCckhAQnWPCIYcLkOWktcOZequvD46fX8hFr+/ll4jzHb7zgOEAACadyVX4PvHCH2JA==}
+  '@linxin666/dsh-client-ui-community-plugins@0.3.25':
+    resolution: {integrity: sha512-H5lmYCSiB/S1lBU9W8tpGaWhjkqLbD6jWqqKd1+ofwBy+guEWi+tFYO7bhI+tLdVXsqyaJn0qEKKjtO4ssKHcQ==}
     peerDependencies:
+      '@deepseek-ai/dsh': '>=0.1.7-rc.1'
       react: ^18.2.0
 
-  '@linxin666/dsh-client-ui-skin-center@0.3.24':
-    resolution: {integrity: sha512-kYzBJUA45jnw6nEgDnRUCMFKIfb2RDbMFO/Ur3M3zx2QoFZWIrwHFcwn1XGBJ4mv1MpFA1R5dMGdr81A9Z+a9Q==}
+  '@linxin666/dsh-client-ui-skin-center@0.3.25':
+    resolution: {integrity: sha512-IDvU5SZwPF96FFK5nPhAu7TRQLHchTJyG8/5WlsHh4HeVTNv+EHKf9asY1k6KDKTNCejhNigRvy+5+vMlIglrg==}
     peerDependencies:
+      '@deepseek-ai/dsh': '>=0.1.7-rc.1'
       react: ^18.2.0
 
-  '@linxin666/dsh-pet@0.3.24':
-    resolution: {integrity: sha512-6QvtksxjYV7bt6WMzffR3O9hCkSIlL1pjQaA9N6ifaWUkzXWoNVaZc0Rw17qFLLQ11znxtgL4iMTftAegmPHXQ==}
+  '@linxin666/dsh-pet@0.3.25':
+    resolution: {integrity: sha512-FUdNT/V02qC4aA/ZtzsXDTVp+4CS2drIoqpsjQXzwdkJq3Qf2Qe+kfCZAhtjiiuOWc+e6NgbXo0RVQOzPJwvTg==}
     engines: {node: ^22.19.0 || >=24.0.0}
     peerDependencies:
+      '@deepseek-ai/dsh': '>=0.1.7-rc.1'
       react: ^18.2.0
       react-dom: ^18.2.0
 
@@ -4303,24 +4306,24 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.6.0
 
-  '@linxin666/dsh-client-ui-community-plugins@0.3.24(react@18.3.1)':
+  '@linxin666/dsh-client-ui-community-plugins@0.3.25(react@18.3.1)':
     dependencies:
       react: 18.3.1
       schemastery: 3.18.0
 
-  '@linxin666/dsh-client-ui-skin-center@0.3.24(react@18.3.1)':
+  '@linxin666/dsh-client-ui-skin-center@0.3.25(react@18.3.1)':
     dependencies:
+      '@deepseek-ai/schemastery': 3.18.4
       jpeg-js: 0.4.4
       lightningcss: 1.33.0
       react: 18.3.1
-      schemastery: 3.18.0
 
-  '@linxin666/dsh-pet@0.3.24(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
+  '@linxin666/dsh-pet@0.3.25(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
+      '@deepseek-ai/schemastery': 3.18.4
       clsx: 2.1.1
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
-      schemastery: 3.18.0
 
   '@napi-rs/wasm-runtime@1.2.4(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)':
     dependencies:
