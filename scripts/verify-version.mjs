@@ -8,7 +8,7 @@
  * Prints GitHub error annotations (::error file=...) on mismatch and exits
  * non-zero; the release workflow runs this right before publishing.
  *
- * Usage: node scripts/verify-version.mjs <x.y.z|vX.Y.Z>
+ * Usage: node scripts/verify-version.mjs <version|vVersion>
  */
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
@@ -20,9 +20,9 @@ const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(SCRIPT_DIR, '..')
 
 const tag = process.argv[2] ?? ''
-const match = /^v?(\d+\.\d+\.\d+)$/.exec(tag)
+const match = /^v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)$/.exec(tag)
 if (match === null) {
-  console.error('usage: node scripts/verify-version.mjs <x.y.z | vX.Y.Z>')
+  console.error('usage: node scripts/verify-version.mjs <version | vVersion>')
   process.exit(2)
 }
 const version = match[1]

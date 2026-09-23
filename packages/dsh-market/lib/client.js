@@ -2262,7 +2262,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion() {
 			try {
-				return "0.3.24";
+				return "0.3.24-dsh.20260923.2";
 			} catch {
 				return;
 			}

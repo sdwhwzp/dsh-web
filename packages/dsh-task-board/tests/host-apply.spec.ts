@@ -146,20 +146,23 @@ function createAction(requestId: string): ActionEnvelope {
 
 const mounted: MountedBoard[] = []
 let previousHome: string | undefined
-let testHome: string
+let scratchHome: string | undefined
 
 beforeEach(() => {
   // The activation builds a disk-backed ledger: keep every test off the user's real DSH home.
   previousHome = process.env.DSH_HOME
-  testHome = mkdtempSync(join(tmpdir(), 'dsh-task-board-apply-'))
-  process.env.DSH_HOME = testHome
+  scratchHome = mkdtempSync(join(tmpdir(), 'dsh-task-board-apply-'))
+  process.env.DSH_HOME = scratchHome
 })
 
 afterEach(async () => {
   for (const board of mounted.splice(0)) await board.dispose()
   if (previousHome === undefined) delete process.env.DSH_HOME
   else process.env.DSH_HOME = previousHome
-  rmSync(testHome, { recursive: true, force: true })
+  // Only the scratch home this suite created is disposable: deleting whatever
+  // DSH_HOME holds after the restore above would erase an ambient real home.
+  if (scratchHome !== undefined) rmSync(scratchHome, { recursive: true, force: true })
+  scratchHome = undefined
 })
 
 describe('host activation settings', () => {
