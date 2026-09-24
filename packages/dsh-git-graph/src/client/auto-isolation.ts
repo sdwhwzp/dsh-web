@@ -19,20 +19,28 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { GitApi } from './api.ts'
 import { mainViewSessionId } from './main-session.ts'
 
-/** The mutable face the wrapper needs (probed, never assumed). */
+/**
+ * The mutable face the wrapper needs (probed, never assumed).
+ *
+ * Cohort note: the service split happened upstream. In 0.1.6 the repository
+ * `workspaces` service owned `startSession`/`connectWorkspace`; 0.1.7 moved
+ * both to the navigation service `uiWorkspace` and left `workspaces` as the
+ * registry (list / create / rename / delete). The wrapper therefore takes
+ * the two faces separately and is installed only when both are present.
+ */
 interface NavigationPatchTarget {
   startSession: (workspaceId?: string) => void
 }
 
-/** Workspace commands and catalog used by isolation. */
-interface WorkspacesPatchTarget {
-  create: (input: { path: string }) => Promise<{ workspaceId: string }>
+/** The registry face: device-local workspace rows and their mutations. */
+interface RegistryPatchTarget {
   list: {
     getSnapshot: () => {
-      items: { workspaceId: string; path: string; sessionIds: string[]; createdAt?: string }[]
+      items: { workspaceId: string; path: string; sessionIds: readonly string[]; createdAt?: string }[]
       recentWorkspaceId?: string
     }
   }
+  create: (input: { path: string }) => Promise<{ workspaceId: string }>
   /**
    * Registration removal (the official `workspaces.delete` the workspace list
    * calls). Optional on purpose: an older cohort without it still installs,
@@ -41,35 +49,55 @@ interface WorkspacesPatchTarget {
   delete?: (workspaceId: string) => Promise<void>
 }
 
+/** Both halves of one installable target; either missing refuses the install. */
+interface WorkspacesPatchTarget {
+  navigation: NavigationPatchTarget
+  registry: RegistryPatchTarget
+}
+
 /** Log line prefix for every auto-isolation diagnostic. */
 const TAG = '[git-graph] auto-isolation'
 
 /**
- * Probe the workspaces service shape: the wrapper only installs when every
- * member it shadows or calls is a function of the expected kind. A changed
- * client-runtime surface leaves the official behavior untouched.
+ * Probe the two service shapes the wrapper needs: the navigation face that
+ * owns `startSession` and the registry face that owns the workspace rows.
+ * The wrapper only installs when every member it shadows or calls is a
+ * function of the expected kind; a changed client-runtime surface leaves the
+ * official behavior untouched.
+ *
+ * Both faces have been read from the live context rather than assumed:
+ * 0.1.7's `workspaces` service is the registry (no `startSession`), and the
+ * navigation service supplies `startSession` — reading only `workspaces`, as
+ * this probe did before the split, disabled the feature on every 0.1.7 boot
+ * and printed the shape warning on each page load (#1690).
+ * @param navigation - the navigation service (`uiWorkspace`), or undefined.
+ * @param registry - the registry service (`workspaces`), or undefined.
+ * @returns the probed pair, or null when either face is unusable.
  */
-function probeWorkspaces(value: unknown): WorkspacesPatchTarget | null {
-  if (typeof value !== 'object' || value === null) return null
-  const candidate = value as Partial<WorkspacesPatchTarget>
-  if (typeof candidate.create !== 'function'
-    || typeof candidate.list?.getSnapshot !== 'function') return null
-  return candidate as WorkspacesPatchTarget
+function probeWorkspaces(navigation: unknown, registry: unknown): WorkspacesPatchTarget | null {
+  if (typeof navigation !== 'object' || navigation === null) return null
+  if (typeof registry !== 'object' || registry === null) return null
+  const nav = navigation as Partial<NavigationPatchTarget>
+  const reg = registry as Partial<RegistryPatchTarget>
+  if (typeof nav.startSession !== 'function') return null
+  if (typeof reg.create !== 'function' || typeof reg.list?.getSnapshot !== 'function') return null
+  return { navigation: nav as NavigationPatchTarget, registry: reg as RegistryPatchTarget }
 }
 
 /**
  * Install the startSession wrapper on the shared navigation service.
- * @param scope - client context carrying uiWorkspace, workspaces, and sessions.
+ * @param scope - client context carrying the navigation (`uiWorkspace`) and
+ * registry (`workspaces`) faces plus the sessions list.
  * @param git - the /git/* client (config + worktree verbs).
  * @returns the disposer restoring the official method.
  */
 export function installAutoIsolation(scope: ClientContext, git: GitApi): () => void {
-  const workspaces = probeWorkspaces(scope.workspaces)
-  const navigation = scope.uiWorkspace as unknown as Partial<NavigationPatchTarget> | undefined
-  if (workspaces === null || typeof navigation?.startSession !== 'function') {
-    console.warn(`${TAG} disabled: the workspace or navigation service changed; using the official new-session behavior`)
+  const probe = probeWorkspaces(scope.uiWorkspace, scope.workspaces)
+  if (probe === null) {
+    console.warn(`${TAG} disabled: the uiWorkspace/workspaces service shape changed; using the official new-session behavior`)
     return () => {}
   }
+  const { navigation, registry } = probe
 
   let original: NavigationPatchTarget['startSession']
   try {
@@ -79,9 +107,13 @@ export function installAutoIsolation(scope: ClientContext, git: GitApi): () => v
     return () => {}
   }
 
-  /** The official target resolution (explicit > current session's workspace > recent). */
+  /**
+   * Resolve an explicit workspace, the main-view session's workspace, or a
+   * retained recent workspace. Without a selection, use session activity or
+   * workspace creation time; rows without either retain registry ordering.
+   */
   const resolveTarget = (workspaceId?: string): string | undefined => {
-    const snapshot = workspaces.list.getSnapshot()
+    const snapshot = registry.list.getSnapshot()
     const current = mainViewSessionId(scope.sessions.list.getSnapshot().byId)
     const currentWorkspaceId = current === undefined
       ? undefined
@@ -132,7 +164,7 @@ export function installAutoIsolation(scope: ClientContext, git: GitApi): () => v
         return
       }
       const config = configResult.value
-      const item = workspaces.list.getSnapshot().items.find(entry => entry.workspaceId === target)
+      const item = registry.list.getSnapshot().items.find(entry => entry.workspaceId === target)
       if (item === undefined) {
         original.call(navigation, target)
         return
@@ -158,7 +190,7 @@ export function installAutoIsolation(scope: ClientContext, git: GitApi): () => v
       }
       let registeredId: string | undefined
       try {
-        const workspace = await workspaces.create({ path: created.value.path })
+        const workspace = await registry.create({ path: created.value.path })
         registeredId = workspace.workspaceId
         original.call(navigation, workspace.workspaceId)
       } catch (error) {
@@ -166,9 +198,9 @@ export function installAutoIsolation(scope: ClientContext, git: GitApi): () => v
         // the registration just made, then the worktree directory. Without the
         // registration step the list would keep an entry pointing at a path we
         // are about to delete.
-        if (registeredId !== undefined && typeof workspaces.delete === 'function') {
+        if (registeredId !== undefined && typeof registry.delete === 'function') {
           try {
-            await workspaces.delete(registeredId)
+            await registry.delete(registeredId)
           } catch (cleanupError) {
             console.warn(`${TAG} could not drop the failed workspace registration`, cleanupError)
           }

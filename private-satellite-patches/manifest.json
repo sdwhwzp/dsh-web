@@ -25,6 +25,14 @@
       "sha256": "68b98cd0d1e776063b2efad0577a5dd63ec66bd98185e2383723ebd68c67b347",
       "bytes": 860200,
       "commit": "f22f30d50e3f7e10a3b83f5d6fac702833ed234a"
+    },
+    {
+      "name": "@linxin666/dsh-client-ui-preset-center",
+      "version": "0.4.1-dsh.20260924.2",
+      "file": "linxin666-dsh-client-ui-preset-center-0.4.1-dsh.20260924.2.tgz",
+      "bytes": 47872,
+      "sha256": "79b54226d71353efede659be685f7745ec39e454957b11dfeced08e1df9affad",
+      "sourceCommit": "4091e47d645bcc0c7c36752fffa1b4d3dd9b4678"
     }
   ]
 }
