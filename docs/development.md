@@ -49,6 +49,8 @@ pnpm coverage:check    # 覆盖率棘轮（Tier 2，整仓约一分钟）
 
 门禁分两层：`ci.yml` 是 PR 门禁，一次跑完全部检查；`nightly.yml` 是 Tier 2，每晚补充 PR 单趟看不到的证据——覆盖率棘轮与全量测试三连跑（flake 检测）。
 
+测试环境里的 storage 由 `shared/vitest.setup.ts` 统一修好（Node 25 在全局定义了 `localStorage`，那个残桩会存活到 DOM 测试里，机理见该文件头部）；包自带的 vitest setup 必须接上它——用 `shared/vitest.config.ts`、import `shared/vitest.setup.ts`，或加进 `scripts/sync-shared.mjs` 的副本清单——否则该包在 Node 25 上跑的是降级路径，覆盖率随之偏低。
+
 失败路径审计是业务特性的交付要求，以下分支必须各有测试，或在交付说明中写明其不可达：并发与幂等（重复提交、竞态、锁过期）、资源耗尽（余额不足、缺货、限流）、基础设施故障（死锁重试、事务回滚、连接中断）、第三方故障（假实现返回 500、网关超时、熔断降级）、校验与安全（越权租户、签名篡改、非法状态流转）。
 
 ## 常见任务
@@ -59,10 +61,9 @@ pnpm coverage:check    # 覆盖率棘轮（Tier 2，整仓约一分钟）
 如 `--open` 审核全部 open PR）：先做静态硬性检查（规模上限新增/删除各
 1 万行直接拒绝、禁止提交依赖缓存与密钥、emoji 扫描、PR 模板必填项、
 密钥扫描、CI 文件保护），再在工作区 worktree 上按 CI 门禁序列构建验证
-（install/typecheck/market/skin-center/community/build/test/
-test:scripts/aggregate/docs）。worktree 与 e2e 验证统一放在
-`~/remote-e2e`（同 head 复用，跑完保留便于排查），定期用
-`pnpm pr:review --cleanup` 或手动 `rm -rf ~/remote-e2e` 清理。
+（序列与 `.github/workflows/ci.yml` 一致）。worktree 建在 `~/remote-e2e/pr-<N>`
+（同 head 复用，跑完保留便于排查），定期用 `pnpm pr:review --cleanup` 或手动
+`rm -rf ~/remote-e2e` 清理。
 
 外部 PR 的模板硬检查含「测试证据与上游同步」与「视觉修复要求」：贡献者
 必须提供自己本地测试的证据，并附上同步上游最新 `dev` 分支后重新测试
@@ -71,11 +72,9 @@ test:scripts/aggregate/docs）。worktree 与 e2e 验证统一放在
 deepseek-chat / deepseek-reasoner / gpt-3.5 直接拒绝）。缺失即 REJECT；
 `.github/workflows/pr-contribution-rules.yml` 在 CI 侧同步拦截（评论 + 挂红）。
 
-皮肤 PR 额外自动做视觉验证：生成亮/暗预览截图（
-`~/remote-e2e/e2e-<pr>/previews/`），像素指标分析自动判定过曝
-（太闪）与对比度不足（看不清），截图供视觉模型复核；同时提醒
-作者声明贡献者版权（模板「贡献者版权声明」节），并检查新皮肤
-是否提供 `preview/{light,dark}.png`（市场清单自动派生，缺图即警告）。
+皮肤、宠物与社区插件索引的 PR 投到各自的独立仓（
+`.github/workflows/reject-non-content-pr.yml` 会关闭投错仓库的 PR），
+相应检查由那些仓库自己的 CI 跑；本仓的硬检查与视觉修复要求只针对本仓接收的改动。
 用法与 verdict 语义见脚本头部注释；`pnpm pr:review --help` 查看全部选项。
 
 ### 修改 shared 运行时模块
@@ -108,12 +107,12 @@ node scripts/dsh-plugin-new <name>   # 生成 packages/<name>/ 骨架
 
 ```sh
 node scripts/capture-previews <id>   # 重拍 satellites/dsh-skins/skins/<id>/preview/{light,dark}.jpg
-pnpm market:fetch --force            # 子模块工作树的改动重新物化到 .market-inputs/
+pnpm market:fetch                    # 子模块 gitlink 指向新提交后，缓存输入过期并重新物化
 pnpm market:build                    # 刷新市场产物（market/dist）
 node scripts/skins-montage.mjs       # 重排根 README 皮肤一览图（docs/images/skins-montage.png）
 ```
 
-预览图随皮肤源码提交在 dsh-skins 仓，本仓随后提交新的子模块钉版与 `market/dist`。
+预览图随皮肤源码提交在 dsh-skins 仓，本仓随后提交该子模块的新钉版与 `market/dist`，`pnpm market:check` 校验两者一致。要在提交进 dsh-skins 之前先看市场效果，用 `pnpm market:fetch --local --force` 读子模块工作树；由未 pin 内容生成的 `market/dist` 不得提交。
 皮肤启用互斥由 dsh-skins 仓的 `dsh-skin use` 管理（客户端原子切换，不改
 cordis.patch.yml）；skin-center npm 包只随附 `blue-fantasy`，其余皮肤由用户经
 Workshop 按需安装到 `$DSH_HOME/skins/<id>/`。
