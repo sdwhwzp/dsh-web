@@ -9,25 +9,33 @@
  * the first mismatch, which makes a partial upload or a stale manifest loud
  * instead of silent.
  *
- * A cloud IP range gets a burst answered with 403 until Cloudflare's rate
- * window resets, which reports paths the origin serves as missing. Transient
- * statuses are retried inside the burst, and the paths still failing after it
- * are re-checked serially once the burst has stopped, so what the gate reports
- * is a verdict the origin repeats rather than one the burst provoked.
+ * Part of every burst sent from a GitHub runner range comes back 403: the
+ * zone's own policy on that vantage answers with a managed challenge, which
+ * reports paths the origin serves as missing. Transient statuses are retried
+ * inside the burst, and the paths still failing after it are re-checked
+ * serially once the burst has stopped, so what the gate reports is a verdict
+ * the origin repeats rather than one the burst provoked. No sweep from a runner
+ * range completes, which is why the deploy lane measures through the
+ * attestation route instead.
  *
  * Usage:
  *   node scripts/market-verify-assets.mjs [--dist]
  *   node scripts/market-verify-assets.mjs --origin https://dsh-market.com
+ *   node scripts/market-verify-assets.mjs --attest https://dsh-market.com
  *   node scripts/market-verify-assets.mjs --kind skins --concurrency 8
  *
  *   --dist            check the local market/dist tree (default)
  *   --origin <url>    check a deployed origin over HTTP
+ *   --attest <url>    measure the deployed version through its own asset
+ *                     binding (needs MARKET_ATTEST_SECRET); the measurement
+ *                     runs inside Cloudflare, while the call itself still
+ *                     leaves this vantage
  *   --kind a,b        restrict to skins and/or pets (default: both)
  *   --concurrency N   parallel requests (default 4)
  *   --limit N         stop after N paths (smoke runs)
  */
 import { existsSync, readFileSync, statSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
@@ -141,6 +149,19 @@ export async function remoteLength(url, fetchImpl = fetch, { attempts = 3, delay
   }
 }
 
+/**
+ * Compare one served byte count with the committed file, so both the public and
+ * the attestation path judge a path by the same rule.
+ */
+export function compareServedBytes(distDir, target, bytes) {
+  const localFile = join(distDir, target.path)
+  if (bytes !== undefined && existsSync(localFile)) {
+    const local = statSync(localFile).size
+    if (bytes !== local) return { ok: false, reason: `served ${bytes} bytes, dist has ${local}` }
+  }
+  return { ok: true, bytes }
+}
+
 /** Verify one target against a deployed origin. */
 export async function verifyOrigin(origin, target, { fetchImpl = fetch, distDir, attempts, delay } = {}) {
   const url = `${origin.replace(/\/+$/, '')}/${target.path}`
@@ -151,12 +172,132 @@ export async function verifyOrigin(origin, target, { fetchImpl = fetch, distDir,
     return { ok: false, reason: `request failed: ${error.message}` }
   }
   if (measured.error !== undefined) return { ok: false, reason: measured.error }
-  const localFile = join(distDir, target.path)
-  if (measured.bytes !== undefined && existsSync(localFile)) {
-    const local = statSync(localFile).size
-    if (measured.bytes !== local) return { ok: false, reason: `served ${measured.bytes} bytes, dist has ${local}` }
+  return compareServedBytes(distDir, target, measured.bytes)
+}
+
+/** Paths one attestation request may cover; the route bounds its internal fetches the same way. */
+export const ATTEST_WINDOW = 500
+/** Re-posts of a window that the edge answered in place of the route. */
+export const ATTEST_ATTEMPTS = 3
+/** Pause before such a re-post; the first ask of a window carries none. */
+const ATTEST_RETRY_MS = 2000
+
+/**
+ * The shared secret for the attestation route: from the environment, or, for a
+ * local run, from the worker's git-ignored dev secret store (the same file
+ * `wrangler dev` reads). CI passes it in the environment; a maintainer running
+ * the deploy lane locally does not have to re-export it.
+ */
+export function attestSecret(env = process.env, file = env.MARKET_ATTEST_ENV_FILE || 'market/worker/.dev.vars') {
+  const fromEnv = (env.MARKET_ATTEST_SECRET || '').trim()
+  if (fromEnv) return fromEnv
+  const path = isAbsolute(file) ? file : join(REPO_ROOT, file)
+  if (!existsSync(path)) return ''
+  for (const line of readFileSync(path, 'utf8').split('\n')) {
+    const match = /^\s*ASSET_ATTEST_SECRET\s*=\s*(.*)$/.exec(line)
+    if (match !== null) return match[1].trim()
   }
-  return { ok: true, bytes: measured.bytes }
+  return ''
+}
+
+/** One response header, or null when the response does not carry it. */
+function headerValue(response, name) {
+  const headers = response === null || response === undefined ? undefined : response.headers
+  if (headers === undefined || headers === null || typeof headers.get !== 'function') return null
+  const value = headers.get(name)
+  return typeof value === 'string' && value !== '' ? value : null
+}
+
+/**
+ * Name what refused a window.
+ *
+ * A refusal the route itself wrote carries its own error name. Anything that
+ * answered in the route's place — a challenge page, a block page, a gateway
+ * error — is nameable only by what the reader can look up afterwards: the
+ * status, the edge identifiers, and the start of the body.
+ */
+export function describeRefusal(response, text) {
+  let payload = null
+  try { payload = JSON.parse(text) } catch { payload = null }
+  if (payload !== null && typeof payload.error === 'string') return { message: `HTTP ${response.status} (${payload.error})`, verdict: true }
+  const parts = [`HTTP ${response.status}`]
+  for (const name of ['cf-ray', 'cf-mitigated', 'server']) {
+    const value = headerValue(response, name)
+    if (value !== null) parts.push(`${name}=${value}`)
+  }
+  const snippet = String(text).replace(/\s+/g, ' ').trim().slice(0, 120)
+  if (snippet !== '') parts.push(`body="${snippet}"`)
+  return { message: parts.join(' '), verdict: false }
+}
+
+/** Ask the route for one window: its measurements, or what refused them. */
+async function attestWindow(base, chunk, secret, fetchImpl) {
+  const response = await fetchImpl(`${base}/api/asset-attest`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-dsh-market-attest': secret },
+    body: JSON.stringify({ paths: chunk.map(target => `/${target.path}`) }),
+  })
+  const text = await response.text().catch(() => '')
+  let payload = null
+  try { payload = JSON.parse(text) } catch { payload = null }
+  if (payload !== null && payload.ok === true && Array.isArray(payload.sizes)) return { sizes: payload.sizes }
+  return { refusal: describeRefusal(response, text) }
+}
+
+/**
+ * Verify the committed byte counts against what the deployed version measures
+ * through its own asset binding.
+ *
+ * The measurement runs inside Cloudflare against the deployed assets, which
+ * keeps the caller's network out of the answer. The call itself still leaves
+ * that network, so the zone's policy on it can refuse the request before the
+ * route sees it: that refusal is reported as what refused the call — the status,
+ * the edge identifiers, the start of the body — and never as a verdict about the
+ * assets. The caller posts the paths of one window and the route answers with
+ * the byte length each one serves; a refusal — a status the route itself could
+ * not measure, a window the route rejects, or a path the answer skipped — is
+ * reported as an error rather than excused, because nothing about the assets was
+ * verified in that case. A refusal the route did not write is re-asked, since it
+ * came from in front of the route rather than from it; a challenge on the vantage
+ * repeats on every ask, and the lane reports it as such.
+ */
+export async function attestTargets(origin, targets, { secret, distDir, windowSize = ATTEST_WINDOW, fetchImpl = fetch, delay = sleep, attempts = ATTEST_ATTEMPTS } = {}) {
+  const results = []
+  const base = origin.replace(/\/+$/, '')
+  for (let start = 0; start < targets.length; start += windowSize) {
+    const chunk = targets.slice(start, start + windowSize)
+    let measured
+    let refusal = null
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      try {
+        const answer = await attestWindow(base, chunk, secret, fetchImpl)
+        if (answer.sizes !== undefined) {
+          measured = answer.sizes
+          break
+        }
+        refusal = answer.refusal
+      } catch (error) {
+        refusal = { message: `request failed: ${error.message}`, verdict: false }
+      }
+      // The route's own verdict repeats on a second ask; what the edge answered
+      // in its place need not.
+      if (refusal.verdict || attempt === attempts) break
+      await delay(attempt * ATTEST_RETRY_MS)
+    }
+    if (measured === undefined) return { error: `attestation refused: ${refusal.message}` }
+    const byPath = new Map(measured.map(entry => [String(entry.path).replace(/^\//, ''), entry]))
+    for (const target of chunk) {
+      const entry = byPath.get(target.path)
+      if (entry === undefined) {
+        results.push({ target, result: { ok: false, reason: 'not measured by the attestation' } })
+      } else if (entry.error !== undefined) {
+        results.push({ target, result: { ok: false, reason: entry.error } })
+      } else {
+        results.push({ target, result: compareServedBytes(distDir, target, entry.bytes) })
+      }
+    }
+  }
+  return { results }
 }
 
 /**
@@ -249,7 +390,12 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
     if (arg === '--dist') options.mode = 'dist'
-    else if (arg === '--origin') {
+    else if (arg === '--attest') {
+      options.mode = 'attest'
+      const value = argv[++i]
+      if (value === undefined || value.startsWith('--')) throw new Error('--attest needs a URL')
+      options.origin = value
+    } else if (arg === '--origin') {
       options.mode = 'origin'
       const value = argv[++i]
       if (value === undefined || value.startsWith('--')) throw new Error('--origin needs a URL')
@@ -298,15 +444,30 @@ async function main() {
   }
   if (options.limit > 0) targets = targets.slice(0, options.limit)
 
-  const where = options.mode === 'origin' ? options.origin : DIST_DIR
-  console.log(`[market-verify-assets] ${targets.length} path(s) from ${options.kinds.join(', ')} against ${where}`)
+  const where = options.mode === 'dist' ? DIST_DIR : options.origin
+  console.log(`[market-verify-assets] ${targets.length} path(s) from ${options.kinds.join(', ')} against ${where}${options.mode === 'attest' ? ' (through the deployed asset binding)' : ''}`)
 
-  const results = await runPool(targets, options.concurrency, async (target) => {
-    const result = options.mode === 'origin'
-      ? await verifyOrigin(options.origin, target, { distDir: DIST_DIR })
-      : verifyLocal(DIST_DIR, target)
-    return { target, result }
-  })
+  let results
+  if (options.mode === 'attest') {
+    const secret = attestSecret()
+    if (!secret) {
+      console.error('[market-verify-assets] no attestation secret: set MARKET_ATTEST_SECRET (CI) or put ASSET_ATTEST_SECRET in market/worker/.dev.vars (local); the route refuses an unauthenticated call and nothing about the assets would be verified')
+      process.exit(2)
+    }
+    const attested = await attestTargets(options.origin, targets, { secret, distDir: DIST_DIR })
+    if (attested.error !== undefined) {
+      console.error(`[market-verify-assets] ${attested.error}`)
+      process.exit(1)
+    }
+    results = attested.results
+  } else {
+    results = await runPool(targets, options.concurrency, async (target) => {
+      const result = options.mode === 'origin'
+        ? await verifyOrigin(options.origin, target, { distDir: DIST_DIR })
+        : verifyLocal(DIST_DIR, target)
+      return { target, result }
+    })
+  }
 
   // A cloud IP range gets part of a burst answered with a transient status, so
   // the paths the burst failed are re-checked serially after the burst has
