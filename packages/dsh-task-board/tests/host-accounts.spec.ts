@@ -126,7 +126,7 @@ describe('task-board deployment identities', () => {
         calls.push(request)
         if (request.method === 'create') return { sessionId: 'session-a' }
         if (request.method === 'list') return { items: [{ sessionId: 'session-a', running: false }] }
-        if (request.method === 'page') return { records: [{ type: 'event', event: { type: 'turn/end', seq: 3, time: 2, data: { reason: { kind: 'stop' } } } }], hasMore: false }
+        if (request.method === 'page') return { records: [{ type: 'event', event: { type: 'turn/end', seq: 3, time: 2, data: { reason: { kind: 'completed' } } } }], hasMore: false }
         if (request.method === 'selectModel') return {}
         return {}
       }),
@@ -230,5 +230,25 @@ describe('task-board deployment identities', () => {
     await runtime.tickSchedule(false)
     await vi.waitFor(() => expect(service.snapshot().tasks.find(task => task.id === 'scheduled')?.executions.at(-1)?.result).toBe('failed'))
     expect(invoke).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('account-owned task cascades', () => {
+  it('admin retains the owner on every cascade participant after restart', () => {
+    // Given an owned task tree, when the administrator opens a run and reopens the ledger, then every child execution retains the same account.
+    const dir = root()
+    const first = ledger(dir)
+    first.applyRequest('parent', { kind: 'create', id: 'parent', input: input() }, undefined, alice)
+    first.applyRequest('child', { kind: 'create', id: 'child', input: { ...input(), parentId: 'parent' } }, undefined, alice)
+    expect(() => first.applyRequest('foreign-child', { kind: 'create', id: 'foreign', input: { ...input(), parentId: 'parent' } }, undefined, bob)).toThrow('another account')
+    const opened = first.applyRequest('run-tree', { kind: 'run', taskId: 'parent' }, undefined, alice)
+    expect(opened.runs?.map(run => run.principal)).toEqual([alice, alice])
+    for (const run of opened.runs ?? []) first.attachSession(run.task.id, run.execution.id, 'session-' + run.task.id)
+    first.dispose()
+    const reopened = ledger(dir)
+    expect(reopened.runtimeView().openExecutions.map(run => run.principal)).toEqual([alice, alice])
+    expect(reopened.taskPrincipal('child')).toEqual(alice)
+    expect(() => reopened.applyRequest('detach-other', { kind: 'set-parent', taskId: 'child', parentId: null }, undefined, bob)).toThrow('another account')
   })
 })

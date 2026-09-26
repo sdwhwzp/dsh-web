@@ -400,6 +400,7 @@ html[data-dsh-skin="hologram-sanctum"] [data-dsh-part="dialog"] { backdrop-filte
 
 /* Composer card accent ring on focus */
 html[data-dsh-skin="hologram-sanctum"] [data-dsh-surface="composer"]:focus-within, html[data-dsh-skin="hologram-sanctum"] [data-dsh-part="composer-input"]:focus-visible { box-shadow: 0 0 0 3px rgba(15,160,190,0.18); }
+
 html[data-dsh-skin="hologram-sanctum"] [id="root"] { background: transparent; }
 
 html[data-dsh-skin="hologram-sanctum"] body { --shiki-background: var(--dsw-alias-markdown-code-block); }

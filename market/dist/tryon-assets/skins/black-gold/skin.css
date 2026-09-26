@@ -410,6 +410,7 @@ html[data-dsh-skin="black-gold"] body {
   --dsw-alias-button-tool-bar-fill-invisible: rgba(20, 16, 12, 0.40);
 }
 
+
 html[data-dsh-skin="black-gold"] [id="root"] { background: transparent; }
 
 html[data-dsh-skin="black-gold"] body { --shiki-background: var(--dsw-alias-markdown-code-block); }

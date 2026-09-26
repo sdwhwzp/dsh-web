@@ -400,6 +400,7 @@ html[data-dsh-skin="abyssal-serenade"] [data-dsh-part="dialog"] { backdrop-filte
 
 /* Composer card accent ring on focus */
 html[data-dsh-skin="abyssal-serenade"] [data-dsh-surface="composer"]:focus-within, html[data-dsh-skin="abyssal-serenade"] [data-dsh-part="composer-input"]:focus-visible { box-shadow: 0 0 0 3px rgba(24,158,180,0.18); }
+
 html[data-dsh-skin="abyssal-serenade"] [id="root"] { background: transparent; }
 
 html[data-dsh-skin="abyssal-serenade"] body { --shiki-background: var(--dsw-alias-markdown-code-block); }

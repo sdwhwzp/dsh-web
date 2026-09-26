@@ -400,6 +400,7 @@ html[data-dsh-skin="starry-nocturne"] [data-dsh-part="dialog"] { backdrop-filter
 
 /* Composer card accent ring on focus */
 html[data-dsh-skin="starry-nocturne"] [data-dsh-surface="composer"]:focus-within, html[data-dsh-skin="starry-nocturne"] [data-dsh-part="composer-input"]:focus-visible { box-shadow: 0 0 0 3px rgba(91,95,199,0.18); }
+
 html[data-dsh-skin="starry-nocturne"] [id="root"] { background: transparent; }
 
 html[data-dsh-skin="starry-nocturne"] body { --shiki-background: var(--dsw-alias-markdown-code-block); }

@@ -514,6 +514,17 @@ function buildSitemap(skins) {
 
 /** --- emit ---------------------------------------------------------------- */
 
+/** Keep published CSS deterministic without modifying pinned satellite inputs. */
+function normalizeAssetCss(text) {
+  return text.replace(/\r\n?/g, '\n').replace(/\n*$/, '\n')
+}
+
+/** CSS has canonical line endings; other asset bytes are copied verbatim. */
+function assetBytes(file) {
+  const bytes = fs.readFileSync(file)
+  return file.endsWith('.css') ? Buffer.from(normalizeAssetCss(bytes.toString('utf8'))) : bytes
+}
+
 function emit(outDir, files, binary, skins, pets, plugins, presets, picks, transformSkinCss) {
   let preservedTryon = null
   const tryonPath = path.join(outDir, 'tryon')
@@ -540,13 +551,13 @@ function emit(outDir, files, binary, skins, pets, plugins, presets, picks, trans
     if (!rel.startsWith('assets/')) continue
     const abs = path.join(outDir, rel)
     fs.mkdirSync(path.dirname(abs), { recursive: true })
-    fs.copyFileSync(srcAbs, abs)
+    fs.writeFileSync(abs, assetBytes(srcAbs))
   }
 
   for (const { dir, name } of skins) {
     const entries = listFiles(dir).map((rel) => ({
       name: name + '/' + rel,
-      data: fs.readFileSync(path.join(dir, rel)),
+      data: assetBytes(path.join(dir, rel)),
     }))
     const zipDest = path.join(outDir, 'assets', 'skins', name + '.zip')
     fs.mkdirSync(path.dirname(zipDest), { recursive: true })
@@ -555,17 +566,17 @@ function emit(outDir, files, binary, skins, pets, plugins, presets, picks, trans
 
   // Try-on CSS uses the exact Skin Center safety transform. In particular it
   // clones light tokens from :root to body, where they can override the
-  // official body's token sheet. Keep authored assets untouched for installs.
+  // official body's token sheet. Install and inline CSS share the same line-ending normalization.
   for (const { name, dir, item } of skins) {
     const contributes = item.contributes || {}
     for (const [field, fallback] of [['stylesheet', 'skin.css'], ['patches', 'patches.css']]) {
       const rel = contributes[field]
       if (!rel) continue
-      const source = fs.readFileSync(assertInside(dir, rel, field), 'utf8')
+      const source = assetBytes(assertInside(dir, rel, field)).toString('utf8')
       const transformed = transformSkinCss(source, { skinId: name, filename: fallback }).code
       const dest = path.join(outDir, 'tryon-assets', 'skins', name, fallback)
       fs.mkdirSync(path.dirname(dest), { recursive: true })
-      fs.writeFileSync(dest, transformed)
+      fs.writeFileSync(dest, normalizeAssetCss(transformed))
     }
   }
 
@@ -575,8 +586,8 @@ function emit(outDir, files, binary, skins, pets, plugins, presets, picks, trans
     const entry = {}
     const st = item.contributes && item.contributes.stylesheet
     const pa = item.contributes && item.contributes.patches
-    if (st) entry.stylesheet = fs.readFileSync(assertInside(path.join(SKINS_DIR, name), st, 'stylesheet'), 'utf8').replace(/\r\n?/g, '\n')
-    if (pa) entry.patches = fs.readFileSync(assertInside(path.join(SKINS_DIR, name), pa, 'patches'), 'utf8').replace(/\r\n?/g, '\n')
+    if (st) entry.stylesheet = assetBytes(assertInside(path.join(SKINS_DIR, name), st, 'stylesheet')).toString('utf8')
+    if (pa) entry.patches = assetBytes(assertInside(path.join(SKINS_DIR, name), pa, 'patches')).toString('utf8')
     styles[name] = entry
   }
   fs.writeFileSync(path.join(outDir, 'styles.js'),

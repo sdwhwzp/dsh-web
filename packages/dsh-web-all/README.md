@@ -6,6 +6,8 @@ The one-click aggregate package for the whole dsh web UI family: installing it b
 
 This fork installs right-panel plugins separately. `dsh-better-sidebar` is neither a dependency nor a mounted row in the aggregate; install a version compatible with the host through `dsh plugin --profile web add dsh-better-sidebar@latest`. `@mlgbnb/dsh-archive-manager` remains excluded: its upstream build (1.0.7) imports the removed `@deepseek-ai/dsh-client-runtime` face and would abort `dsh web` boot.
 
+Persisted family rows may keep their fields under `config`; explicit fields beside `plugin` override those saved values. `clientOnly: true` keeps the browser contribution active while the deployment supplies its authenticated Host API. The separate updater row is disabled by default in this fork.
+
 ## What it is
 
 - **One install, everything on**: its dependencies pull in every sub-plugin package of the family (task board, Git graph, pet, mobile remote, SSH, model capabilities, skins, settings, community plugins and the rest — `aggregate.yml` is the complete list), with pet, skin center and the community index mounted as external npm packages (the right panel is an on-demand install). `@mlgbnb/dsh-archive-manager` (the community archive manager: group by project, search and filter, preview conversations, restore and delete) is not bundled — its upstream build still imports the removed `@deepseek-ai/dsh-client-runtime` face.
@@ -73,5 +75,5 @@ For deployments that provide an authenticated Host API separately, a family row 
 ## Known limitations
 
 - Every sub-plugin activates together. For only a subset, install that sub-plugin package directly.
-- Aggregate rows are namespaced `web-ui-*`, so the bundle can coexist with a standalone install of the same plugin: the loader no longer rejects the duplicate id, the host half runs once (the second source is a no-op), and the browser half is deduped by package name. Keeping both sources has no benefit; prefer one. When the bundle is the source, profile patch config rows must use the `web-ui-*` id (e.g. `web-ui-remote-web-ui` for the remote-web-ui `autoTunnel` row); standalone installs keep the plugin's own id.
+- Aggregate rows are namespaced `web-ui-*`, so the bundle can coexist with a standalone install of the same plugin: the loader no longer rejects the duplicate id, the host half runs once (the second source is a no-op), and the browser half is deduped by package name. Keeping both sources has no benefit; prefer one. When the bundle is the source, profile patch config rows must use the `web-ui-*` id (e.g. `web-ui-remote-web-ui` for the remote-web-ui `autoTunnel` row); standalone installs keep the plugin's own id. A bundled row's config carries the shell key `plugin` — the module the row loads — with the plugin's own fields beside it; the settings card writes that shape, and a hand-written override must keep `plugin` or the row mounts nothing.
 - Dependencies on the `@deepseek-ai/*` SDK are pinned; compatibility follows the repository's release cadence.

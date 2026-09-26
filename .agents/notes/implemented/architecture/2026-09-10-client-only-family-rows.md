@@ -10,7 +10,7 @@ A deployment can replace a family plugin’s shared Host with an account-scoped 
 
 ## Decision
 
-An explicit boolean `clientOnly` in the shell row config retains the active-row registration and its disposer but skips importing and starting the real Host plugin. The deployment owns the replacement API and its authorization. Malformed values produce a degraded config record and do not activate the row.
+An explicit boolean `clientOnly` in the shell row config retains the active-row registration and its disposer but skips importing and starting the real Host plugin. The deployment owns the replacement API and its authorization. Live row edits dispose or restore the nested Host according to this flag. Persisted nested `config` fields remain readable; explicit modern row fields override them. Malformed values produce a degraded config record and do not activate the row.
 
 ## Alternatives considered
 

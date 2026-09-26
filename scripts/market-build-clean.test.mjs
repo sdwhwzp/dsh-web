@@ -142,3 +142,17 @@ test('check rejects undeclared files inside the committed tryon dir', (t) => {
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+
+test('CSS trailing blank lines do not change expanded, archived, inline or try-on artifacts', (t) => {
+  if (!hasInputs) return t.skip(SKIP_REASON)
+  const dir = fixture()
+  try {
+    appendFileSync(join(dir, '.market-inputs', 'skins', 'blue-fantasy', 'patches.css'), '\n\n')
+    const result = runCheck(dir)
+    assert.equal(result.status, 0, result.stderr)
+    assert.match(result.stdout, /dist up to date/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

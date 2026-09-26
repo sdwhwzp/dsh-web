@@ -8,7 +8,7 @@ A Host scheduler outlives the browser request that created its task. Account-awa
 
 ## Decision
 
-The administrator-only board authenticates each carrier through Connection authorization, with the existing signed-principal provider as the compatibility path when Connection does not expose authorization. A Host-only `taskPrincipals` map is persisted in the same atomic ledger write as a new task, explicit run or schedule binding. Browser imports and the audit-only initiator cannot establish ownership. An existing owner alone may mutate the task, and imports cannot overwrite owned tasks.
+The administrator-only board authenticates each carrier through Connection authorization, with the existing signed-principal provider as the compatibility path when Connection does not expose authorization. A Host-only `taskPrincipals` map is persisted in the same atomic ledger write as a new task, explicit run or schedule binding. Browser imports and the audit-only initiator cannot establish ownership. An existing owner alone may mutate the task, and imports cannot overwrite owned tasks. Agent tools obtain the verified principal from each execution carrier before reading or changing the board. Subtask links reject another owner; cascade participants persist their execution owner atomically with the opened runs.
 
 Every execution and background observation uses the saved owner and rechecks the active-account provider before gateway calls and permission commands. Session rosters and reuse evidence are associated with that owner. Invalid persisted ownership refuses startup while preserving the ledger. Standalone Hosts without deployment identity services retain local behavior; a bound identity never falls back to anonymous execution when its provider disappears.
 

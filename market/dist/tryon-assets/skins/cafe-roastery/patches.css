@@ -232,6 +232,7 @@ html[data-dsh-skin="cafe-roastery"] body[data-ds-dark-theme] [data-pane="details
     transition: none;
   }
 }
+
 html[data-dsh-skin="cafe-roastery"] [id="root"] { background: transparent; }
 
 html[data-dsh-skin="cafe-roastery"] body { --shiki-background: var(--dsw-alias-markdown-code-block); }

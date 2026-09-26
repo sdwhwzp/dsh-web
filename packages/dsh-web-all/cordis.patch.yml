@@ -52,6 +52,13 @@
       config:
         plugin: '@linxin666/dsh-remote-web-ui'
 
+# from ../dsh-update
+- insert:
+    - id: web-ui-update
+      name: '@linxin666/dsh-web-all/update'
+      config:
+        plugin: '@linxin666/dsh-update'
+
 # from ../dsh-ssh
 - insert:
     - id: web-ui-ssh
@@ -101,6 +108,8 @@
 
 # inactive by default (opt-in rows): these ship disabled; each is enabled per row in the
 # plugin manager, whose enable writes a user-layer "disabled: false" override that wins.
+- id: web-ui-update
+  disabled: true
 - id: web-ui-ssh
   disabled: true
 - id: web-ui-liangshen

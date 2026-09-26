@@ -6,6 +6,8 @@ DSH Web UI 全家桶聚合插件：一键安装家族的全部功能插件（任
 
 本 fork 独立安装右侧面板插件。`dsh-better-sidebar` 既不是聚合包的依赖，也不是其挂载行；通过 `dsh plugin --profile web add dsh-better-sidebar@latest` 安装适配宿主的版本。`@mlgbnb/dsh-archive-manager` 仍被排除：其上游构建（1.0.7）导入已移除的 `@deepseek-ai/dsh-client-runtime` 面，保留会导致 `dsh web` 启动失败。
 
+持久化的家族行可继续把字段放在 `config` 下；与 `plugin` 同级的显式字段覆盖这些保存值。`clientOnly: true` 保留浏览器贡献，由部署提供经过认证的 Host API。本 fork 默认禁用独立更新器行。
+
 ## 是什么
 
 - **一次安装、全部到位**：其 dependencies 引入家族的全部子插件包（任务看板 / Git 图谱 / 宠物 / 移动端远程 / SSH / 模型能力 / 皮肤 / 设置区 / 社区插件 等，完整清单以 `aggregate.yml` 为准），宠物、皮肤中心和社区索引作为外部 npm 包挂载（右侧面板按需安装）。`@mlgbnb/dsh-archive-manager`（社区归档管理：按项目分组、搜索筛选、预览对话、一键恢复与删除）未内置——其上游构建仍 import 已移除的 `@deepseek-ai/dsh-client-runtime` 面。
@@ -73,5 +75,5 @@ dsh plugin --profile web add link:$(pwd)/packages/dsh-web-all
 ## 已知限制
 
 - 各子插件随本包一起激活；若只需要其中一部分，请直接安装对应子插件包。
-- 聚合行 id 统一带 `web-ui-` 命名空间，本包可与同名独立插件包共存：loader 不再拒绝重复 id，host 半区只注册一次（第二个来源为空操作），浏览器半区按包名去重。两个来源并存没有额外收益，建议只保留一个。插件来自本包时，profile 里按 id 写的配置行要改用 `web-ui-` 前缀（如 remote-web-ui 的 `autoTunnel` 配置行写成 `web-ui-remote-web-ui`）；独立安装时仍用插件原 id。
+- 聚合行 id 统一带 `web-ui-` 命名空间，本包可与同名独立插件包共存：loader 不再拒绝重复 id，host 半区只注册一次（第二个来源为空操作），浏览器半区按包名去重。两个来源并存没有额外收益，建议只保留一个。插件来自本包时，profile 里按 id 写的配置行要改用 `web-ui-` 前缀（如 remote-web-ui 的 `autoTunnel` 配置行写成 `web-ui-remote-web-ui`）；独立安装时仍用插件原 id。聚合行的配置里 `plugin` 是壳自己的键（该行加载哪个模块），插件自身字段与它平级；设置卡片写出的就是这一形态，手写覆盖必须保留 `plugin`，否则该行什么都不挂载。
 - 依赖的 `@deepseek-ai/*` SDK 版本已锁定，兼容性跟随本仓库的发版节奏。

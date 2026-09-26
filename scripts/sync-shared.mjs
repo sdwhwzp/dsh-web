@@ -29,6 +29,11 @@ export const REPO_ROOT = resolve(SCRIPT_DIR, '..')
 // Consumers of the settings card trio: one list, three derivations below.
 const SETTINGS_CONSUMERS = ['dsh-task-board', 'dsh-remote-web-ui', 'dsh-market', 'dsh-liangshen']
 const SETTINGS_CARD_CONSUMERS = [...SETTINGS_CONSUMERS]
+// Consumers of the entry-bound form fallback: every package whose card binds a
+// family settings namespace through the shared forms service. It is a superset
+// of the card trio — dsh-usage and dsh-session-archive carry their own cards but
+// bind the same way.
+const SETTINGS_ENTRY_FORM_CONSUMERS = [...SETTINGS_CONSUMERS, 'dsh-usage', 'dsh-session-archive']
 
 const MANIFEST = [
   {
@@ -58,6 +63,17 @@ const MANIFEST = [
       'packages/dsh-task-board/src/client/plugin-card-seat.ts',
       'packages/dsh-liangshen/src/client/plugin-card-seat.ts',
     ],
+  },
+  {
+    // Fallback settings transport for a page that serves no family binder: the
+    // form is bound to the profile entry id the Host actually serves, and
+    // rebound when the shared describe mirror answers with a different one of
+    // this package's rows. A one-shot guess left the card on an entry the Host
+    // does not serve, so every save was rejected (issue: the LiangShen card
+    // reported "the deployment did not accept these values" for every edit).
+    file: 'settings-entry-form.ts',
+    source: 'shared/client/settings/settings-entry-form.ts',
+    targets: SETTINGS_ENTRY_FORM_CONSUMERS.map(pkg => `packages/${pkg}/src/client/settings-entry-form.ts`),
   },
   {
     file: 'poll-guard.ts',
@@ -121,6 +137,7 @@ const MANIFEST = [
       'packages/dsh-usage/src/mount-once.ts',
       'packages/dsh-session-archive/src/mount-once.ts',
       'packages/dsh-model-capabilities/src/mount-once.ts',
+      'packages/dsh-update/src/mount-once.ts',
     ],
   },
 
@@ -137,6 +154,7 @@ const MANIFEST = [
       'packages/dsh-ssh/src/client/telemetry.ts',
       'packages/dsh-task-board/src/client/telemetry.ts',
       'packages/dsh-web-settings/src/client/telemetry.ts',
+      'packages/dsh-update/src/client/telemetry.ts',
     ],
   },
   {
@@ -167,7 +185,7 @@ const MANIFEST = [
   {
     file: 'loopback.ts',
     source: 'shared/host/loopback.ts',
-    targets: ['packages/dsh-ssh/src/loopback.ts', 'packages/dsh-git-graph/src/host/loopback.ts', 'packages/dsh-remote-web-ui/src/loopback.ts', 'packages/dsh-task-board/src/loopback.ts', 'packages/dsh-skill-explorer/src/loopback.ts', 'packages/dsh-plugin-manager/src/host/loopback.ts', 'packages/dsh-market/src/loopback.ts', 'packages/dsh-usage/src/host/loopback.ts', 'packages/dsh-session-archive/src/host/loopback.ts'],
+    targets: ['packages/dsh-ssh/src/loopback.ts', 'packages/dsh-git-graph/src/host/loopback.ts', 'packages/dsh-remote-web-ui/src/loopback.ts', 'packages/dsh-task-board/src/loopback.ts', 'packages/dsh-skill-explorer/src/loopback.ts', 'packages/dsh-plugin-manager/src/host/loopback.ts', 'packages/dsh-market/src/loopback.ts', 'packages/dsh-usage/src/host/loopback.ts', 'packages/dsh-session-archive/src/host/loopback.ts', 'packages/dsh-update/src/loopback.ts'],
   },
   {
     file: 'http.ts',
@@ -183,6 +201,7 @@ const MANIFEST = [
       'packages/dsh-task-board/src/http.ts',
       'packages/dsh-usage/src/host/http.ts',
       'packages/dsh-session-archive/src/host/http.ts',
+      'packages/dsh-update/src/http.ts',
     ],
   },
   {
@@ -196,6 +215,7 @@ const MANIFEST = [
       'packages/dsh-remote-web-ui/vitest.setup.ts',
       'packages/dsh-git-graph/vitest.setup.ts',
       'packages/dsh-task-board/vitest.setup.ts',
+      'packages/dsh-update/vitest.setup.ts',
     ],
   },
   {
@@ -229,11 +249,11 @@ const MANIFEST = [
     source: 'shared/host/console-output.ts',
     targets: [
       'packages/dsh-plugin-manager/src/host/console-output.ts',
-      'packages/dsh-remote-web-ui/src/console-output.ts',
+      'packages/dsh-update/src/console-output.ts',
     ],
   },
   {
-    // Center-column takeover lifecycle shared by the two family panels; the
+    // Center-column takeover lifecycle shared by the family panels; the
     // wrappers supply the panel tree, container attribute names, and CSS
     // class (pinned by each package's CSS and the semantic-attrs contract).
     file: 'panel-mount-core.ts',
@@ -241,6 +261,7 @@ const MANIFEST = [
     targets: [
       'packages/dsh-ssh/src/client/panel-mount-core.ts',
       'packages/dsh-task-board/src/client/panel-mount-core.ts',
+      'packages/dsh-skill-explorer/src/client/panel-mount-core.ts',
     ],
   },
 ]

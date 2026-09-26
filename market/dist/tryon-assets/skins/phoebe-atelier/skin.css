@@ -4532,7 +4532,6 @@ html[data-dsh-skin="phoebe-atelier"] body [data-phase='settling'] [data-skin-chr
   opacity: 0.92;
 }
 
-
 html[data-dsh-skin="phoebe-atelier"] [id="root"] { background: transparent; }
 
 html[data-dsh-skin="phoebe-atelier"] body { --shiki-background: var(--dsw-alias-markdown-code-block); }

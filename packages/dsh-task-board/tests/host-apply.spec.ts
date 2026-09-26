@@ -16,6 +16,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { TypertGateway } from '@deepseek-ai/dsh-api-gateway'
+import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
+import type { TaskBoardPrincipal } from '../src/host-accounts.ts'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { Config, apply } from '../src/index.ts'
 
@@ -23,7 +25,7 @@ import { Config, apply } from '../src/index.ts'
 const VOLATILE_WRITE = Symbol.for('cosmokit.volatile.write')
 
 /** The board's fields the browser settings card edits. */
-type CardField = 'enabled' | 'announceToAgent' | 'preventIdleSleep'
+type CardField = 'enabled' | 'announceToAgent' | 'preventIdleSleep' | 'maxSubtaskDepth'
 
 /** One action envelope the board's HTTP surface accepts. */
 interface ActionEnvelope {
@@ -33,12 +35,15 @@ interface ActionEnvelope {
 
 /** One mounted activation under test. */
 interface MountedBoard {
+  tools: ToolDefinition[]
   /** Names of the announcement sections the activation currently holds. */
   sections(): string[]
   /** Commit one volatile config field into the running activation, the way the Loader does. */
-  commit(field: CardField, value: boolean): void
+  commit(field: CardField, value: boolean | number): void
   /** POST one action envelope to the mounted HTTP surface. */
   action(envelope: ActionEnvelope): Promise<{ status: number; body: { error?: string; revision?: number } }>
+  /** GET the host snapshot the browser mirrors. */
+  state(): Promise<{ status: number; body: { maxSubtaskDepth?: number } }>
   /** Tear the activation and its HTTP surface down. */
   dispose(): Promise<void>
 }
@@ -60,13 +65,14 @@ function emptyRosterGateway(): TypertGateway {
  * @param config - the parsed row config the Host hands the activation.
  * @returns the mounted activation's observation surface.
  */
-async function mountBoard(config: ReturnType<typeof Config>): Promise<MountedBoard> {
+async function mountBoard(config: ReturnType<typeof Config>, access?: { assertAuthenticated(principal: TaskBoardPrincipal): void }): Promise<MountedBoard> {
+  const tools: ToolDefinition[] = []
   const routes: WebRoute[] = []
   const disposers: Array<() => void> = []
   const sections: string[] = []
   let volatileListener: (() => void) | undefined
   const ctx = {
-    get: () => undefined,
+    get: (name: string) => name === 'principalAccess' ? access : name === 'tools' ? { register: (tool: ToolDefinition) => { tools.push(tool); return () => { tools.splice(tools.indexOf(tool), 1) } } } : undefined,
     typertGateway: emptyRosterGateway(),
     workspaceRegistry: {},
     agents: { get: () => undefined },
@@ -114,6 +120,7 @@ async function mountBoard(config: ReturnType<typeof Config>): Promise<MountedBoa
   const base = `http://127.0.0.1:${address.port}`
 
   return {
+    tools,
     sections: () => [...sections],
     commit: (field, value) => {
       const ref = config[field] as unknown as Record<symbol, (next: unknown) => void>
@@ -127,6 +134,12 @@ async function mountBoard(config: ReturnType<typeof Config>): Promise<MountedBoa
         body: JSON.stringify(envelope),
       })
       return { status: response.status, body: await response.json() as { error?: string; revision?: number } }
+    },
+    state: async () => {
+      const response = await fetch(`${base}/api/task-board/state`, {
+        headers: { 'sec-fetch-site': 'same-origin' },
+      })
+      return { status: response.status, body: await response.json() as { maxSubtaskDepth?: number } }
     },
     dispose: async () => {
       for (const dispose of disposers.reverse()) dispose()
@@ -227,5 +240,40 @@ describe('host activation settings', () => {
 
     // Then the activation never armed the board, so nothing is accepted
     expect(refused).toMatchObject({ status: 400, body: { error: 'task board is disabled' } })
+  })
+
+  it('operator raising the subtask depth limit sees it apply without a remount', async () => {
+    // Given a running activation handed the default single-level limit
+    const board = await mountBoard(Config({ enabled: true }))
+    mounted.push(board)
+    expect((await board.state()).body.maxSubtaskDepth).toBe(1)
+
+    // When the Host commits the user's write of a deeper limit
+    board.commit('maxSubtaskDepth', 2)
+
+    // Then the same activation serves the new limit, and a write back follows too
+    expect((await board.state()).body.maxSubtaskDepth).toBe(2)
+    board.commit('maxSubtaskDepth', 1)
+    expect((await board.state()).body.maxSubtaskDepth).toBe(1)
+  })
+})
+
+
+describe('account-aware agent tools', () => {
+  it('admin tools reject anonymous, ordinary and revoked callers before exposing the board', async () => {
+    // Given an account-authenticated board, when callers use its real registered tools, then only a current administrator reads or creates cards.
+    const admin: TaskBoardPrincipal = { source: 'test', id: '1', username: 'admin', role: 'admin' }
+    let revoked = false
+    const board = await mountBoard(Config({ enabled: true }), { assertAuthenticated: () => { if (revoked) throw new Error('revoked') } })
+    mounted.push(board)
+    const list = board.tools.find(tool => tool.name === 'task_board_list')!
+    const create = board.tools.find(tool => tool.name === 'task_board_create')!
+    await expect(list.execute({}, {} as never)).rejects.toThrow('administrator')
+    await expect(list.execute({}, { principal: { ...admin, role: 'user' } } as never)).rejects.toThrow('administrator')
+    expect(await create.execute({ title: 'Owned task' }, { principal: admin } as never)).toMatchObject({ ok: true, task: { title: 'Owned task' } })
+    expect(await list.execute({}, { principal: admin } as never)).toMatchObject({ ok: true, total: 1 })
+    revoked = true
+    await expect(list.execute({}, { principal: admin } as never)).rejects.toThrow('revoked')
+    await expect(create.execute({ title: 'Rejected task' }, { principal: admin } as never)).rejects.toThrow('revoked')
   })
 })
