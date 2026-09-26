@@ -160,7 +160,7 @@ function applyImpl(ctx: Context, config?: ResolvedConfig): void {
 
   // The /api/dsh-ssh route family + terminal upgrade.
   const isolated = (): boolean => config?.accountIsolation === true
-  const { routes, upgrade } = makeAccountRoutes(accounts, { store, engine }, isolated)
+  const { routes, upgrade, disposeTerminalSessions } = makeAccountRoutes(accounts, { store, engine }, isolated)
   let disposeRoutes: (() => void) | undefined
 
   // Agent tools + their prompt sections.
@@ -223,6 +223,9 @@ function applyImpl(ctx: Context, config?: ResolvedConfig): void {
         return () => {
           for (const dispose of disposers) dispose()
           upgradeDisposer()
+          // Dropping the routes also ends the terminal sessions they served:
+          // a live shell must not outlive the surface that can reach it.
+          disposeTerminalSessions()
         }
       },
       'dsh-ssh: routes',

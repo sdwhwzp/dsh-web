@@ -1,5 +1,8 @@
 /** Real route and SSH operations stay in the authenticated account's store and pool. */
 import { createServer, type IncomingMessage } from 'node:http'
+import { once } from 'node:events'
+import { WebSocket } from 'ws'
+import type { TerminalServerFrame } from '../src/protocol.ts'
 import type { AddressInfo } from 'node:net'
 import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -43,6 +46,7 @@ const server = createServer((req, res) => {
   if (route === undefined) { res.writeHead(404); res.end(); return }
   void route.handler(req, res)
 })
+server.on('upgrade', (req, socket, head) => { void routeSet.upgrade.handler(req, socket, head) })
 let url: string
 let ssh: TestSshServer
 
@@ -56,6 +60,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  routeSet.disposeTerminalSessions()
   accounts.dispose()
   localEngine.dispose()
   server.closeAllConnections()
@@ -71,6 +76,71 @@ async function request(user: string, path: string, method = 'GET', body?: unknow
   })
   return { status: res.status, body: await res.json() }
 }
+
+/** Buffer received terminal frames so reattach replay cannot race an assertion. */
+function terminal(user: string, query: string) {
+  const ws = new WebSocket(url.replace('http:', 'ws:') + '/api/dsh-ssh/terminal?' + query, { headers: { 'test-user': user } })
+  const frames: TerminalServerFrame[] = []
+  ws.on('message', data => { frames.push(JSON.parse(String(data)) as TerminalServerFrame) })
+  return {
+    ws,
+    async frame(type: TerminalServerFrame['type']): Promise<TerminalServerFrame> {
+      for (;;) {
+        const found = frames.find(row => row.type === type)
+        if (found !== undefined) return found
+        await once(ws, 'message')
+      }
+    },
+  }
+}
+
+it('user reattaches only to their own terminal and revoked access clears its saved session', async () => {
+  // Given an authenticated terminal, when its view disconnects, then the same account can replay output and resume it.
+  const first = terminal('alice', 'alias=legacy-alice')
+  const sockets = [first.ws]
+  const scope = accounts.resolve(alice)
+  try {
+    const ready = await first.frame('ready')
+    if (ready.type !== 'ready' || ready.sessionId === undefined) throw new Error('terminal id missing')
+    first.ws.send(JSON.stringify({ type: 'input', data: 'account-private-output' }))
+    expect(await first.frame('output')).toMatchObject({ data: 'account-private-output' })
+    const closed = once(first.ws, 'close')
+    first.ws.close()
+    await closed
+    expect(scope.terminalSessions.size()).toBe(1)
+    const resumed = terminal('alice', 'session=' + ready.sessionId)
+    sockets.push(resumed.ws)
+    expect(await resumed.frame('ready')).toMatchObject({ sessionId: ready.sessionId })
+    expect(await resumed.frame('output')).toMatchObject({ data: 'account-private-output' })
+
+    // When another account presents the same id, then its independent registry refuses it.
+    const foreign = terminal('bob', 'session=' + ready.sessionId)
+    sockets.push(foreign.ws)
+    expect(await foreign.frame('exit')).toMatchObject({ error: 'terminal session expired' })
+    expect(accounts.resolve(bob).terminalSessions.size()).toBe(0)
+
+    // When permission is revoked, then both the connection and retained terminal are cleared.
+    denied.add(alice.id)
+    accounts.checkPermissions()
+    expect(scope.terminalSessions.size()).toBe(0)
+    expect(() => accounts.resolve(alice)).toThrow('revoked')
+  } finally {
+    denied.delete(alice.id)
+    for (const ws of sockets) ws.terminate()
+  }
+})
+
+it('operator unloading terminal routes ends every retained account session', async () => {
+  // Given a live account terminal, when the route family unloads, then its registry releases the shell.
+  const client = terminal('alice', 'alias=legacy-alice')
+  const scope = accounts.resolve(alice)
+  try {
+    await client.frame('ready')
+    expect(scope.terminalSessions.size()).toBe(1)
+    routeSet.disposeTerminalSessions()
+    expect(scope.terminalSessions.size()).toBe(0)
+  } finally { client.ws.terminate() }
+})
 
 it('user receives only owned legacy SSH entries while the backup remains intact', async () => {
   // Given legacy entries with different owners, when accounts list hosts, then migration respects ownership and anonymous access fails.

@@ -8,7 +8,7 @@ import type { SshEngine } from './engine.ts'
 
 /** Mount one route family while account engines remain private to their verified identities. */
 export function makeAccountRoutes(accounts: SshAccounts, local: SshRoutesDeps, enabled: () => boolean): {
-  routes: WebRoute[]; upgrade: WebUpgradeRoute
+  routes: WebRoute[]; upgrade: WebUpgradeRoute; disposeTerminalSessions: () => void
 } {
   const base = makeRoutes(local)
   const scopes = new WeakMap<SshEngine, ReturnType<typeof makeRoutes>>()
@@ -29,6 +29,7 @@ export function makeAccountRoutes(accounts: SshAccounts, local: SshRoutesDeps, e
     return routes
   }
   return {
+    disposeTerminalSessions: () => { base.terminalSessions.dispose(); accounts.clearTerminals() },
     routes: base.routes.map((route, index) => ({ ...route, handler: async (req, res) => {
       let routes: ReturnType<typeof makeRoutes>
       try { routes = resolve(req) } catch (error) {

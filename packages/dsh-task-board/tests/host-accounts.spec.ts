@@ -211,11 +211,15 @@ describe('task-board deployment identities', () => {
       if (request.method === 'list') return { items: [{ sessionId: 'owned-session', running: true }] }
       return {}
     })
-    const service = new TaskBoardHostService({ invoke } as unknown as TypertGateway, { ledger: ledger(dir, () => now), accounts: fixture.accounts, now: () => now, power: new PowerInhibitor({ platform: 'linux' }) })
+    let fire: (() => void) | undefined
+    const timers = { timeout: (callback: () => void) => { fire = callback; return () => { fire = undefined } }, interval: () => () => {} }
+    const service = new TaskBoardHostService({ invoke } as unknown as TypertGateway, { ledger: ledger(dir, () => now), accounts: fixture.accounts, now: () => now, timers, power: new PowerInhibitor({ platform: 'linux' }) })
     disposers.push(() => service.dispose())
-    const runtime = service as unknown as { tickSchedule(first: boolean): Promise<void>; pollSessions(): Promise<void> }
+    const runtime = service as unknown as { pollSessions(): Promise<void> }
+    service.refreshSchedule()
     now += 60_000
-    await runtime.tickSchedule(false)
+    if (fire === undefined) throw new Error('schedule was not armed')
+    fire()
     await vi.waitFor(() => expect(service.snapshot().tasks.find(task => task.id === 'scheduled')?.executions[0].sessionId).toBe('owned-session'))
     expect(service.snapshot().tasks.find(task => task.id === 'unowned')?.executions[0].result).toBe('failed')
     expect(invoke.mock.calls.map(([call]) => call.method)).toEqual(['create', 'rename', 'prompt'])
@@ -224,10 +228,9 @@ describe('task-board deployment identities', () => {
     service.ledger.settle('scheduled', service.snapshot().tasks.find(task => task.id === 'scheduled')!.executions[0].id, 'succeeded')
     fixture.revoke()
     invoke.mockClear()
-    now += 30_000
-    await runtime.tickSchedule(false)
-    now += 30_000
-    await runtime.tickSchedule(false)
+    now += 60_000
+    if (fire === undefined) throw new Error('next occurrence was not armed')
+    fire()
     await vi.waitFor(() => expect(service.snapshot().tasks.find(task => task.id === 'scheduled')?.executions.at(-1)?.result).toBe('failed'))
     expect(invoke).not.toHaveBeenCalled()
   })

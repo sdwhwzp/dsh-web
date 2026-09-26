@@ -18,7 +18,7 @@ Built on the capability list of [badseal/ssh-skill](https://github.com/badseal/s
 | Cluster execution | One command run concurrently across many hosts (filter by alias / environment / tag, default concurrency 8) |
 | Agent tools | `ssh_list` / `ssh_exec` / `ssh_upload` / `ssh_download` / `ssh_tunnel` / `ssh_cluster`; GUI and Agent share the authenticated account's host config in account-isolated deployments |
 
-The panel loads its contents on first open. Closing and reopening it preserves the selected tab, form drafts and terminal session. The tunnel list refreshes every five seconds while its tab, panel and browser page are visible; automatic reads pause when hidden, resume immediately on return, and do not overlap slow reads. Port forwarding itself continues in the Host.
+The panel loads its contents on first open. Closing and reopening it preserves the selected tab, form drafts and terminal session. Detached terminal sessions remain owned by their authenticated account and expire after ten idle minutes; another account cannot reattach by session id. Explicit disconnect, access revocation, or disabling the plugin ends them. The tunnel list refreshes every five seconds while its tab, panel and browser page are visible; automatic reads pause when hidden, resume immediately on return, and do not overlap slow reads. Port forwarding itself continues in the Host.
 
 ## Security model
 

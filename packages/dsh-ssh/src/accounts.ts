@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { SshEngine } from './engine.ts'
+import { TerminalSessionRegistry } from './engine/terminal-sessions.ts'
 import { HostStore, storePath, normalizeProxyCommand } from './store.ts'
 import type { HostPayload, SshHostEntry } from './protocol.ts'
 
@@ -82,6 +83,7 @@ class AccountHostStore extends HostStore {
 export interface SshAccountScope {
   store: HostStore
   engine: SshEngine
+  terminalSessions: TerminalSessionRegistry
   restricted: boolean
 }
 
@@ -113,6 +115,7 @@ export class SshAccounts {
     const key = createHash('sha256').update(principal.source + ':' + principal.id).digest('hex')
     let access: SshAccountAccess
     try { access = provider.sshAccess(principal) } catch (error) {
+      this.scopes.get(key)?.terminalSessions.dispose()
       this.scopes.get(key)?.engine.dispose()
       this.scopes.delete(key)
       this.principals.delete(key)
@@ -121,6 +124,7 @@ export class SshAccounts {
     let scope = this.scopes.get(key)
     const restricted = principal.role !== 'admin'
     if (scope !== undefined && scope.restricted !== restricted) {
+      scope.terminalSessions.dispose()
       scope.engine.dispose()
       this.scopes.delete(key)
       scope = undefined
@@ -142,7 +146,9 @@ export class SshAccounts {
         renameSync(path + '.migrating', path)
       }
       const store = new AccountHostStore(path, restricted)
-      scope = { store, engine: new SshEngine(store), restricted }
+      const engine = new SshEngine(store)
+      const terminalSessions = new TerminalSessionRegistry({ openShell: (alias, size, authenticate) => engine.openShell(alias, size, authenticate) })
+      scope = { store, engine, terminalSessions, restricted }
       this.scopes.set(key, scope)
       this.principals.set(key, principal)
     }
@@ -154,6 +160,7 @@ export class SshAccounts {
     for (const [key, principal] of this.principals) {
       try { this.resolve(principal) } catch {
         // Failed authorization or an unavailable provider cannot retain a live tunnel.
+        this.scopes.get(key)?.terminalSessions.dispose()
         this.scopes.get(key)?.engine.dispose()
         this.scopes.delete(key)
         this.principals.delete(key)
@@ -161,8 +168,14 @@ export class SshAccounts {
     }
   }
 
+  /** End account-owned PTYs when their route family is disabled or unloaded. */
+  clearTerminals(): void {
+    for (const scope of this.scopes.values()) scope.terminalSessions.dispose()
+  }
+
   /** Drop live account resources when the plugin or account mode is disabled. */
   clear(): void {
+    this.clearTerminals()
     for (const scope of this.scopes.values()) scope.engine.dispose()
     this.scopes.clear()
     this.principals.clear()

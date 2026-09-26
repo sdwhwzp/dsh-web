@@ -225,20 +225,8 @@ const MANIFEST = [
     file: 'body-mutations.ts',
     source: 'shared/client/body-mutations.ts',
     targets: [
-      'packages/dsh-ssh/src/client/body-mutations.ts',
-      'packages/dsh-task-board/src/client/body-mutations.ts',
-      'packages/dsh-skill-explorer/src/client/body-mutations.ts',
       'packages/dsh-web-all/src/client/body-mutations.ts',
       'packages/dsh-usage/src/client/body-mutations.ts',
-    ],
-  },
-  {
-    file: 'sidebar-entry-core.ts',
-    source: 'shared/client/sidebar-entry-core.ts',
-    targets: [
-      'packages/dsh-ssh/src/client/sidebar-entry-core.ts',
-      'packages/dsh-task-board/src/client/sidebar-entry-core.ts',
-      'packages/dsh-skill-explorer/src/client/sidebar-entry-core.ts',
     ],
   },
   {
@@ -250,18 +238,6 @@ const MANIFEST = [
     targets: [
       'packages/dsh-plugin-manager/src/host/console-output.ts',
       'packages/dsh-update/src/console-output.ts',
-    ],
-  },
-  {
-    // Center-column takeover lifecycle shared by the family panels; the
-    // wrappers supply the panel tree, container attribute names, and CSS
-    // class (pinned by each package's CSS and the semantic-attrs contract).
-    file: 'panel-mount-core.ts',
-    source: 'shared/client/panel-mount-core.ts',
-    targets: [
-      'packages/dsh-ssh/src/client/panel-mount-core.ts',
-      'packages/dsh-task-board/src/client/panel-mount-core.ts',
-      'packages/dsh-skill-explorer/src/client/panel-mount-core.ts',
     ],
   },
 ]
