@@ -269,6 +269,12 @@ html[data-platform="darwin"] body > :is(
     width: 100%;
     min-height: 0;
   }
+  /* RC2 fullscreen panels stay in the frame instead of the single-column grid's next row. */
+  [data-dsh-frame] > [data-rightbar-col] {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
   [data-dsh-frame] [data-pane="details"] {
     display: none;
   }

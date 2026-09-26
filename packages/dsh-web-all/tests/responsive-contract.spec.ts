@@ -112,6 +112,16 @@ describe('aggregate responsive compat contract', () => {
     expect(RESPONSIVE_CSS).not.toMatch(/class\*=/)
   })
 
+  it('user opening the right panel on a phone keeps it inside the frame', () => {
+    // Given the mobile shell uses one grid column, when the native right column
+    // mounts, then it overlays that column instead of creating a zero-height row.
+    const rule = RESPONSIVE_CSS.match(/\[data-dsh-frame\] > \[data-rightbar-col\]\s*\{([^}]*)\}/)?.[1] ?? ''
+    expect(rule).toContain('position: absolute')
+    expect(rule).toContain('inset: 0')
+    expect(rule).toContain('pointer-events: none')
+    expect(rule).not.toMatch(/display:|visibility:|z-index:/)
+  })
+
   it('keeps an open settings dialog reachable in the collapsed narrow rail (#1510)', () => {
     // The official settings panel renders inside the sidebar foot, which the
     // collapse rule hides and the collapsed pane freezes with pointer-events:

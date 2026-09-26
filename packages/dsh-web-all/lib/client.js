@@ -671,7 +671,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$8() {
 			try {
-				return "0.4.2-dsh.20260926.1";
+				return "0.4.2-dsh.20260926.2";
 			} catch {
 				return;
 			}
@@ -1896,7 +1896,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$7() {
 			try {
-				return "0.4.2-dsh.20260926.1";
+				return "0.4.2-dsh.20260926.2";
 			} catch {
 				return;
 			}
@@ -4588,7 +4588,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$6() {
 			try {
-				return "0.4.2-dsh.20260926.1";
+				return "0.4.2-dsh.20260926.2";
 			} catch {
 				return;
 			}
@@ -11075,7 +11075,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$5() {
 			try {
-				return "0.4.2-dsh.20260926.1";
+				return "0.4.2-dsh.20260926.2";
 			} catch {
 				return;
 			}
@@ -13327,7 +13327,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$4() {
 			try {
-				return "0.4.2-dsh.20260926.1";
+				return "0.4.2-dsh.20260926.2";
 			} catch {
 				return;
 			}
@@ -15772,7 +15772,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$3() {
 			try {
-				return "0.4.2-dsh.20260926.1";
+				return "0.4.2-dsh.20260926.2";
 			} catch {
 				return;
 			}
@@ -17924,7 +17924,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$2() {
 			try {
-				return "0.4.2-dsh.20260926.1";
+				return "0.4.2-dsh.20260926.2";
 			} catch {
 				return;
 			}
@@ -34559,7 +34559,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$1() {
 			try {
-				return "0.4.2-dsh.20260926.1";
+				return "0.4.2-dsh.20260926.2";
 			} catch {
 				return;
 			}
@@ -38325,7 +38325,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion() {
 			try {
-				return "0.4.2-dsh.20260926.1";
+				return "0.4.2-dsh.20260926.2";
 			} catch {
 				return;
 			}
@@ -44809,6 +44809,12 @@ html[data-platform="darwin"] body > :is(
     min-width: 0;
     width: 100%;
     min-height: 0;
+  }
+  /* RC2 fullscreen panels stay in the frame instead of the single-column grid's next row. */
+  [data-dsh-frame] > [data-rightbar-col] {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
   }
   [data-dsh-frame] [data-pane="details"] {
     display: none;

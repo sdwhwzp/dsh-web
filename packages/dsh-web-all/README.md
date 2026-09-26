@@ -8,6 +8,8 @@ This fork installs right-panel plugins separately. `dsh-better-sidebar` is neith
 
 Persisted family rows may keep their fields under `config`; explicit fields beside `plugin` override those saved values. `clientOnly: true` keeps the browser contribution active while the deployment supplies its authenticated Host API. The separate updater row is disabled by default in this fork.
 
+The mobile shell keeps the native fullscreen right panel inside the viewport, including Files and Context; the host controls which tab is open.
+
 ## What it is
 
 - **One install, everything on**: its dependencies pull in every sub-plugin package of the family (task board, Git graph, pet, mobile remote, SSH, model capabilities, skins, settings, community plugins and the rest — `aggregate.yml` is the complete list), with pet, skin center and the community index mounted as external npm packages (the right panel is an on-demand install). `@mlgbnb/dsh-archive-manager` (the community archive manager: group by project, search and filter, preview conversations, restore and delete) is not bundled — its upstream build still imports the removed `@deepseek-ai/dsh-client-runtime` face.
