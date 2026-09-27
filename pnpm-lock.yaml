@@ -11,7 +11,7 @@ importers:
   .:
     dependencies:
       '@linxin666/dsh-web-all':
-        specifier: 0.4.3-dsh.20260927.1
+        specifier: 0.4.3-dsh.20260927.2
         version: link:packages/dsh-web-all
     devDependencies:
       '@deepseek-ai/cordis':

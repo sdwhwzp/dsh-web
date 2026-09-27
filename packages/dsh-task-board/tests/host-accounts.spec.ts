@@ -140,15 +140,17 @@ describe('task-board deployment identities', () => {
     const runner = new HostExecutionRunner(gateway, { execute }, undefined, undefined, p => fixture.accounts.assert(p))
     const task = { ...createTask(input(), 1, 'a'), permission: 'read-only' as const, model: 'fake/model' }
     await expect(runner.launch(task, { principal: alice })).resolves.toBe('session-a')
-    expect(execute).toHaveBeenCalledOnce()
+    expect(execute).toHaveBeenCalledTimes(2)
+    expect(execute).toHaveBeenNthCalledWith(1, 'session-a', '/permission read-only', expect.any(AbortSignal))
+    expect(execute).toHaveBeenNthCalledWith(2, 'session-a', '/goal ' + task.prompt, expect.any(AbortSignal))
     expect((await runner.listRunning(alice)).known).toBe(true)
     expect(await runner.inspect('session-a', 1, undefined, alice)).toEqual({ outcome: 'succeeded' })
-    expect(calls.map(call => call.method)).toEqual(['create', 'rename', 'selectModel', 'prompt', 'list', 'list', 'follow', 'page'])
+    expect(calls.map(call => call.method)).toEqual(['create', 'rename', 'selectModel', 'prompt', 'list', 'list', 'follow', 'page', 'projections'])
     await expect(runner.launch(task, { principal: alice, reuseSessionId: 'session-a' })).resolves.toBe('session-a')
     expect(calls.slice(-2).map(call => call.method)).toEqual(['selectModel', 'prompt'])
     fixture.revoke()
     await expect(runner.launch(task, { principal: alice })).rejects.toThrow('revoked')
-    expect(gateway.invoke).toHaveBeenCalledTimes(9)
+    expect(gateway.invoke).toHaveBeenCalledTimes(10)
   })
 
   it('admin uses authenticated task routes and loses streams on revocation', async () => {
