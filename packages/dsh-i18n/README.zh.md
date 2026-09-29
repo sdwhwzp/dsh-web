@@ -32,7 +32,7 @@ dsh Web GUI 的语言包插件：向 Web GUI 语言目录注册 Русский�
 
 ## 安装
 
-需要 DSH 0.1.7-rc.2 或更高版本：插件针对 0.1.7-rc.2 DSH cohort 开发，其 `@deepseek-ai/*` 运行时服务由宿主自身提供。
+需要 DSH 0.2.0-rc.1 或更高版本：插件针对 0.2.0-rc.1 DSH cohort 开发，其 `@deepseek-ai/*` 运行时服务由宿主自身提供。
 
 在你的 profile（如 `~/.dsh/profiles/web`）中执行：
 
@@ -55,6 +55,8 @@ bundle 后需重启 `dsh web`；页面重新加载后语言即出现。
 （`Settings -> General -> Language`）完成。
 
 ## 已知限制
+
+本包提供 Host 与浏览器入口；由于不维护独立的 Host 状态，因此不声明 invariant 插件。
 
 - 官方外壳命名空间（`common`、`settings.locale`）不在本包范围内，DSH 外壳本身
   保持其自带 zh/en，家族插件则渲染俄语。

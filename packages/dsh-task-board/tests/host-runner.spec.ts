@@ -335,11 +335,36 @@ describe('HostExecutionRunner', () => {
       running = false
       await expect(runner.inspect('session-a')).resolves.toEqual({ outcome: 'failed', error: 'agent turn ended with an error' })
       historyOk = false
-      await expect(runner.inspect('session-a')).resolves.toEqual({ outcome: 'pending' })
+      await expect(runner.inspect('session-a')).resolves.toEqual({ outcome: 'pending', unreadable: true, reason: 'session/page failed: offline' })
       expect(warnSpy).toHaveBeenCalledWith('[dsh-task-board] session/page failed during execution inspection; keeping the outcome pending', expect.any(Error))
     } finally {
       warnSpy.mockRestore()
     }
+  })
+
+  it('operator sees a durable teammate settle from its completed turn while the roster still calls it running', async () => {
+    // Given a session the roster reports as running and a history holding the
+    // teammate's own completed turn
+    const gateway = {
+      invoke: fakeInvoke(async (request: GatewayRequest) => {
+        if (request.method === 'list') return { items: [{ sessionId: 'session-a', running: true }] }
+        if (request.method === 'projections') return { values: { goal: null } }
+        return { records: [sessionEvent('turn/end', 10, 1_100, { reason: { kind: 'completed' } })], hasMore: false }
+      }),
+      stream: fakeStream(async () => ({
+        async *[Symbol.asyncIterator]() {
+          yield snapshot([], 10, true)
+        },
+      })),
+    }
+    const runner = new HostExecutionRunner(gateway)
+
+    // When the runner inspects that session as an ordinary execution and as a
+    // teammate that is still on the roster
+    // Then the ordinary execution still waits for the session to go idle, while
+    // the teammate reads the turn it already completed
+    await expect(runner.inspect('session-a', 1_000)).resolves.toEqual({ outcome: 'pending' })
+    await expect(runner.inspect('session-a', 1_000, undefined, { whileRunning: true })).resolves.toEqual({ outcome: 'succeeded' })
   })
 
   it('pages backward to the execution turn and ignores later user turns in the same session', async () => {

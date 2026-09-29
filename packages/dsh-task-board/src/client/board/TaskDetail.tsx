@@ -5,7 +5,7 @@
  * execution's session transcript.
  */
 import { useEffect, useState } from 'react'
-import type { BoardController } from '../../core/controller.ts'
+import type { BoardController, ControllerSnapshot } from '../../core/controller.ts'
 import { isValidCron } from '../../core/schedule.ts'
 import { MANUAL_STATUSES, TASK_PERMISSIONS, tagTone, type ExecutionRecord, type TaskPermission, type TaskRecord } from '../../core/tasks.ts'
 import { canEditTaskContent } from '../../core/use-cases/task-update.ts'
@@ -13,6 +13,7 @@ import { requiresPermissionConfirmation } from '../../core/handover.ts'
 import { DEFAULT_SUBTASK_DEPTH, directSubtasks, taskDepth } from '../../core/subtask.ts'
 import { t, type TaskBoardKey } from '../locales.ts'
 import { SCHEDULE_PRESETS } from '../schedule-presets.ts'
+import { nextRunLabel, zoneChoices } from '../schedule-zone.ts'
 import css from '../board.module.css'
 import { ConfirmDialog } from './ConfirmDialog.tsx'
 import { EditTaskModal, EditTagsModal } from './EditTaskModal.tsx'
@@ -64,20 +65,16 @@ function ExecutionRow({ execution, timeZone, onOpen }: { execution: ExecutionRec
 }
 
 /** The execution-target editor: workspace / mode / permission pickers. */
-function ExecutionSettingsSection({ controller, task, pending }: { controller: BoardController; task: TaskRecord; pending: boolean }) {
-  const [options, setOptions] = useState(controller.getSnapshot().executionOptions)
-  // Whether this deployment serves the Agent Teams service: without it a team
-  // run is refused, so the opt-in is offered read-only with the reason.
-  const teamRunOffered = (): boolean => controller.getSnapshot().host?.teamRunAvailable === true
-  const [teamRunAvailable, setTeamRunAvailable] = useState(teamRunOffered())
-  useEffect(
-    () => controller.subscribe(() => {
-      const snapshot = controller.getSnapshot()
-      setOptions(snapshot.executionOptions)
-      setTeamRunAvailable(snapshot.host?.teamRunAvailable === true)
-    }),
-    [controller],
-  )
+function ExecutionSettingsSection({ controller, task, pending, executionOptions, teamRunAvailable }: {
+  controller: BoardController
+  task: TaskRecord
+  pending: boolean
+  /** Picker option sets, owned by the detail overlay's snapshot. */
+  executionOptions: ControllerSnapshot['executionOptions']
+  /** Whether this deployment serves the Agent Teams service. */
+  teamRunAvailable: boolean
+}) {
+  const options = executionOptions
   const workspaceId = task.workspaceId ?? ''
   const mode = task.mode ?? ''
   const permission = task.permission ?? ''
@@ -189,7 +186,7 @@ function ExecutionSettingsSection({ controller, task, pending }: { controller: B
   )
 }
 
-/** The scheduled-runs editor: enable toggle, cron input + presets, next-run info. */
+/** The scheduled-runs editor: enable toggle, cron input + presets, zone, next-run info. */
 function ScheduleSection({ controller, task, pending }: { controller: BoardController; task: TaskRecord; pending: boolean }) {
   const schedule = task.schedule
   const [cron, setCron] = useState(schedule?.cron ?? '0 9 * * *')
@@ -197,7 +194,12 @@ function ScheduleSection({ controller, task, pending }: { controller: BoardContr
   const [nextRunAt, setNextRunAt] = useState<number | undefined>(schedule?.nextRunAt)
   const [lastTriggeredAt, setLastTriggeredAt] = useState<number | undefined>(schedule?.lastTriggeredAt)
   const [error, setError] = useState<string | undefined>(undefined)
-  const timeZone = controller.getSnapshot().host?.scheduler.timeZone
+  const hostTimeZone = controller.getSnapshot().host?.scheduler.timeZone
+  // The rule's own zone; '' means "follow the Host zone" (no stored zone).
+  const [zone, setZone] = useState<string>(schedule?.timeZone ?? '')
+  // One clock reading per render pass, so the absolute and relative halves of
+  // the label always describe the same instant.
+  const now = Date.now()
 
   // Keep the editor in sync when the task record changes underneath (the
   // schedule rolls forward as runs trigger).
@@ -206,8 +208,9 @@ function ScheduleSection({ controller, task, pending }: { controller: BoardContr
     setEnabled(schedule?.enabled ?? false)
     setNextRunAt(schedule?.nextRunAt)
     setLastTriggeredAt(schedule?.lastTriggeredAt)
+    setZone(schedule?.timeZone ?? '')
     setError(undefined)
-  }, [task.id, schedule?.enabled, schedule?.cron, schedule?.nextRunAt, schedule?.lastTriggeredAt])
+  }, [task.id, schedule?.enabled, schedule?.cron, schedule?.timeZone, schedule?.nextRunAt, schedule?.lastTriggeredAt])
 
   /** Validate + persist the current cron text (Enter or blur). */
   const saveCron = (value: string): void => {
@@ -219,6 +222,16 @@ function ScheduleSection({ controller, task, pending }: { controller: BoardContr
     }
     setError(undefined)
     controller.setSchedule(task.id, { cron: trimmed })
+  }
+
+  /**
+   * Change the rule's zone. `''` clears the stored zone, which is how a user
+   * returns a rule to following the Host zone.
+   */
+  const changeZone = (value: string): void => {
+    setZone(value)
+    setError(undefined)
+    controller.setSchedule(task.id, { timeZone: value === '' ? null : value })
   }
 
   /** Arm/disarm the schedule (arming first persists the edited cron). */
@@ -243,12 +256,18 @@ function ScheduleSection({ controller, task, pending }: { controller: BoardContr
     controller.setSchedule(task.id, { cron: preset })
   }
 
+  // The zone the rule's wall clock is actually read in: its own when set,
+  // otherwise the Host zone. The preview must use the same one the Host will.
+  const effectiveZone = zone === '' ? hostTimeZone : zone
   const nextLabel = !enabled || nextRunAt === undefined
     ? t('detail.schedule.notScheduled')
-    : nextRunAt <= Date.now()
+    : nextRunAt <= now
       ? t('detail.schedule.dueSoon')
-      : formatHostTimestamp(nextRunAt, timeZone)
-  const lastLabel = lastTriggeredAt === undefined ? '—' : formatHostTimestamp(lastTriggeredAt, timeZone)
+      : nextRunLabel(nextRunAt, effectiveZone, formatHostTimestamp, now)
+  const lastLabel = lastTriggeredAt === undefined ? '—' : formatHostTimestamp(lastTriggeredAt, effectiveZone)
+  // The rule's own stored zone rides the list even when this runtime's
+  // inventory does not carry it, so opening the editor cannot rewrite it.
+  const zones = zoneChoices(hostTimeZone, schedule?.timeZone)
 
   return (
     <section className={css.detailSection}>
@@ -287,6 +306,23 @@ function ScheduleSection({ controller, task, pending }: { controller: BoardContr
           ))}
         </select>
       </div>
+      {/* A list is used instead of a free-text field so only zones the Host can
+          also resolve are offered; the Host zone entry clears the stored value. */}
+      <label className={css.scheduleZone}>
+        <span>{t('detail.schedule.timeZone')}</span>
+        <select
+          className={css.schedulePreset}
+          value={zone}
+          disabled={pending}
+          aria-label={t('detail.schedule.timeZone')}
+          title={t('detail.schedule.timeZoneHint')}
+          onChange={event => { changeZone(event.target.value) }}
+        >
+          {zones.map(choice => (
+            <option key={choice.id === '' ? '__host' : choice.id} value={choice.id}>{choice.label}</option>
+          ))}
+        </select>
+      </label>
       {error !== undefined && <p className={css.formError}>{error}</p>}
       <p className={css.scheduleMeta}>
         {t('detail.schedule.nextRun')} {nextLabel}
@@ -301,17 +337,14 @@ function ScheduleSection({ controller, task, pending }: { controller: BoardContr
  * and the actions that grow or prune the tree. Every gate here mirrors the
  * Host lineage gate for affordance only; the Host re-checks the action.
  */
-function SubtaskSection({ controller, task, pending, archived }: {
+function SubtaskSection({ controller, task, pending, archived, snapshot }: {
   controller: BoardController
   task: TaskRecord
   pending: boolean
   archived: boolean
+  /** Detail-overlay snapshot; the overlay already re-renders on every notify. */
+  snapshot: ControllerSnapshot
 }) {
-  const [snapshot, setSnapshot] = useState(controller.getSnapshot())
-  useEffect(
-    () => controller.subscribe(() => setSnapshot(controller.getSnapshot())),
-    [controller],
-  )
   const [showAdd, setShowAdd] = useState(false)
   const [showLink, setShowLink] = useState(false)
   const tasks = snapshot.tasks
@@ -451,7 +484,7 @@ export function TaskDetail({ controller, task }: { controller: BoardController; 
             <p className={css.detailText}>{current.description !== '' ? current.description : '—'}</p>
           </section>
 
-          <SubtaskSection controller={controller} task={current} pending={pending} archived={archived} />
+          <SubtaskSection controller={controller} task={current} pending={pending} archived={archived} snapshot={snapshot} />
 
           {current.tags !== undefined && current.tags.length > 0 && (
             <section className={css.detailSection} data-dsh-part="tags">
@@ -529,7 +562,13 @@ export function TaskDetail({ controller, task }: { controller: BoardController; 
 
           {!archived && (
             <>
-              <ExecutionSettingsSection controller={controller} task={current} pending={pending} />
+              <ExecutionSettingsSection
+                controller={controller}
+                task={current}
+                pending={pending}
+                executionOptions={snapshot.executionOptions}
+                teamRunAvailable={snapshot.host?.teamRunAvailable === true}
+              />
               <ScheduleSection controller={controller} task={current} pending={pending} />
             </>
           )}

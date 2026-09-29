@@ -271,7 +271,7 @@ describe('goal-aware settlement', () => {
     const runner = new HostExecutionRunner(gateway)
 
     // When the initial turn finishes while its goal remains active
-    const outcome = await runner.inspect('session-a', 1_000, undefined, principal)
+    const outcome = await runner.inspect('session-a', 1_000, undefined, {}, principal)
 
     // Then the board keeps the owned execution running and every read uses that account
     expect(outcome).toEqual({ outcome: 'pending' })

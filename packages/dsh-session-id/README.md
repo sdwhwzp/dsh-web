@@ -59,6 +59,8 @@ dsh plugin --profile web add link:$(pwd)/packages/dsh-session-id
 
 ## Known limitations
 
+The package exposes its Host and browser entry points; it declares no invariant plugin because it owns no independent Host state.
+
 - Requires a DSH shell that declares `sidebar.footer.action` (0.1.0-rc.8 and
   newer shells). On older shells the entry does not render.
 - Read-only viewer: it shows and copies ids, it does not open or manage

@@ -671,7 +671,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$8() {
 			try {
-				return "0.4.3-dsh.20260928.1";
+				return "0.4.4-dsh.20260929.1";
 			} catch {
 				return;
 			}
@@ -1215,7 +1215,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$7() {
 			try {
-				return "0.4.3-dsh.20260928.1";
+				return "0.4.4-dsh.20260929.1";
 			} catch {
 				return;
 			}
@@ -3952,7 +3952,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$6() {
 			try {
-				return "0.4.3-dsh.20260928.1";
+				return "0.4.4-dsh.20260929.1";
 			} catch {
 				return;
 			}
@@ -4263,11 +4263,14 @@ window.__ModuleLoader__.load({
 			const schedule = {
 				enabled: current?.enabled ?? false,
 				cron: current?.cron ?? "",
+				...current?.timeZone === void 0 ? {} : { timeZone: current.timeZone },
 				nextRunAt: current?.nextRunAt,
 				lastTriggeredAt: current?.lastTriggeredAt
 			};
 			if ("enabled" in patch) schedule.enabled = patch.enabled ?? false;
 			if ("cron" in patch) schedule.cron = patch.cron ?? "";
+			if ("timeZone" in patch) if (patch.timeZone === void 0) delete schedule.timeZone;
+			else schedule.timeZone = patch.timeZone;
 			if ("nextRunAt" in patch) schedule.nextRunAt = patch.nextRunAt;
 			if ("lastTriggeredAt" in patch) schedule.lastTriggeredAt = patch.lastTriggeredAt;
 			return {
@@ -4299,6 +4302,22 @@ window.__ModuleLoader__.load({
 		function isExecutionOutcome(value) {
 			return value === "succeeded" || value === "failed" || value === "cancelled";
 		}
+		/** Build the reusable index for a task list (ledger order preserved). */
+		function buildLineageIndex(tasks) {
+			const byId = /* @__PURE__ */ new Map();
+			const childrenByParent = /* @__PURE__ */ new Map();
+			for (const task of tasks) {
+				byId.set(task.id, task);
+				if (task.parentId === void 0) continue;
+				const siblings = childrenByParent.get(task.parentId);
+				if (siblings === void 0) childrenByParent.set(task.parentId, [task]);
+				else siblings.push(task);
+			}
+			return {
+				byId,
+				childrenByParent
+			};
+		}
 		function indexOf(tasks) {
 			return new Map(tasks.map((task) => [task.id, task]));
 		}
@@ -4308,8 +4327,8 @@ window.__ModuleLoader__.load({
 		* under a larger limit survives that limit being lowered, and restore and
 		* inheritance must still see all of it.
 		*/
-		function ancestorChain(tasks, task) {
-			const index = indexOf(tasks);
+		function ancestorChain(tasks, task, lineage) {
+			const index = lineage?.byId ?? indexOf(tasks);
 			const chain = [];
 			const seen = /* @__PURE__ */ new Set([task.id]);
 			let current = task.parentId === void 0 ? void 0 : index.get(task.parentId);
@@ -4322,29 +4341,33 @@ window.__ModuleLoader__.load({
 			return chain;
 		}
 		/** Root-to-task depth: a root task is 0, its subtask 1, and so on. */
-		function taskDepth(tasks, id) {
-			const task = indexOf(tasks).get(id);
-			return task === void 0 ? 0 : ancestorChain(tasks, task).length;
+		function taskDepth(tasks, id, lineage) {
+			const task = (lineage?.byId ?? indexOf(tasks)).get(id);
+			return task === void 0 ? 0 : ancestorChain(tasks, task, lineage).length;
 		}
 		/** Direct subtasks of a task, in ledger order. */
-		function directSubtasks(tasks, id) {
+		function directSubtasks(tasks, id, lineage) {
+			if (lineage !== void 0) return [...lineage.childrenByParent.get(id) ?? []];
 			return tasks.filter((task) => task.parentId === id);
 		}
 		/**
 		* Descendants of a task in breadth-first order, bounded by maxSubtaskDepth
 		* total depth. The visited set keeps a malformed ledger from looping.
 		*/
-		function descendantTasks(tasks, id, maxSubtaskDepth) {
+		function descendantTasks(tasks, id, maxSubtaskDepth, lineage) {
 			const visited = /* @__PURE__ */ new Set([id]);
 			const found = [];
 			let frontier = [id];
 			for (let depth = 1; depth <= maxSubtaskDepth && frontier.length > 0; depth += 1) {
 				const next = [];
-				for (const parentId of frontier) for (const task of tasks) {
-					if (task.parentId !== parentId || visited.has(task.id)) continue;
-					visited.add(task.id);
-					found.push(task);
-					next.push(task.id);
+				for (const parentId of frontier) {
+					const children = lineage === void 0 ? tasks.filter((task) => task.parentId === parentId) : lineage.childrenByParent.get(parentId) ?? [];
+					for (const task of children) {
+						if (visited.has(task.id)) continue;
+						visited.add(task.id);
+						found.push(task);
+						next.push(task.id);
+					}
 				}
 				frontier = next;
 			}
@@ -4355,13 +4378,13 @@ window.__ModuleLoader__.load({
 		* The visited set makes the walk terminate on a cyclic hand-edited ledger
 		* instead of recursing until the stack overflows.
 		*/
-		function subtreeHeight(tasks, id, visited = /* @__PURE__ */ new Set()) {
+		function subtreeHeight(tasks, id, visited = /* @__PURE__ */ new Set(), lineage) {
 			if (visited.has(id)) return 0;
 			const seen = /* @__PURE__ */ new Set([...visited, id]);
-			const children = directSubtasks(tasks, id);
+			const children = directSubtasks(tasks, id, lineage);
 			if (children.length === 0) return 0;
 			let height = 0;
-			for (const child of children) height = Math.max(height, 1 + subtreeHeight(tasks, child.id, seen));
+			for (const child of children) height = Math.max(height, 1 + subtreeHeight(tasks, child.id, seen, lineage));
 			return Math.min(height, 3);
 		}
 		/**
@@ -4371,8 +4394,8 @@ window.__ModuleLoader__.load({
 		* and the resulting depth (parent depth + 1 + the child own subtree height)
 		* must stay within maxSubtaskDepth.
 		*/
-		function checkParentLink(tasks, childId, parentId, maxSubtaskDepth) {
-			if (tasks.find((task) => task.id === childId) === void 0) return {
+		function checkParentLink(tasks, childId, parentId, maxSubtaskDepth, lineage) {
+			if ((lineage === void 0 ? tasks.find((task) => task.id === childId) : lineage.byId.get(childId)) === void 0) return {
 				ok: false,
 				reason: "unknown-task"
 			};
@@ -4381,7 +4404,7 @@ window.__ModuleLoader__.load({
 				ok: false,
 				reason: "self-parent"
 			};
-			const parent = tasks.find((task) => task.id === parentId);
+			const parent = lineage === void 0 ? tasks.find((task) => task.id === parentId) : lineage.byId.get(parentId);
 			if (parent === void 0) return {
 				ok: false,
 				reason: "unknown-parent"
@@ -4390,11 +4413,11 @@ window.__ModuleLoader__.load({
 				ok: false,
 				reason: "archived-parent"
 			};
-			if (descendantTasks(tasks, childId, 3).some((task) => task.id === parentId)) return {
+			if (descendantTasks(tasks, childId, 3, lineage).some((task) => task.id === parentId)) return {
 				ok: false,
 				reason: "cycle"
 			};
-			if (taskDepth(tasks, parentId) + 1 + subtreeHeight(tasks, childId) > maxSubtaskDepth) return {
+			if (taskDepth(tasks, parentId, lineage) + 1 + subtreeHeight(tasks, childId, /* @__PURE__ */ new Set(), lineage) > maxSubtaskDepth) return {
 				ok: false,
 				reason: "depth-exceeded"
 			};
@@ -4501,6 +4524,112 @@ window.__ModuleLoader__.load({
 			[1, 12],
 			[0, 7]
 		];
+		/** IANA `Area/Location`, plus the bare `UTC` the platform reports. */
+		const IANA_ZONE = /^[A-Za-z][A-Za-z0-9_+.-]*(?:\/[A-Za-z0-9_+.-]+)+$/;
+		/** Cached formatters: constructing an Intl formatter dominates the cost of a resolve. */
+		const FORMATTERS = /* @__PURE__ */ new Map();
+		function zoneFormatter(timeZone) {
+			let formatter = FORMATTERS.get(timeZone);
+			if (formatter === void 0) {
+				formatter = new Intl.DateTimeFormat("en-US", {
+					timeZone,
+					hourCycle: "h23",
+					year: "numeric",
+					month: "2-digit",
+					day: "2-digit",
+					hour: "2-digit",
+					minute: "2-digit"
+				});
+				FORMATTERS.set(timeZone, formatter);
+			}
+			return formatter;
+		}
+		/**
+		* The wall-clock reading of one instant in an explicit zone. Reading through
+		* Intl (rather than the process `Date` accessors) is what makes the result
+		* independent of the Host's own TZ.
+		* @param timeZone - explicit IANA zone.
+		* @param epochMs - instant to read.
+		* @returns the zone-local calendar and clock fields.
+		*/
+		function partsInZone(timeZone, epochMs) {
+			const fields = {};
+			for (const part of zoneFormatter(timeZone).formatToParts(new Date(epochMs))) if (part.type !== "literal") fields[part.type] = part.value;
+			return {
+				year: Number(fields.year),
+				month: Number(fields.month),
+				day: Number(fields.day),
+				hour: Number(fields.hour),
+				minute: Number(fields.minute)
+			};
+		}
+		/** The zone's UTC offset in effect at one instant, in milliseconds. */
+		function offsetAt(timeZone, epochMs) {
+			const parts = partsInZone(timeZone, epochMs);
+			return Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute) - epochMs;
+		}
+		/**
+		* Resolve a wall clock in an explicit zone to its instant.
+		*
+		* The offset is probed a day either side of the naive guess so both DST
+		* transitions are covered, then every candidate offset whose inverse maps back
+		* to the requested wall clock is kept. No survivor means the wall clock does
+		* not exist (a spring-forward gap); several means it is ambiguous (a fall-back
+		* overlap), and the earliest instant wins so the repeated clock is taken once.
+		* @param timeZone - explicit IANA zone.
+		* @param year - full calendar year.
+		* @param month - 1-12.
+		* @param day - day of month.
+		* @param hour - 0-23.
+		* @param minute - 0-59.
+		* @returns the instant in ms epoch, or undefined when the wall clock is skipped.
+		*/
+		function zonedEpoch(timeZone, year, month, day, hour, minute) {
+			const naive = Date.UTC(year, month - 1, day, hour, minute);
+			const offsets = /* @__PURE__ */ new Set([
+				offsetAt(timeZone, naive - 864e5),
+				offsetAt(timeZone, naive),
+				offsetAt(timeZone, naive + 864e5)
+			]);
+			let earliest;
+			for (const offset of offsets) {
+				const candidate = naive - offset;
+				const parts = partsInZone(timeZone, candidate);
+				if (parts.year !== year || parts.month !== month || parts.day !== day) continue;
+				if (parts.hour !== hour || parts.minute !== minute) continue;
+				if (earliest === void 0 || candidate < earliest) earliest = candidate;
+			}
+			return earliest;
+		}
+		/**
+		* The Host process's IANA zone, used for schedules that store no zone of their
+		* own (a ledger written before zones were persisted).
+		* @returns a zone name Intl accepts, never empty.
+		*/
+		function resolveHostTimeZone() {
+			try {
+				const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+				return typeof zone === "string" && zone !== "" ? zone : "UTC";
+			} catch {
+				return "UTC";
+			}
+		}
+		/**
+		* Whether a value names a zone this runtime can actually resolve. A stored
+		* zone is trusted only after it round-trips through Intl, so a typo or a zone
+		* that this ICU build does not know can never arm a schedule.
+		* @param value - candidate zone name.
+		* @returns true when the name is usable.
+		*/
+		function isValidTimeZone(value) {
+			if (value.trim() !== value || value === "") return false;
+			if (value !== "UTC" && !IANA_ZONE.test(value)) return false;
+			try {
+				return new Intl.DateTimeFormat("en-US", { timeZone: value }).resolvedOptions().timeZone !== void 0;
+			} catch {
+				return false;
+			}
+		}
 		/**
 		* Parse a 5-field cron expression.
 		* @returns the match sets, or null when the expression is invalid.
@@ -4523,8 +4652,8 @@ window.__ModuleLoader__.load({
 				days: sets[2],
 				months: sets[3],
 				weekdays,
-				dayWildcard: fields[2] === "*",
-				weekdayWildcard: fields[4] === "*"
+				dayStarred: fields[2].startsWith("*"),
+				weekdayStarred: fields[4].startsWith("*")
 			};
 		}
 		/** Whether the expression parses. */
@@ -4532,52 +4661,57 @@ window.__ModuleLoader__.load({
 			return parseCron(expr) !== null;
 		}
 		/**
-		* Compute the next matching instant after `fromMs` (ms epoch), in local time,
-		* at minute granularity, strictly greater than `fromMs`. Returns the ms epoch
-		* of the matching minute's start, or undefined when the calendar constraint
-		* can never match (for example `0 0 30 2 *`). The five-year horizon includes
-		* a full leap cycle, so a valid February 29 schedule remains reachable from
-		* every non-leap year.
+		* Compute the next matching instant after `fromMs` strictly greater than it,
+		* interpreting the expression's wall clock in `timeZone` (the Host zone when
+		* omitted). Returns the ms epoch of the matching minute's start, or undefined
+		* when the calendar constraint can never match (for example `0 0 30 2 *`).
+		* The five-year horizon includes a full leap cycle, so a valid February 29
+		* schedule remains reachable from every non-leap year.
 		*
 		* Walks candidate year/month/day/hour/minute values straight from the parsed
 		* field sets instead of scanning every minute: a sparse expression such as
 		* `0 0 29 2 *` used to iterate ~1.5M wall-clock minutes before reaching the
-		* next leap day. Wall-clock field construction + the final `matches` re-check
-		* preserve the old minute scan's DST semantics exactly (nonexistent spring
-		* minutes normalize forward and the repeated fall-back hour is never visited).
+		* next leap day. A candidate wall clock that the zone skips (spring-forward
+		* gap) is passed over, which is what makes the gap semantics fall out of the
+		* candidate walk rather than needing a separate rule.
+		* @param expr - 5-field cron expression.
+		* @param fromMs - exclusive lower bound, ms epoch.
+		* @param timeZone - explicit IANA zone; defaults to the Host zone.
+		* @returns the next trigger instant, or undefined when unreachable.
 		*/
-		function nextRunAtMs(expr, fromMs) {
+		function nextRunAtMs(expr, fromMs, timeZone) {
 			const schedule = parseCron(expr);
 			if (schedule === null) return void 0;
 			if (!hasPossibleCalendarDay(schedule)) return void 0;
-			const from = new Date(fromMs);
+			const zone = timeZone ?? resolveHostTimeZone();
+			const start = partsInZone(zone, fromMs);
 			const limitMs = fromMs + 5 * 366 * 24 * 60 * 60 * 1e3;
 			const sortedMinutes = [...schedule.minutes].sort((a, b) => a - b);
 			const sortedHours = [...schedule.hours].sort((a, b) => a - b);
 			const sortedMonths = [...schedule.months].sort((a, b) => a - b);
-			let year = from.getFullYear();
-			let month = from.getMonth() + 1;
-			let day = from.getDate();
-			let hour = from.getHours();
-			let minute = from.getMinutes() + 1;
-			while (new Date(year, month - 1, 1, 0, 0, 0, 0).getTime() <= limitMs) {
+			let year = start.year;
+			let month = start.month;
+			let day = start.day;
+			let hour = start.hour;
+			let minute = start.minute + 1;
+			while (Date.UTC(year, month - 1, 1) <= limitMs + 864e5) {
 				for (const candidateMonth of sortedMonths) {
 					if (candidateMonth < month) continue;
-					const daysInMonth = new Date(year, candidateMonth, 0).getDate();
+					const daysInMonth = new Date(Date.UTC(year, candidateMonth, 0)).getUTCDate();
 					const dayStart = candidateMonth === month ? day : 1;
 					for (let candidateDay = dayStart; candidateDay <= daysInMonth; candidateDay += 1) {
-						if (!dayCandidate(schedule, new Date(year, candidateMonth - 1, candidateDay, 0, 0, 0, 0))) continue;
+						if (!dayCandidate(schedule, year, candidateMonth, candidateDay)) continue;
 						const hourStart = candidateMonth === month && candidateDay === day ? hour : 0;
 						for (const candidateHour of sortedHours) {
 							if (candidateHour < hourStart) continue;
 							const minuteStart = candidateMonth === month && candidateDay === day && candidateHour === hour ? minute : 0;
 							for (const candidateMinute of sortedMinutes) {
 								if (candidateMinute < minuteStart) continue;
-								const candidate = new Date(year, candidateMonth - 1, candidateDay, candidateHour, candidateMinute, 0, 0);
-								const time = candidate.getTime();
+								const time = zonedEpoch(zone, year, candidateMonth, candidateDay, candidateHour, candidateMinute);
+								if (time === void 0) continue;
 								if (time <= fromMs) continue;
 								if (time > limitMs) return void 0;
-								if (matches(schedule, candidate)) return time;
+								return time;
 							}
 						}
 					}
@@ -4589,17 +4723,20 @@ window.__ModuleLoader__.load({
 				minute = 0;
 			}
 		}
-		/** Day/weekday OR gate shared by {@link matches} and the candidate scan. */
-		function dayCandidate(schedule, date) {
-			const dayMatches = schedule.days.has(date.getDate());
-			const weekdayMatches = schedule.weekdays.has(date.getDay());
-			if (schedule.dayWildcard) return weekdayMatches;
-			if (schedule.weekdayWildcard) return dayMatches;
-			return dayMatches || weekdayMatches;
+		/**
+		* The Vixie day gate shared by the candidate walk. Both fields restricted is
+		* OR; any other combination is AND, because a starred field matches every
+		* value and so cannot widen the result.
+		*/
+		function dayCandidate(schedule, year, month, day) {
+			const dayMatches = schedule.days.has(day);
+			const weekdayMatches = schedule.weekdays.has(new Date(Date.UTC(year, month - 1, day)).getUTCDay());
+			if (!schedule.dayStarred && !schedule.weekdayStarred) return dayMatches || weekdayMatches;
+			return dayMatches && weekdayMatches;
 		}
 		/** Reject impossible month/day pairs without spending the multi-year scan. */
 		function hasPossibleCalendarDay(schedule) {
-			if (schedule.dayWildcard || !schedule.weekdayWildcard) return true;
+			if (schedule.dayStarred || !schedule.weekdayStarred) return true;
 			const maximumDay = /* @__PURE__ */ new Map([
 				[1, 31],
 				[2, 29],
@@ -4650,13 +4787,6 @@ window.__ModuleLoader__.load({
 			}
 			return true;
 		}
-		/** Day/weekday OR semantics: a restricted day field alone gates, and vice versa. */
-		function matches(schedule, date) {
-			if (!schedule.minutes.has(date.getMinutes())) return false;
-			if (!schedule.hours.has(date.getHours())) return false;
-			if (!schedule.months.has(date.getMonth() + 1)) return false;
-			return dayCandidate(schedule, date);
-		}
 		function isDigits(value) {
 			return /^\d+$/.test(value);
 		}
@@ -4682,8 +4812,9 @@ window.__ModuleLoader__.load({
 		* @param now - clock instant (ms epoch).
 		* @param id - minted task id.
 		* @param maxSubtaskDepth - deployment subtask depth limit.
+		* @param hostTimeZone - zone a rule that stores no zone of its own follows.
 		*/
-		function applyCreateTask(tasks, input, now, id, maxSubtaskDepth = 1) {
+		function applyCreateTask(tasks, input, now, id, maxSubtaskDepth = 1, hostTimeZone = resolveHostTimeZone()) {
 			if (input.title.trim() === "") return {
 				task: void 0,
 				tasks,
@@ -4718,10 +4849,18 @@ window.__ModuleLoader__.load({
 			const requested = input.schedule;
 			if (requested?.enabled === true && requested.cron.trim() !== "" && isValidCron(requested.cron)) {
 				const cron = requested.cron.trim();
-				task = withSchedule(task, {
+				const requestedZone = requested.timeZone;
+				if (requestedZone !== void 0 && !isValidTimeZone(requestedZone)) return {
+					task: void 0,
+					tasks,
+					error: "invalid schedule time zone"
+				};
+				const nextRunAt = nextRunAtMs(cron, now, requestedZone ?? hostTimeZone);
+				if (nextRunAt !== void 0) task = withSchedule(task, {
 					enabled: true,
 					cron,
-					nextRunAt: nextRunAtMs(cron, now)
+					timeZone: requestedZone,
+					nextRunAt
 				}, now);
 			}
 			return {
@@ -4759,15 +4898,17 @@ window.__ModuleLoader__.load({
 		* the core cron parser (schedule.ts) and the withSchedule transition.
 		*/
 		/**
-		* Set an on-board task's schedule rule. A blank or invalid cron, or an
-		* archived task, is rejected (state untouched); an enabled rule computes the
-		* next run instant immediately, a disabled one carries no next-run instant.
+		* Set an on-board task's schedule rule. A blank or invalid cron, an unknown or
+		* archived task, or an unusable zone is rejected (state untouched); an enabled
+		* rule computes the next run instant immediately in the rule's own zone, a
+		* disabled one carries no next-run instant.
 		* @param tasks - current ledger.
 		* @param id - the task to schedule.
 		* @param patch - rule fields to change (absent fields keep their current value).
 		* @param now - clock instant (ms epoch).
+		* @param hostTimeZone - zone a rule with no stored zone follows.
 		*/
-		function applySetSchedule(tasks, id, patch, now) {
+		function applySetSchedule(tasks, id, patch, now, hostTimeZone) {
 			const task = tasks.find((candidate) => candidate.id === id);
 			if (task === void 0 || task.archivedAt !== void 0) return {
 				tasks,
@@ -4779,8 +4920,13 @@ window.__ModuleLoader__.load({
 				tasks,
 				applied: false
 			};
+			const requestedZone = patch.timeZone === void 0 ? current?.timeZone : patch.timeZone ?? void 0;
+			if (requestedZone !== void 0 && !isValidTimeZone(requestedZone)) return {
+				tasks,
+				applied: false
+			};
 			const enabled = patch.enabled ?? current?.enabled ?? false;
-			const nextRunAt = enabled ? nextRunAtMs(cron, now) : void 0;
+			const nextRunAt = enabled ? nextRunAtMs(cron, now, requestedZone ?? hostTimeZone) : void 0;
 			if (enabled && nextRunAt === void 0) return {
 				tasks,
 				applied: false
@@ -4789,6 +4935,7 @@ window.__ModuleLoader__.load({
 				tasks: tasks.map((candidate) => candidate.id === id ? withSchedule(candidate, {
 					enabled,
 					cron,
+					timeZone: requestedZone ?? void 0,
 					nextRunAt
 				}, now) : candidate),
 				applied: true
@@ -5295,7 +5442,8 @@ window.__ModuleLoader__.load({
 			* @returns true when applied, false when rejected (invalid cron / unknown task).
 			*/
 			setSchedule(id, patch) {
-				const { tasks, applied } = applySetSchedule(this.tasks, id, patch, this.now());
+				const hostTimeZone = this.hostState?.scheduler.timeZone ?? resolveHostTimeZone();
+				const { tasks, applied } = applySetSchedule(this.tasks, id, patch, this.now(), hostTimeZone);
 				if (!applied) return false;
 				if (this.deps.transport !== void 0) {
 					this.commitRemote({
@@ -5853,9 +6001,11 @@ window.__ModuleLoader__.load({
 			const rule = schedule;
 			if (typeof rule.cron !== "string") return void 0;
 			if (rule.cron.trim() === "" || !isValidCron(rule.cron)) return void 0;
+			const timeZone = typeof rule.timeZone === "string" && isValidTimeZone(rule.timeZone) ? rule.timeZone : void 0;
 			return {
 				enabled: rule.enabled === true,
 				cron: rule.cron,
+				...timeZone === void 0 ? {} : { timeZone },
 				nextRunAt: typeof rule.nextRunAt === "number" ? rule.nextRunAt : void 0,
 				lastTriggeredAt: typeof rule.lastTriggeredAt === "number" ? rule.lastTriggeredAt : void 0
 			};
@@ -6191,6 +6341,17 @@ window.__ModuleLoader__.load({
 			"detail.schedule.invalid": "Cron 表达式无效",
 			"detail.schedule.notScheduled": "尚未排程",
 			"detail.schedule.dueSoon": "即将运行",
+			"detail.schedule.timeZone": "时区",
+			"detail.schedule.timeZoneHost": "Host 时区（{timeZone}）",
+			"detail.schedule.timeZoneHostUnknown": "Host 时区（未知）",
+			"detail.schedule.timeZoneHint": "Cron 的墙上时间按此时区解读；夏令时跳变会跳过不存在的时刻，重复的时刻只触发一次。",
+			"detail.schedule.timeZoneSearch": "搜索时区…",
+			"detail.schedule.timeZoneNone": "没有匹配的时区",
+			"detail.schedule.nextRunOverdue": "已逾期 {duration}",
+			"detail.schedule.duration.days": "{count} 天",
+			"detail.schedule.duration.hours": "{count} 小时",
+			"detail.schedule.duration.minutes": "{count} 分钟",
+			"detail.schedule.duration.seconds": "{count} 秒",
 			"card.scheduled": "定时",
 			"new.workspace": "工作区",
 			"new.agentPreset": "Agent 预设",
@@ -6438,6 +6599,17 @@ window.__ModuleLoader__.load({
 			"detail.schedule.invalid": "Invalid cron expression",
 			"detail.schedule.notScheduled": "Not scheduled yet",
 			"detail.schedule.dueSoon": "Due soon",
+			"detail.schedule.timeZone": "Time zone",
+			"detail.schedule.timeZoneHost": "Host time zone ({timeZone})",
+			"detail.schedule.timeZoneHostUnknown": "Host time zone (unknown)",
+			"detail.schedule.timeZoneHint": "The cron wall clock is read in this zone; daylight-saving gaps are skipped and a repeated time fires once.",
+			"detail.schedule.timeZoneSearch": "Search time zones…",
+			"detail.schedule.timeZoneNone": "No matching time zone",
+			"detail.schedule.nextRunOverdue": "Overdue by {duration}",
+			"detail.schedule.duration.days": "{count}d",
+			"detail.schedule.duration.hours": "{count}h",
+			"detail.schedule.duration.minutes": "{count}m",
+			"detail.schedule.duration.seconds": "{count}s",
 			"card.scheduled": "scheduled",
 			"new.workspace": "Workspace",
 			"new.agentPreset": "Agent preset",
@@ -6553,7 +6725,7 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region \0dsh-css:packages/dsh-task-board/src/client/board.module.css.mjs
-		const css$12 = "[data-dsh-taskboard-view]{box-sizing:border-box;background:var(--dsw-alias-bg-base);flex-direction:column;width:100%;min-width:0;height:100%;min-height:0;display:flex;container:_7D6uKa_task-board-view/inline-size}._7D6uKa_board{box-sizing:border-box;background:var(--dsw-alias-bg-base);min-width:0;height:100%;min-height:0;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);flex-direction:column;gap:12px;padding:14px 16px 16px;display:flex}._7D6uKa_boardHeader{flex:none;align-items:center;gap:10px;display:flex}._7D6uKa_boardTitle{color:var(--dsw-alias-label-primary);white-space:nowrap;margin:0;font-size:16px;font-weight:700}._7D6uKa_backButton{align-items:center;gap:4px;display:inline-flex}._7D6uKa_search{min-width:120px;color:var(--dsw-alias-label-primary);background:var(--dsw-specific-input-major);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;outline:none;flex:0 260px;padding:6px 10px;font-size:13px}._7D6uKa_search::placeholder{color:var(--dsw-alias-label-tertiary)}._7D6uKa_columns{overscroll-behavior-inline:contain;scrollbar-color:var(--dsw-alias-border-l3) var(--dsw-alias-interactive-bg-hover);scrollbar-width:thin;flex:1;grid-auto-columns:minmax(220px,1fr);grid-auto-flow:column;gap:12px;min-height:0;padding-bottom:6px;display:grid;overflow:auto hidden}._7D6uKa_columns::-webkit-scrollbar{height:10px}._7D6uKa_columns::-webkit-scrollbar-track{background:var(--dsw-alias-interactive-bg-hover);border-radius:999px}._7D6uKa_columns::-webkit-scrollbar-thumb{background:var(--dsw-alias-border-l3);background-clip:content-box;border:2px solid #0000;border-radius:999px}._7D6uKa_columns::-webkit-scrollbar-thumb:hover{background:var(--dsw-alias-border-l4);background-clip:content-box}._7D6uKa_column{background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);border-radius:12px;flex-direction:column;min-height:0;display:flex;overflow:hidden}._7D6uKa_columnHeader{flex:none;align-items:center;gap:6px;padding:10px 12px;display:flex}._7D6uKa_columnTitle{color:var(--dsw-alias-label-primary);text-overflow:ellipsis;white-space:nowrap;flex:1;margin:0;font-size:13px;font-weight:700;overflow:hidden}._7D6uKa_columnCount{min-width:0;color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-interactive-bg-hover);border-radius:999px;flex:none;padding:1px 8px;font-size:12px}._7D6uKa_statusDot{border-radius:50%;flex:none;width:8px;height:8px}._7D6uKa_statusDot[data-status=backlog]{background:var(--dsw-alias-label-tertiary)}._7D6uKa_statusDot[data-status=todo]{background:var(--dsw-alias-state-business-primary)}._7D6uKa_statusDot[data-status=running]{background:var(--dsw-alias-state-warn-primary)}._7D6uKa_statusDot[data-status=done]{background:var(--dsw-alias-state-success-primary)}._7D6uKa_statusDot[data-status=failed]{background:var(--dsw-alias-state-error-primary)}._7D6uKa_cards{flex-direction:column;flex:1;gap:8px;min-height:0;padding:2px 8px 10px;display:flex;overflow-y:auto}._7D6uKa_columnEmpty{text-align:center;color:var(--dsw-alias-label-tertiary);padding:24px 8px;font-size:12px}._7D6uKa_card{text-align:left;background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);cursor:pointer;color:var(--dsw-alias-label-primary);border-radius:10px;flex-direction:column;gap:6px;padding:10px 12px;font-family:inherit;transition:box-shadow .12s,border-color .12s,transform .12s;display:flex}._7D6uKa_card:hover{box-shadow:var(--dsw-shadow-lv2);border-color:var(--dsw-alias-border-l3);transform:translateY(-1px)}._7D6uKa_card[data-status=running]{border-color:var(--dsw-alias-state-warn-primary)}._7D6uKa_cardTitle{-webkit-line-clamp:2;-webkit-box-orient:vertical;font-size:13px;font-weight:600;line-height:1.35;display:-webkit-box;overflow:hidden}._7D6uKa_cardExcerpt{color:var(--dsw-alias-label-secondary);-webkit-line-clamp:2;-webkit-box-orient:vertical;font-size:12px;line-height:1.4;display:-webkit-box;overflow:hidden}._7D6uKa_cardMeta{color:var(--dsw-alias-label-tertiary);align-items:center;gap:8px;font-size:11px;display:flex}._7D6uKa_cardTime{text-overflow:ellipsis;white-space:nowrap;flex:1;overflow:hidden}._7D6uKa_cardSchedule{white-space:nowrap;min-width:0;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-interactive-bg-hover);border-radius:999px;flex:none;padding:2px 6px;font-size:12px;line-height:1}._7D6uKa_cardRun{flex:none}._7D6uKa_cardRun[data-result=failed]{color:var(--dsw-alias-state-error-primary)}._7D6uKa_cardRun[data-result=succeeded]{color:var(--dsw-alias-state-success-primary)}._7D6uKa_cardSession{color:var(--dsw-alias-state-business-primary);flex:none}._7D6uKa_cardRunningLabel{color:var(--dsw-alias-state-warn-primary);font-size:11px}._7D6uKa_cardSpinner{border:2px solid var(--dsw-alias-state-warn-primary);border-top-color:#0000;border-radius:50%;flex:none;width:10px;height:10px;animation:.8s linear infinite _7D6uKa_dshTbSpin}@keyframes _7D6uKa_dshTbSpin{to{transform:rotate(360deg)}}._7D6uKa_primaryButton{color:var(--dsw-alias-label-primary-foreground);background:var(--dsw-alias-button-info-fill);cursor:pointer;white-space:nowrap;border:none;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600}._7D6uKa_primaryButton:hover:not(:disabled){background:var(--dsw-alias-button-info-hover)}._7D6uKa_primaryButton:disabled{opacity:.5;cursor:default}._7D6uKa_ghostButton{color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l2);cursor:pointer;white-space:nowrap;background:0 0;border-radius:8px;padding:5px 12px;font-size:12px}._7D6uKa_ghostButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}._7D6uKa_ghostButton:disabled{opacity:.45;cursor:default}._7D6uKa_dangerButton{color:#fff;background:var(--dsw-alias-state-error-primary);cursor:pointer;white-space:nowrap;border:none;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600}._7D6uKa_dangerButton:hover:not(:disabled){filter:brightness(1.08)}._7D6uKa_dangerButton:active:not(:disabled){filter:brightness(.94)}._7D6uKa_dangerButton:disabled{opacity:.5;cursor:default}._7D6uKa_iconButton{width:26px;height:26px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:6px;justify-content:center;align-items:center;padding:0;font-size:13px;display:inline-flex}._7D6uKa_iconButton:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}._7D6uKa_linkButton{color:var(--dsw-alias-state-business-primary);cursor:pointer;white-space:nowrap;background:0 0;border:none;padding:0;font-size:12px}._7D6uKa_linkButton:hover{text-decoration:underline}._7D6uKa_modalBackdrop{z-index:1300;background:var(--dsw-alias-bg-mask-1);justify-content:center;align-items:center;display:flex;position:fixed;inset:0}._7D6uKa_modal{background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);width:min(520px,100vw - 48px);max-height:calc(100vh - 96px);box-shadow:var(--dsw-shadow-lv3);color:var(--dsw-alias-label-primary);border-radius:14px;flex-direction:column;gap:10px;padding:18px;display:flex;overflow:hidden}._7D6uKa_modalTitle{margin:0;font-size:15px;font-weight:700}._7D6uKa_confirmMessage{color:var(--dsw-alias-label-secondary);white-space:pre-wrap;overflow-wrap:anywhere;margin:0;font-size:13px;line-height:1.5}._7D6uKa_modalFooter{justify-content:flex-end;gap:10px;margin-top:4px;display:flex}._7D6uKa_modalBody{flex-direction:column;gap:8px;min-height:0;display:flex;overflow-y:auto}._7D6uKa_modalBody>*{flex:none}._7D6uKa_formSection{border:1px solid var(--dsw-alias-separator-primary);border-radius:10px;flex-direction:column;display:flex;overflow:hidden}._7D6uKa_formSectionHeader{width:100%;color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer;background:0 0;border:0;align-items:center;gap:8px;padding:7px 10px;font-family:inherit;font-size:12.5px;font-weight:600;display:flex}._7D6uKa_formSectionHeader:hover{background:var(--dsw-alias-bg-mask-1)}._7D6uKa_formSectionChevron{border-top:4px solid #0000;border-bottom:4px solid #0000;border-left:5px solid var(--dsw-alias-label-tertiary);flex:none;width:0;height:0;margin-left:1px;transition:transform .12s}._7D6uKa_formSection[data-open=true] ._7D6uKa_formSectionChevron{transform:rotate(90deg)}._7D6uKa_formSectionTitle{flex:none}._7D6uKa_formSectionSummary{min-width:0;color:var(--dsw-alias-label-tertiary);text-align:right;text-overflow:ellipsis;white-space:nowrap;flex:auto;font-weight:400;overflow:hidden}._7D6uKa_formSectionBody{border-top:1px solid var(--dsw-alias-separator-primary);flex-direction:column;gap:8px;padding:8px 10px 10px;display:flex}._7D6uKa_field{flex-direction:column;gap:5px;display:flex}._7D6uKa_fieldLabel{color:var(--dsw-alias-label-secondary);font-size:12px;font-weight:600}._7D6uKa_input{color:var(--dsw-alias-label-primary);background:var(--dsw-specific-input-major);border:1px solid var(--dsw-alias-border-l2);resize:vertical;border-radius:8px;outline:none;padding:7px 10px;font-family:inherit;font-size:13px}._7D6uKa_input:focus{border-color:var(--dsw-alias-state-business-primary)}._7D6uKa_select{color:var(--dsw-alias-label-primary);background:var(--dsw-specific-input-major);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;outline:none;max-width:100%;padding:7px 10px;font-family:inherit;font-size:13px}._7D6uKa_input::placeholder{color:var(--dsw-alias-label-tertiary)}._7D6uKa_formError{color:var(--dsw-alias-state-error-primary);margin:0;font-size:12px}._7D6uKa_detail{background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);width:min(640px,100vw - 48px);max-height:calc(100vh - 80px);box-shadow:var(--dsw-shadow-lv3);color:var(--dsw-alias-label-primary);border-radius:14px;flex-direction:column;display:flex;overflow:hidden}._7D6uKa_detailHeader{border-bottom:1px solid var(--dsw-alias-separator-primary);flex:none;align-items:center;gap:10px;padding:14px 18px;display:flex}._7D6uKa_detailTitle{overflow-wrap:anywhere;flex:1;margin:0;font-size:15px;font-weight:700}._7D6uKa_statusBadge{border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);border-radius:999px;flex:none;padding:2px 10px;font-size:12px}._7D6uKa_statusBadge[data-status=running]{color:var(--dsw-alias-state-warn-primary);border-color:var(--dsw-alias-state-warn-primary)}._7D6uKa_statusBadge[data-status=done]{color:var(--dsw-alias-state-success-primary);border-color:var(--dsw-alias-state-success-primary)}._7D6uKa_statusBadge[data-status=failed]{color:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary)}._7D6uKa_detailBody{flex-direction:column;flex:1;gap:16px;padding:14px 18px;display:flex;overflow-y:auto}._7D6uKa_detailSection{flex-direction:column;gap:6px;display:flex}._7D6uKa_detailSection h4{color:var(--dsw-alias-label-tertiary);text-transform:none;margin:0;font-size:12px;font-weight:700}._7D6uKa_detailText{color:var(--dsw-alias-label-primary);white-space:pre-wrap;overflow-wrap:anywhere;margin:0;font-size:13px;line-height:1.55}._7D6uKa_scheduleToggle{color:var(--dsw-alias-label-primary);cursor:pointer;user-select:none;align-items:center;gap:8px;font-size:13px;display:flex}._7D6uKa_scheduleToggle input{accent-color:var(--dsw-alias-state-business-primary)}._7D6uKa_scheduleRow{align-items:center;gap:8px;display:flex}._7D6uKa_scheduleInput{min-width:0;font-family:var(--dsw-font-markdown-code-block-small);flex:1;font-size:12.5px}._7D6uKa_scheduleInputInvalid,._7D6uKa_scheduleInputInvalid:focus{border-color:var(--dsw-alias-state-error-primary)}._7D6uKa_schedulePreset{color:var(--dsw-alias-label-primary);background:var(--dsw-specific-input-major);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;outline:none;flex:none;padding:7px 8px;font-size:12.5px}._7D6uKa_scheduleMeta{color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere;margin:0;font-size:12px}._7D6uKa_promptBlock{font-size:12.5px;line-height:1.5;font-family:var(--dsw-font-markdown-code-block-small);color:var(--dsw-alias-label-primary);background:var(--dsw-alias-markdown-code-block);border:1px solid var(--dsw-alias-border-l1);white-space:pre-wrap;overflow-wrap:anywhere;border-radius:8px;max-height:240px;margin:0;padding:10px 12px;overflow-y:auto}._7D6uKa_executionList{flex-direction:column;gap:8px;margin:0;padding:0;list-style:none;display:flex}._7D6uKa_executionRow{border:1px solid var(--dsw-alias-border-l1);border-radius:8px;flex-wrap:wrap;align-items:center;gap:10px;padding:8px 10px;display:flex}._7D6uKa_executionBadge{color:var(--dsw-alias-state-warn-primary);background:var(--dsw-alias-state-warn-secondary);border-radius:999px;flex:none;padding:1px 8px;font-size:11px;font-weight:600}._7D6uKa_executionBadge[data-result=succeeded]{color:var(--dsw-alias-state-success-primary);background:0 0}._7D6uKa_executionBadge[data-result=failed]{color:var(--dsw-alias-state-error-primary);background:0 0}._7D6uKa_executionBadge[data-result=cancelled]{color:var(--dsw-alias-label-tertiary);background:0 0}._7D6uKa_executionTimes{color:var(--dsw-alias-label-secondary);font-size:12px}._7D6uKa_executionError{width:100%;color:var(--dsw-alias-state-error-primary);overflow-wrap:anywhere;font-size:12px}._7D6uKa_moveRow{flex-wrap:wrap;gap:8px;display:flex}._7D6uKa_detailFooter{border-top:1px solid var(--dsw-alias-separator-primary);flex:none;align-items:center;gap:10px;padding:12px 18px;display:flex}._7D6uKa_detailMeta{color:var(--dsw-alias-label-tertiary);margin-left:auto;font-size:11px}@container _7D6uKa_task-board-view (width<=768px){._7D6uKa_board{gap:10px;padding:10px}._7D6uKa_boardHeader{flex-wrap:wrap;align-items:center;gap:8px}._7D6uKa_backButton{flex:none;order:1}._7D6uKa_boardTitle{flex:auto;order:2}._7D6uKa_boardHeader>._7D6uKa_detailMeta{flex:1 0 100%;order:3;margin-left:0}._7D6uKa_search{flex:1 0 100%;order:4;min-width:0}._7D6uKa_boardHeader>button:not(._7D6uKa_backButton){flex:1 1 0;order:5;min-width:0}._7D6uKa_columns{scroll-snap-type:inline mandatory;scrollbar-width:none;-webkit-overflow-scrolling:touch;grid-auto-columns:86cqw;gap:10px;padding-inline:2px 14cqw;scroll-padding-inline:2px}._7D6uKa_columns::-webkit-scrollbar{display:none}._7D6uKa_column{scroll-snap-align:start;scroll-snap-stop:always}}@container _7D6uKa_task-board-view (width<=720px){._7D6uKa_boardHeader>._7D6uKa_detailMeta{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}}@container _7D6uKa_task-board-view (width<=600px){._7D6uKa_board{padding-inline:8px}}@media (width<=768px){[data-dsh-taskboard-view]{height:100dvh}._7D6uKa_card,._7D6uKa_primaryButton,._7D6uKa_ghostButton,._7D6uKa_dangerButton,._7D6uKa_iconButton,._7D6uKa_linkButton,._7D6uKa_search,._7D6uKa_input,._7D6uKa_select,._7D6uKa_schedulePreset,._7D6uKa_scheduleToggle{min-height:44px}._7D6uKa_search,._7D6uKa_input,._7D6uKa_select,._7D6uKa_schedulePreset{box-sizing:border-box;font-size:16px}._7D6uKa_modalBackdrop{justify-content:stretch;align-items:stretch;width:100vw;height:100dvh}._7D6uKa_modal,._7D6uKa_detail{box-sizing:border-box;border:0;border-radius:0;width:100vw;height:100dvh;max-height:none}._7D6uKa_modal{padding-top:max(16px, env(safe-area-inset-top));padding-right:max(16px, env(safe-area-inset-right));padding-bottom:max(16px, env(safe-area-inset-bottom));padding-left:max(16px, env(safe-area-inset-left))}._7D6uKa_modalFooter{z-index:1;background:var(--dsw-alias-bg-base);flex-wrap:wrap;padding-top:8px;position:sticky;bottom:0}._7D6uKa_modalFooter>button{flex:120px}._7D6uKa_detailHeader{padding-top:max(12px, env(safe-area-inset-top));padding-right:max(14px, env(safe-area-inset-right));padding-left:max(14px, env(safe-area-inset-left));flex-wrap:wrap}._7D6uKa_detailTitle{min-width:0}._7D6uKa_detailBody{overscroll-behavior-y:contain;padding-right:max(14px, env(safe-area-inset-right));padding-left:max(14px, env(safe-area-inset-left))}._7D6uKa_detailFooter{padding-right:max(14px, env(safe-area-inset-right));padding-bottom:max(12px, env(safe-area-inset-bottom));padding-left:max(14px, env(safe-area-inset-left));flex-wrap:wrap}._7D6uKa_detailFooter>button{flex:96px}._7D6uKa_detailFooter>._7D6uKa_detailMeta{text-align:end;flex:1 0 100%;margin-left:0}._7D6uKa_scheduleRow{flex-direction:column;align-items:stretch}._7D6uKa_schedulePreset{width:100%}}._7D6uKa_card:focus-visible,._7D6uKa_primaryButton:focus-visible,._7D6uKa_ghostButton:focus-visible,._7D6uKa_dangerButton:focus-visible,._7D6uKa_iconButton:focus-visible,._7D6uKa_linkButton:focus-visible,._7D6uKa_search:focus-visible,._7D6uKa_input:focus-visible,._7D6uKa_select:focus-visible,._7D6uKa_schedulePreset:focus-visible,._7D6uKa_scheduleToggle input:focus-visible,._7D6uKa_formSectionHeader:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}._7D6uKa_primaryButton,._7D6uKa_ghostButton,._7D6uKa_dangerButton,._7D6uKa_iconButton,._7D6uKa_linkButton,._7D6uKa_search,._7D6uKa_input,._7D6uKa_select,._7D6uKa_schedulePreset,._7D6uKa_scheduleToggle input,._7D6uKa_formSectionHeader,._7D6uKa_formSectionChevron{transition:background-color .12s,color .12s,border-color .12s,outline-color .12s,box-shadow .12s,transform .12s}._7D6uKa_card:active{box-shadow:var(--dsw-shadow-lv1);transform:translateY(0)}._7D6uKa_primaryButton:active:not(:disabled),._7D6uKa_ghostButton:active:not(:disabled),._7D6uKa_dangerButton:active:not(:disabled),._7D6uKa_iconButton:active:not(:disabled),._7D6uKa_linkButton:active:not(:disabled){transform:translateY(1px)}._7D6uKa_iconButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}._7D6uKa_linkButton:hover:not(:disabled){text-decoration:underline}._7D6uKa_iconButton:disabled,._7D6uKa_linkButton:disabled{opacity:.45;cursor:default}._7D6uKa_search:focus,._7D6uKa_select:focus,._7D6uKa_schedulePreset:focus{border-color:var(--dsw-alias-state-business-primary)}._7D6uKa_scheduleToggle input{margin:0}@media (prefers-reduced-motion:reduce){._7D6uKa_card,._7D6uKa_primaryButton,._7D6uKa_ghostButton,._7D6uKa_dangerButton,._7D6uKa_iconButton,._7D6uKa_linkButton,._7D6uKa_search,._7D6uKa_input,._7D6uKa_select,._7D6uKa_schedulePreset,._7D6uKa_scheduleToggle input,._7D6uKa_formSectionHeader,._7D6uKa_formSectionChevron{transition:none}._7D6uKa_cardSpinner{animation:none}}._7D6uKa_cardTags{flex-wrap:wrap;gap:4px;display:flex}._7D6uKa_cardTag{border:1px solid var(--dsh-task-tag-border);background:var(--dsh-task-tag-fill);max-width:100%;color:var(--dsw-alias-label-primary);text-overflow:ellipsis;white-space:nowrap;border-radius:999px;padding:0 7px;font-size:10px;line-height:16px;overflow:hidden}._7D6uKa_tagFilter{flex-wrap:wrap;align-items:center;gap:6px;margin:0 0 10px;display:flex}._7D6uKa_tagFilterLabel{color:var(--dsw-alias-label-tertiary);font-size:11px}._7D6uKa_tagChip{border:1px solid var(--dsh-task-tag-border);color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border-radius:999px;padding:1px 9px;font-family:inherit;font-size:11px;line-height:18px}._7D6uKa_tagChip[data-active=true]{background:var(--dsh-task-tag-fill);color:var(--dsw-alias-label-primary)}._7D6uKa_cardTag[data-tag-tone=\"0\"],._7D6uKa_tagChip[data-tag-tone=\"0\"]{--dsh-task-tag-fill:#4e93e82e;--dsh-task-tag-border:#4e93e866}._7D6uKa_cardTag[data-tag-tone=\"1\"],._7D6uKa_tagChip[data-tag-tone=\"1\"]{--dsh-task-tag-fill:#2ea36a2e;--dsh-task-tag-border:#2ea36a66}._7D6uKa_cardTag[data-tag-tone=\"2\"],._7D6uKa_tagChip[data-tag-tone=\"2\"]{--dsh-task-tag-fill:#d08a2a2e;--dsh-task-tag-border:#d08a2a66}._7D6uKa_cardTag[data-tag-tone=\"3\"],._7D6uKa_tagChip[data-tag-tone=\"3\"]{--dsh-task-tag-fill:#b456c82e;--dsh-task-tag-border:#b456c866}._7D6uKa_cardTag[data-tag-tone=\"4\"],._7D6uKa_tagChip[data-tag-tone=\"4\"]{--dsh-task-tag-fill:#cf5f7a2e;--dsh-task-tag-border:#cf5f7a66}._7D6uKa_cardTag[data-tag-tone=\"5\"],._7D6uKa_tagChip[data-tag-tone=\"5\"]{--dsh-task-tag-fill:#4a9fb52e;--dsh-task-tag-border:#4a9fb566}._7D6uKa_fieldHint{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:1.4}._7D6uKa_tagRow{align-items:center;gap:6px;display:flex}._7D6uKa_tagRow ._7D6uKa_input{flex:1 1 0;min-width:0}._7D6uKa_tagRow ._7D6uKa_ghostButton{flex:none}._7D6uKa_tagAddButton{align-self:flex-start}._7D6uKa_projectFilter{flex:none;align-items:center;gap:6px;display:flex}._7D6uKa_projectFilterLabel{color:var(--dsw-alias-label-secondary);white-space:nowrap;font-size:12px}._7D6uKa_projectDialog{background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:10px;flex-direction:column;flex:none;gap:8px;margin-bottom:8px;padding:10px 12px;display:flex}._7D6uKa_projectDialogActions{justify-content:flex-end;gap:8px;display:flex}._7D6uKa_aiParse{background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:10px;flex-direction:column;gap:6px;padding:10px 12px;display:flex}._7D6uKa_aiParseRow{align-items:center;gap:8px;display:flex}._7D6uKa_aiParseRow ._7D6uKa_select{flex:1 1 0;min-width:0}._7D6uKa_aiParseRow ._7D6uKa_ghostButton,._7D6uKa_aiParseRow ._7D6uKa_primaryButton{flex:none}._7D6uKa_cardSubtask{border:1px solid var(--dsw-alias-border-l2);max-width:100%;color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap;background:0 0;border-radius:999px;padding:0 7px;font-size:10px;line-height:16px;overflow:hidden}._7D6uKa_cardSubtask[data-tone=failed]{color:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary)}._7D6uKa_cardSubtask[data-tone=running]{color:var(--dsw-alias-state-warn-primary);border-color:var(--dsw-alias-state-warn-primary)}._7D6uKa_cardSubtask[data-tone=done]{color:var(--dsw-alias-state-success-primary);border-color:var(--dsw-alias-state-success-primary)}._7D6uKa_subtaskList{flex-direction:column;gap:6px;margin:0;padding:0;list-style:none;display:flex}._7D6uKa_subtaskRow{border:1px solid var(--dsw-alias-border-l1);border-radius:8px;flex-wrap:wrap;align-items:center;gap:10px;padding:6px 10px;display:flex}._7D6uKa_subtaskRow ._7D6uKa_linkButton:first-child{text-align:left;overflow-wrap:anywhere;flex:auto;min-width:0}._7D6uKa_subtaskAddRow{flex-wrap:wrap;gap:8px;display:flex}._7D6uKa_pickList{flex-direction:column;gap:6px;max-height:320px;margin:0;padding:0;list-style:none;display:flex;overflow-y:auto}._7D6uKa_pickRow{border:1px solid var(--dsw-alias-border-l1);border-radius:8px;align-items:center;gap:10px;padding:6px 10px;display:flex}._7D6uKa_pickTitle{min-width:0;color:var(--dsw-alias-label-primary);overflow-wrap:anywhere;flex:auto;font-size:13px}";
+		const css$12 = "[data-dsh-taskboard-view]{box-sizing:border-box;background:var(--dsw-alias-bg-base);flex-direction:column;width:100%;min-width:0;height:100%;min-height:0;display:flex;container:_7D6uKa_task-board-view/inline-size}._7D6uKa_board{box-sizing:border-box;background:var(--dsw-alias-bg-base);min-width:0;height:100%;min-height:0;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);flex-direction:column;gap:12px;padding:14px 16px 16px;display:flex}._7D6uKa_boardHeader{flex:none;align-items:center;gap:10px;display:flex}._7D6uKa_boardTitle{color:var(--dsw-alias-label-primary);white-space:nowrap;margin:0;font-size:16px;font-weight:700}._7D6uKa_backButton{align-items:center;gap:4px;display:inline-flex}._7D6uKa_search{min-width:120px;color:var(--dsw-alias-label-primary);background:var(--dsw-specific-input-major);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;outline:none;flex:0 260px;padding:6px 10px;font-size:13px}._7D6uKa_search::placeholder{color:var(--dsw-alias-label-tertiary)}._7D6uKa_columns{overscroll-behavior-inline:contain;scrollbar-color:var(--dsw-alias-border-l3) var(--dsw-alias-interactive-bg-hover);scrollbar-width:thin;flex:1;grid-auto-columns:minmax(220px,1fr);grid-auto-flow:column;gap:12px;min-height:0;padding-bottom:6px;display:grid;overflow:auto hidden}._7D6uKa_columns::-webkit-scrollbar{height:10px}._7D6uKa_columns::-webkit-scrollbar-track{background:var(--dsw-alias-interactive-bg-hover);border-radius:999px}._7D6uKa_columns::-webkit-scrollbar-thumb{background:var(--dsw-alias-border-l3);background-clip:content-box;border:2px solid #0000;border-radius:999px}._7D6uKa_columns::-webkit-scrollbar-thumb:hover{background:var(--dsw-alias-border-l4);background-clip:content-box}._7D6uKa_column{background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);border-radius:12px;flex-direction:column;min-height:0;display:flex;overflow:hidden}._7D6uKa_columnHeader{flex:none;align-items:center;gap:6px;padding:10px 12px;display:flex}._7D6uKa_columnTitle{color:var(--dsw-alias-label-primary);text-overflow:ellipsis;white-space:nowrap;flex:1;margin:0;font-size:13px;font-weight:700;overflow:hidden}._7D6uKa_columnCount{min-width:0;color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-interactive-bg-hover);border-radius:999px;flex:none;padding:1px 8px;font-size:12px}._7D6uKa_statusDot{border-radius:50%;flex:none;width:8px;height:8px}._7D6uKa_statusDot[data-status=backlog]{background:var(--dsw-alias-label-tertiary)}._7D6uKa_statusDot[data-status=todo]{background:var(--dsw-alias-state-business-primary)}._7D6uKa_statusDot[data-status=running]{background:var(--dsw-alias-state-warn-primary)}._7D6uKa_statusDot[data-status=done]{background:var(--dsw-alias-state-success-primary)}._7D6uKa_statusDot[data-status=failed]{background:var(--dsw-alias-state-error-primary)}._7D6uKa_cards{flex-direction:column;flex:1;gap:8px;min-height:0;padding:2px 8px 10px;display:flex;overflow-y:auto}._7D6uKa_columnEmpty{text-align:center;color:var(--dsw-alias-label-tertiary);padding:24px 8px;font-size:12px}._7D6uKa_card{text-align:left;background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);cursor:pointer;color:var(--dsw-alias-label-primary);border-radius:10px;flex-direction:column;gap:6px;padding:10px 12px;font-family:inherit;transition:box-shadow .12s,border-color .12s,transform .12s;display:flex}._7D6uKa_card:hover{box-shadow:var(--dsw-shadow-lv2);border-color:var(--dsw-alias-border-l3);transform:translateY(-1px)}._7D6uKa_card[data-status=running]{border-color:var(--dsw-alias-state-warn-primary)}._7D6uKa_cardTitle{-webkit-line-clamp:2;-webkit-box-orient:vertical;font-size:13px;font-weight:600;line-height:1.35;display:-webkit-box;overflow:hidden}._7D6uKa_cardExcerpt{color:var(--dsw-alias-label-secondary);-webkit-line-clamp:2;-webkit-box-orient:vertical;font-size:12px;line-height:1.4;display:-webkit-box;overflow:hidden}._7D6uKa_cardMeta{color:var(--dsw-alias-label-tertiary);align-items:center;gap:8px;font-size:11px;display:flex}._7D6uKa_cardTime{text-overflow:ellipsis;white-space:nowrap;flex:1;overflow:hidden}._7D6uKa_cardSchedule{white-space:nowrap;min-width:0;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-interactive-bg-hover);border-radius:999px;flex:none;padding:2px 6px;font-size:12px;line-height:1}._7D6uKa_cardRun{flex:none}._7D6uKa_cardRun[data-result=failed]{color:var(--dsw-alias-state-error-primary)}._7D6uKa_cardRun[data-result=succeeded]{color:var(--dsw-alias-state-success-primary)}._7D6uKa_cardSession{color:var(--dsw-alias-state-business-primary);flex:none}._7D6uKa_cardRunningLabel{color:var(--dsw-alias-state-warn-primary);font-size:11px}._7D6uKa_cardSpinner{border:2px solid var(--dsw-alias-state-warn-primary);border-top-color:#0000;border-radius:50%;flex:none;width:10px;height:10px;animation:.8s linear infinite _7D6uKa_dshTbSpin}@keyframes _7D6uKa_dshTbSpin{to{transform:rotate(360deg)}}._7D6uKa_primaryButton{color:var(--dsw-alias-label-primary-foreground);background:var(--dsw-alias-button-info-fill);cursor:pointer;white-space:nowrap;border:none;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600}._7D6uKa_primaryButton:hover:not(:disabled){background:var(--dsw-alias-button-info-hover)}._7D6uKa_primaryButton:disabled{opacity:.5;cursor:default}._7D6uKa_ghostButton{color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l2);cursor:pointer;white-space:nowrap;background:0 0;border-radius:8px;padding:5px 12px;font-size:12px}._7D6uKa_ghostButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}._7D6uKa_ghostButton:disabled{opacity:.45;cursor:default}._7D6uKa_dangerButton{color:#fff;background:var(--dsw-alias-state-error-primary);cursor:pointer;white-space:nowrap;border:none;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600}._7D6uKa_dangerButton:hover:not(:disabled){filter:brightness(1.08)}._7D6uKa_dangerButton:active:not(:disabled){filter:brightness(.94)}._7D6uKa_dangerButton:disabled{opacity:.5;cursor:default}._7D6uKa_iconButton{width:26px;height:26px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:6px;justify-content:center;align-items:center;padding:0;font-size:13px;display:inline-flex}._7D6uKa_iconButton:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}._7D6uKa_linkButton{color:var(--dsw-alias-state-business-primary);cursor:pointer;white-space:nowrap;background:0 0;border:none;padding:0;font-size:12px}._7D6uKa_linkButton:hover{text-decoration:underline}._7D6uKa_modalBackdrop{z-index:1300;background:var(--dsw-alias-bg-mask-1);justify-content:center;align-items:center;display:flex;position:fixed;inset:0}._7D6uKa_modal{background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);width:min(520px,100vw - 48px);max-height:calc(100vh - 96px);box-shadow:var(--dsw-shadow-lv3);color:var(--dsw-alias-label-primary);border-radius:14px;flex-direction:column;gap:10px;padding:18px;display:flex;overflow:hidden}._7D6uKa_modalTitle{margin:0;font-size:15px;font-weight:700}._7D6uKa_confirmMessage{color:var(--dsw-alias-label-secondary);white-space:pre-wrap;overflow-wrap:anywhere;margin:0;font-size:13px;line-height:1.5}._7D6uKa_modalFooter{justify-content:flex-end;gap:10px;margin-top:4px;display:flex}._7D6uKa_modalBody{flex-direction:column;gap:8px;min-height:0;display:flex;overflow-y:auto}._7D6uKa_modalBody>*{flex:none}._7D6uKa_formSection{border:1px solid var(--dsw-alias-separator-primary);border-radius:10px;flex-direction:column;display:flex;overflow:hidden}._7D6uKa_formSectionHeader{width:100%;color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer;background:0 0;border:0;align-items:center;gap:8px;padding:7px 10px;font-family:inherit;font-size:12.5px;font-weight:600;display:flex}._7D6uKa_formSectionHeader:hover{background:var(--dsw-alias-bg-mask-1)}._7D6uKa_formSectionChevron{border-top:4px solid #0000;border-bottom:4px solid #0000;border-left:5px solid var(--dsw-alias-label-tertiary);flex:none;width:0;height:0;margin-left:1px;transition:transform .12s}._7D6uKa_formSection[data-open=true] ._7D6uKa_formSectionChevron{transform:rotate(90deg)}._7D6uKa_formSectionTitle{flex:none}._7D6uKa_formSectionSummary{min-width:0;color:var(--dsw-alias-label-tertiary);text-align:right;text-overflow:ellipsis;white-space:nowrap;flex:auto;font-weight:400;overflow:hidden}._7D6uKa_formSectionBody{border-top:1px solid var(--dsw-alias-separator-primary);flex-direction:column;gap:8px;padding:8px 10px 10px;display:flex}._7D6uKa_field{flex-direction:column;gap:5px;display:flex}._7D6uKa_fieldLabel{color:var(--dsw-alias-label-secondary);font-size:12px;font-weight:600}._7D6uKa_input{color:var(--dsw-alias-label-primary);background:var(--dsw-specific-input-major);border:1px solid var(--dsw-alias-border-l2);resize:vertical;border-radius:8px;outline:none;padding:7px 10px;font-family:inherit;font-size:13px}._7D6uKa_input:focus{border-color:var(--dsw-alias-state-business-primary)}._7D6uKa_select{color:var(--dsw-alias-label-primary);background:var(--dsw-specific-input-major);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;outline:none;max-width:100%;padding:7px 10px;font-family:inherit;font-size:13px}._7D6uKa_input::placeholder{color:var(--dsw-alias-label-tertiary)}._7D6uKa_formError{color:var(--dsw-alias-state-error-primary);margin:0;font-size:12px}._7D6uKa_detail{background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);width:min(640px,100vw - 48px);max-height:calc(100vh - 80px);box-shadow:var(--dsw-shadow-lv3);color:var(--dsw-alias-label-primary);border-radius:14px;flex-direction:column;display:flex;overflow:hidden}._7D6uKa_detailHeader{border-bottom:1px solid var(--dsw-alias-separator-primary);flex:none;align-items:center;gap:10px;padding:14px 18px;display:flex}._7D6uKa_detailTitle{overflow-wrap:anywhere;flex:1;margin:0;font-size:15px;font-weight:700}._7D6uKa_statusBadge{border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);border-radius:999px;flex:none;padding:2px 10px;font-size:12px}._7D6uKa_statusBadge[data-status=running]{color:var(--dsw-alias-state-warn-primary);border-color:var(--dsw-alias-state-warn-primary)}._7D6uKa_statusBadge[data-status=done]{color:var(--dsw-alias-state-success-primary);border-color:var(--dsw-alias-state-success-primary)}._7D6uKa_statusBadge[data-status=failed]{color:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary)}._7D6uKa_detailBody{flex-direction:column;flex:1;gap:16px;padding:14px 18px;display:flex;overflow-y:auto}._7D6uKa_detailSection{flex-direction:column;gap:6px;display:flex}._7D6uKa_detailSection h4{color:var(--dsw-alias-label-tertiary);text-transform:none;margin:0;font-size:12px;font-weight:700}._7D6uKa_detailText{color:var(--dsw-alias-label-primary);white-space:pre-wrap;overflow-wrap:anywhere;margin:0;font-size:13px;line-height:1.55}._7D6uKa_scheduleToggle{color:var(--dsw-alias-label-primary);cursor:pointer;user-select:none;align-items:center;gap:8px;font-size:13px;display:flex}._7D6uKa_scheduleToggle input{accent-color:var(--dsw-alias-state-business-primary)}._7D6uKa_scheduleRow{align-items:center;gap:8px;display:flex}._7D6uKa_scheduleInput{min-width:0;font-family:var(--dsw-font-markdown-code-block-small);flex:1;font-size:12.5px}._7D6uKa_scheduleInputInvalid,._7D6uKa_scheduleInputInvalid:focus{border-color:var(--dsw-alias-state-error-primary)}._7D6uKa_schedulePreset{color:var(--dsw-alias-label-primary);background:var(--dsw-specific-input-major);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;outline:none;flex:none;padding:7px 8px;font-size:12.5px}._7D6uKa_scheduleZone{color:var(--dsw-alias-label-secondary);align-items:center;gap:8px;font-size:12.5px;display:flex}._7D6uKa_scheduleZone select{flex:1;min-width:0}._7D6uKa_scheduleMeta{color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere;margin:0;font-size:12px}._7D6uKa_promptBlock{font-size:12.5px;line-height:1.5;font-family:var(--dsw-font-markdown-code-block-small);color:var(--dsw-alias-label-primary);background:var(--dsw-alias-markdown-code-block);border:1px solid var(--dsw-alias-border-l1);white-space:pre-wrap;overflow-wrap:anywhere;border-radius:8px;max-height:240px;margin:0;padding:10px 12px;overflow-y:auto}._7D6uKa_executionList{flex-direction:column;gap:8px;margin:0;padding:0;list-style:none;display:flex}._7D6uKa_executionRow{border:1px solid var(--dsw-alias-border-l1);border-radius:8px;flex-wrap:wrap;align-items:center;gap:10px;padding:8px 10px;display:flex}._7D6uKa_executionBadge{color:var(--dsw-alias-state-warn-primary);background:var(--dsw-alias-state-warn-secondary);border-radius:999px;flex:none;padding:1px 8px;font-size:11px;font-weight:600}._7D6uKa_executionBadge[data-result=succeeded]{color:var(--dsw-alias-state-success-primary);background:0 0}._7D6uKa_executionBadge[data-result=failed]{color:var(--dsw-alias-state-error-primary);background:0 0}._7D6uKa_executionBadge[data-result=cancelled]{color:var(--dsw-alias-label-tertiary);background:0 0}._7D6uKa_executionTimes{color:var(--dsw-alias-label-secondary);font-size:12px}._7D6uKa_executionError{width:100%;color:var(--dsw-alias-state-error-primary);overflow-wrap:anywhere;font-size:12px}._7D6uKa_moveRow{flex-wrap:wrap;gap:8px;display:flex}._7D6uKa_detailFooter{border-top:1px solid var(--dsw-alias-separator-primary);flex:none;align-items:center;gap:10px;padding:12px 18px;display:flex}._7D6uKa_detailMeta{color:var(--dsw-alias-label-tertiary);margin-left:auto;font-size:11px}@container _7D6uKa_task-board-view (width<=768px){._7D6uKa_board{gap:10px;padding:10px}._7D6uKa_boardHeader{flex-wrap:wrap;align-items:center;gap:8px}._7D6uKa_backButton{flex:none;order:1}._7D6uKa_boardTitle{flex:auto;order:2}._7D6uKa_boardHeader>._7D6uKa_detailMeta{flex:1 0 100%;order:3;margin-left:0}._7D6uKa_search{flex:1 0 100%;order:4;min-width:0}._7D6uKa_boardHeader>button:not(._7D6uKa_backButton){flex:1 1 0;order:5;min-width:0}._7D6uKa_columns{scroll-snap-type:inline mandatory;scrollbar-width:none;-webkit-overflow-scrolling:touch;grid-auto-columns:86cqw;gap:10px;padding-inline:2px 14cqw;scroll-padding-inline:2px}._7D6uKa_columns::-webkit-scrollbar{display:none}._7D6uKa_column{scroll-snap-align:start;scroll-snap-stop:always}}@container _7D6uKa_task-board-view (width<=720px){._7D6uKa_boardHeader>._7D6uKa_detailMeta{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}}@container _7D6uKa_task-board-view (width<=600px){._7D6uKa_board{padding-inline:8px}}@media (width<=768px){[data-dsh-taskboard-view]{height:100dvh}._7D6uKa_card,._7D6uKa_primaryButton,._7D6uKa_ghostButton,._7D6uKa_dangerButton,._7D6uKa_iconButton,._7D6uKa_linkButton,._7D6uKa_search,._7D6uKa_input,._7D6uKa_select,._7D6uKa_schedulePreset,._7D6uKa_scheduleToggle{min-height:44px}._7D6uKa_search,._7D6uKa_input,._7D6uKa_select,._7D6uKa_schedulePreset{box-sizing:border-box;font-size:16px}._7D6uKa_modalBackdrop{justify-content:stretch;align-items:stretch;width:100vw;height:100dvh}._7D6uKa_modal,._7D6uKa_detail{box-sizing:border-box;border:0;border-radius:0;width:100vw;height:100dvh;max-height:none}._7D6uKa_modal{padding-top:max(16px, env(safe-area-inset-top));padding-right:max(16px, env(safe-area-inset-right));padding-bottom:max(16px, env(safe-area-inset-bottom));padding-left:max(16px, env(safe-area-inset-left))}._7D6uKa_modalFooter{z-index:1;background:var(--dsw-alias-bg-base);flex-wrap:wrap;padding-top:8px;position:sticky;bottom:0}._7D6uKa_modalFooter>button{flex:120px}._7D6uKa_detailHeader{padding-top:max(12px, env(safe-area-inset-top));padding-right:max(14px, env(safe-area-inset-right));padding-left:max(14px, env(safe-area-inset-left));flex-wrap:wrap}._7D6uKa_detailTitle{min-width:0}._7D6uKa_detailBody{overscroll-behavior-y:contain;padding-right:max(14px, env(safe-area-inset-right));padding-left:max(14px, env(safe-area-inset-left))}._7D6uKa_detailFooter{padding-right:max(14px, env(safe-area-inset-right));padding-bottom:max(12px, env(safe-area-inset-bottom));padding-left:max(14px, env(safe-area-inset-left));flex-wrap:wrap}._7D6uKa_detailFooter>button{flex:96px}._7D6uKa_detailFooter>._7D6uKa_detailMeta{text-align:end;flex:1 0 100%;margin-left:0}._7D6uKa_scheduleRow{flex-direction:column;align-items:stretch}._7D6uKa_schedulePreset{width:100%}}._7D6uKa_card:focus-visible,._7D6uKa_primaryButton:focus-visible,._7D6uKa_ghostButton:focus-visible,._7D6uKa_dangerButton:focus-visible,._7D6uKa_iconButton:focus-visible,._7D6uKa_linkButton:focus-visible,._7D6uKa_search:focus-visible,._7D6uKa_input:focus-visible,._7D6uKa_select:focus-visible,._7D6uKa_schedulePreset:focus-visible,._7D6uKa_scheduleToggle input:focus-visible,._7D6uKa_formSectionHeader:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}._7D6uKa_primaryButton,._7D6uKa_ghostButton,._7D6uKa_dangerButton,._7D6uKa_iconButton,._7D6uKa_linkButton,._7D6uKa_search,._7D6uKa_input,._7D6uKa_select,._7D6uKa_schedulePreset,._7D6uKa_scheduleToggle input,._7D6uKa_formSectionHeader,._7D6uKa_formSectionChevron{transition:background-color .12s,color .12s,border-color .12s,outline-color .12s,box-shadow .12s,transform .12s}._7D6uKa_card:active{box-shadow:var(--dsw-shadow-lv1);transform:translateY(0)}._7D6uKa_primaryButton:active:not(:disabled),._7D6uKa_ghostButton:active:not(:disabled),._7D6uKa_dangerButton:active:not(:disabled),._7D6uKa_iconButton:active:not(:disabled),._7D6uKa_linkButton:active:not(:disabled){transform:translateY(1px)}._7D6uKa_iconButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}._7D6uKa_linkButton:hover:not(:disabled){text-decoration:underline}._7D6uKa_iconButton:disabled,._7D6uKa_linkButton:disabled{opacity:.45;cursor:default}._7D6uKa_search:focus,._7D6uKa_select:focus,._7D6uKa_schedulePreset:focus{border-color:var(--dsw-alias-state-business-primary)}._7D6uKa_scheduleToggle input{margin:0}@media (prefers-reduced-motion:reduce){._7D6uKa_card,._7D6uKa_primaryButton,._7D6uKa_ghostButton,._7D6uKa_dangerButton,._7D6uKa_iconButton,._7D6uKa_linkButton,._7D6uKa_search,._7D6uKa_input,._7D6uKa_select,._7D6uKa_schedulePreset,._7D6uKa_scheduleToggle input,._7D6uKa_formSectionHeader,._7D6uKa_formSectionChevron{transition:none}._7D6uKa_cardSpinner{animation:none}}._7D6uKa_cardTags{flex-wrap:wrap;gap:4px;display:flex}._7D6uKa_cardTag{border:1px solid var(--dsh-task-tag-border);background:var(--dsh-task-tag-fill);max-width:100%;color:var(--dsw-alias-label-primary);text-overflow:ellipsis;white-space:nowrap;border-radius:999px;padding:0 7px;font-size:10px;line-height:16px;overflow:hidden}._7D6uKa_tagFilter{flex-wrap:wrap;align-items:center;gap:6px;margin:0 0 10px;display:flex}._7D6uKa_tagFilterLabel{color:var(--dsw-alias-label-tertiary);font-size:11px}._7D6uKa_tagChip{border:1px solid var(--dsh-task-tag-border);color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border-radius:999px;padding:1px 9px;font-family:inherit;font-size:11px;line-height:18px}._7D6uKa_tagChip[data-active=true]{background:var(--dsh-task-tag-fill);color:var(--dsw-alias-label-primary)}._7D6uKa_cardTag[data-tag-tone=\"0\"],._7D6uKa_tagChip[data-tag-tone=\"0\"]{--dsh-task-tag-fill:#4e93e82e;--dsh-task-tag-border:#4e93e866}._7D6uKa_cardTag[data-tag-tone=\"1\"],._7D6uKa_tagChip[data-tag-tone=\"1\"]{--dsh-task-tag-fill:#2ea36a2e;--dsh-task-tag-border:#2ea36a66}._7D6uKa_cardTag[data-tag-tone=\"2\"],._7D6uKa_tagChip[data-tag-tone=\"2\"]{--dsh-task-tag-fill:#d08a2a2e;--dsh-task-tag-border:#d08a2a66}._7D6uKa_cardTag[data-tag-tone=\"3\"],._7D6uKa_tagChip[data-tag-tone=\"3\"]{--dsh-task-tag-fill:#b456c82e;--dsh-task-tag-border:#b456c866}._7D6uKa_cardTag[data-tag-tone=\"4\"],._7D6uKa_tagChip[data-tag-tone=\"4\"]{--dsh-task-tag-fill:#cf5f7a2e;--dsh-task-tag-border:#cf5f7a66}._7D6uKa_cardTag[data-tag-tone=\"5\"],._7D6uKa_tagChip[data-tag-tone=\"5\"]{--dsh-task-tag-fill:#4a9fb52e;--dsh-task-tag-border:#4a9fb566}._7D6uKa_fieldHint{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:1.4}._7D6uKa_tagRow{align-items:center;gap:6px;display:flex}._7D6uKa_tagRow ._7D6uKa_input{flex:1 1 0;min-width:0}._7D6uKa_tagRow ._7D6uKa_ghostButton{flex:none}._7D6uKa_tagAddButton{align-self:flex-start}._7D6uKa_projectFilter{flex:none;align-items:center;gap:6px;display:flex}._7D6uKa_projectFilterLabel{color:var(--dsw-alias-label-secondary);white-space:nowrap;font-size:12px}._7D6uKa_projectDialog{background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:10px;flex-direction:column;flex:none;gap:8px;margin-bottom:8px;padding:10px 12px;display:flex}._7D6uKa_projectDialogActions{justify-content:flex-end;gap:8px;display:flex}._7D6uKa_aiParse{background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:10px;flex-direction:column;gap:6px;padding:10px 12px;display:flex}._7D6uKa_aiParseRow{align-items:center;gap:8px;display:flex}._7D6uKa_aiParseRow ._7D6uKa_select{flex:1 1 0;min-width:0}._7D6uKa_aiParseRow ._7D6uKa_ghostButton,._7D6uKa_aiParseRow ._7D6uKa_primaryButton{flex:none}._7D6uKa_cardSubtask{border:1px solid var(--dsw-alias-border-l2);max-width:100%;color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap;background:0 0;border-radius:999px;padding:0 7px;font-size:10px;line-height:16px;overflow:hidden}._7D6uKa_cardSubtask[data-tone=failed]{color:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary)}._7D6uKa_cardSubtask[data-tone=running]{color:var(--dsw-alias-state-warn-primary);border-color:var(--dsw-alias-state-warn-primary)}._7D6uKa_cardSubtask[data-tone=done]{color:var(--dsw-alias-state-success-primary);border-color:var(--dsw-alias-state-success-primary)}._7D6uKa_subtaskList{flex-direction:column;gap:6px;margin:0;padding:0;list-style:none;display:flex}._7D6uKa_subtaskRow{border:1px solid var(--dsw-alias-border-l1);border-radius:8px;flex-wrap:wrap;align-items:center;gap:10px;padding:6px 10px;display:flex}._7D6uKa_subtaskRow ._7D6uKa_linkButton:first-child{text-align:left;overflow-wrap:anywhere;flex:auto;min-width:0}._7D6uKa_subtaskAddRow{flex-wrap:wrap;gap:8px;display:flex}._7D6uKa_pickList{flex-direction:column;gap:6px;max-height:320px;margin:0;padding:0;list-style:none;display:flex;overflow-y:auto}._7D6uKa_pickRow{border:1px solid var(--dsw-alias-border-l1);border-radius:8px;align-items:center;gap:10px;padding:6px 10px;display:flex}._7D6uKa_pickTitle{min-width:0;color:var(--dsw-alias-label-primary);overflow-wrap:anywhere;flex:auto;font-size:13px}";
 		const tagId$12 = "@linxin666/dsh-web-all/packages/dsh-task-board/src/client/board.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$12) + "]") === null) {
 			const tag = document.createElement("style");
@@ -6640,6 +6812,7 @@ window.__ModuleLoader__.load({
 			"schedulePreset": "_7D6uKa_schedulePreset",
 			"scheduleRow": "_7D6uKa_scheduleRow",
 			"scheduleToggle": "_7D6uKa_scheduleToggle",
+			"scheduleZone": "_7D6uKa_scheduleZone",
 			"search": "_7D6uKa_search",
 			"select": "_7D6uKa_select",
 			"statusBadge": "_7D6uKa_statusBadge",
@@ -6675,6 +6848,121 @@ window.__ModuleLoader__.load({
 				label: "detail.schedule.preset.weeklyMon9"
 			}
 		];
+		//#endregion
+		//#region ../dsh-task-board/src/client/schedule-zone.ts
+		/**
+		* Shared scheduling helpers for the board's schedule editors (the new-task
+		* dialog and the task detail panel): the time-zone picker inventory, the
+		* relative next-run wording, and the combined absolute + relative label.
+		*
+		* Everything here is browser-side presentation built on the same pure engine
+		* the Host schedules with (`core/schedule.ts`), so the preview a user sees is
+		* computed by the code that will actually arm the rule.
+		*/
+		/**
+		* The runtime's zone inventory, read once. `Intl.supportedValuesOf` is not
+		* available in every engine, so a missing inventory degrades to `UTC` rather
+		* than offering a list that cannot resolve.
+		*
+		* The inventory is deliberately NOT truncated. A capped list silently omits
+		* whole regions, and because a `<select>` whose value matches no option falls
+		* back to its first option, an omitted zone would make the control show — and
+		* then save — a different zone than the rule actually stores.
+		*/
+		let inventoryCache;
+		function zoneInventory() {
+			if (inventoryCache !== void 0) return inventoryCache;
+			let inventory = [];
+			try {
+				inventory = typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("timeZone") : [];
+			} catch {
+				inventory = [];
+			}
+			inventoryCache = inventory.length > 0 ? inventory : ["UTC"];
+			return inventoryCache;
+		}
+		/**
+		* Zones offered by the picker: the Host zone first (the default, and the entry
+		* a rule with no stored zone follows), then the runtime's own inventory.
+		*
+		* The Host entry is always present, even before the Host snapshot reports a
+		* zone: it is the entry that stores no zone, so dropping it would leave a rule
+		* unable to express "follow the Host" and would let the control silently
+		* display an unrelated zone.
+		*
+		* A stored zone the inventory does not list (a rule written on another machine
+		* or under a different ICU build) is appended, so opening the editor can never
+		* silently rewrite the rule's zone.
+		* @param hostTimeZone - zone the Host reported for this deployment, when known.
+		* @param storedTimeZone - zone the edited rule already stores, when any.
+		* @returns the de-duplicated choice list.
+		*/
+		function zoneChoices(hostTimeZone, storedTimeZone) {
+			const host = hostTimeZone !== void 0 && isValidTimeZone(hostTimeZone) ? hostTimeZone : void 0;
+			const choices = [];
+			const seen = /* @__PURE__ */ new Set();
+			choices.push({
+				id: "",
+				label: host === void 0 ? t$4("detail.schedule.timeZoneHostUnknown") : t$4("detail.schedule.timeZoneHost", { timeZone: host })
+			});
+			if (host !== void 0) seen.add(host);
+			for (const zone of zoneInventory()) {
+				if (seen.has(zone) || !isValidTimeZone(zone)) continue;
+				seen.add(zone);
+				choices.push({
+					id: zone,
+					label: zone
+				});
+			}
+			if (storedTimeZone !== void 0 && !seen.has(storedTimeZone) && isValidTimeZone(storedTimeZone)) choices.push({
+				id: storedTimeZone,
+				label: storedTimeZone
+			});
+			return choices;
+		}
+		/** Compact duration parts, largest unit first, with at most two units kept. */
+		function durationParts(ms) {
+			const total = Math.max(0, Math.floor(ms / 1e3));
+			const days = Math.floor(total / 86400);
+			const hours = Math.floor(total % 86400 / 3600);
+			const minutes = Math.floor(total % 3600 / 60);
+			const seconds = total % 60;
+			const parts = [];
+			if (days > 0) parts.push(t$4("detail.schedule.duration.days", { count: String(days) }));
+			if (hours > 0) parts.push(t$4("detail.schedule.duration.hours", { count: String(hours) }));
+			if (minutes > 0) parts.push(t$4("detail.schedule.duration.minutes", { count: String(minutes) }));
+			if (parts.length < 2 && (seconds > 0 || parts.length === 0)) parts.push(t$4("detail.schedule.duration.seconds", { count: String(seconds) }));
+			return parts.slice(0, 2).join(" ");
+		}
+		/**
+		* The relative half of a next-run label: how far away the instant is, or how
+		* far past it the board is running. `now` is passed in rather than sampled so
+		* callers can share one clock reading across a row, and tests stay
+		* deterministic.
+		* @param targetMs - the instant being described.
+		* @param now - the reference instant.
+		* @returns localized relative wording.
+		*/
+		function relativeTimeLabel(targetMs, now) {
+			const delta = targetMs - now;
+			if (delta < 0) return t$4("detail.schedule.nextRunOverdue", { duration: durationParts(-delta) });
+			return `${durationParts(delta)}`;
+		}
+		/**
+		* The full next-run label: the absolute wall clock in the schedule's own zone,
+		* plus the relative distance in parentheses. Showing both matters because a
+		* rule's zone can differ from the reader's, so the wall clock alone is
+		* ambiguous and the distance alone loses the actual moment.
+		* @param targetMs - the instant being described.
+		* @param timeZone - zone to render the absolute half in.
+		* @param formatAbsolute - formatter for the absolute half (keeps Intl caching in the caller).
+		* @param now - the reference instant.
+		* @param translate - translate function, bound so this module stays dependency-light.
+		* @returns the combined label.
+		*/
+		function nextRunLabel(targetMs, timeZone, formatAbsolute, now) {
+			return `${formatAbsolute(targetMs, timeZone)} (${relativeTimeLabel(targetMs, now)})`;
+		}
 		//#endregion
 		//#region ../dsh-task-board/src/client/board/TaskForm.tsx
 		/**
@@ -6916,6 +7204,166 @@ window.__ModuleLoader__.load({
 			return normalizeTags(tags) ?? [];
 		}
 		//#endregion
+		//#region ../dsh-task-board/src/client/board/TaskCard.tsx
+		/**
+		* Task card: the board's column item. Clicking opens the task detail — it
+		* never executes anything directly (detail holds the Run button).
+		*
+		* Memoized: the card re-renders only when its own task record changes, so a
+		* status/filter update on one card (or scrolling) never re-renders every
+		* card on the board. The per-card onClick is built with a stable task reference
+		* by the board, so the memo boundary is effective.
+		*/
+		/**
+		* Built formatters, keyed by time zone ('' = the browser's own). Constructing
+		* an Intl.DateTimeFormat is orders of magnitude more expensive than formatting
+		* with one, and the board renders dozens of timestamps per SSE frame; the
+		* cached formatter keeps that cost off the render path.
+		*/
+		const HOST_TIMESTAMP_FORMATS = /* @__PURE__ */ new Map();
+		function hostTimestampFormat(timeZone) {
+			const key = timeZone ?? "";
+			const cached = HOST_TIMESTAMP_FORMATS.get(key);
+			if (cached !== void 0) return cached;
+			const format = new Intl.DateTimeFormat(void 0, {
+				dateStyle: "medium",
+				timeStyle: "medium",
+				...timeZone === void 0 ? {} : { timeZone }
+			});
+			HOST_TIMESTAMP_FORMATS.set(key, format);
+			return format;
+		}
+		/** Compact relative/absolute time label. */
+		function formatHostTimestamp(ms, timeZone) {
+			try {
+				return hostTimestampFormat(timeZone).format(new Date(ms));
+			} catch {
+				return new Date(ms).toISOString();
+			}
+		}
+		function formatTime$3(ms, timeZone) {
+			const date = new Date(ms);
+			const minutes = Math.floor((Date.now() - ms) / 6e4);
+			if (minutes < 1) return t$4("time.justNow");
+			if (minutes < 60) return `${minutes}m`;
+			if (minutes < 1440) return `${Math.floor(minutes / 60)}h`;
+			if (timeZone !== void 0) return formatHostTimestamp(ms, timeZone);
+			return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+		}
+		function TaskCardInner({ task, pending, timeZone, onClick, subtaskCount = 0, isSubtask = false, subtasksDone = 0, subtasksRunning = 0, subtasksFailed = 0 }) {
+			const latest = task.executions[task.executions.length - 1];
+			const runs = task.executions.length;
+			const archived = task.archivedAt !== void 0;
+			const isDraggable = !archived && task.status !== "running" && !pending;
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+				type: "button",
+				className: board_module_css_default.card,
+				"data-status": archived ? "archived" : task.status,
+				"data-dsh-part": "card",
+				"data-pending": pending || void 0,
+				draggable: isDraggable,
+				onDragStart: isDraggable ? (event) => {
+					event.dataTransfer.setData("text/plain", task.id);
+					event.dataTransfer.effectAllowed = "move";
+				} : void 0,
+				onClick,
+				title: task.description !== "" ? task.description : task.title,
+				children: [
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: board_module_css_default.cardTitle,
+						children: task.title
+					}),
+					task.tags !== void 0 && task.tags.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: board_module_css_default.cardTags,
+						children: task.tags.map((tag) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: board_module_css_default.cardTag,
+							"data-tag-tone": tagTone(tag.name),
+							"data-dsh-part": "tag-badge",
+							"data-tag-hint": tag.promptPrefix === void 0 ? void 0 : tag.promptPrefix,
+							title: tag.promptPrefix === void 0 ? tag.name : tag.promptPrefix,
+							children: tag.name
+						}, tag.name))
+					}),
+					task.description !== "" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: board_module_css_default.cardExcerpt,
+						children: task.description
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+						className: board_module_css_default.cardMeta,
+						children: [
+							isSubtask && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: board_module_css_default.cardSubtask,
+								"data-dsh-part": "subtask-badge",
+								children: t$4("card.subtask")
+							}),
+							subtaskCount > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+								className: board_module_css_default.cardSubtask,
+								"data-dsh-part": "subtask-count",
+								"data-tone": subtasksFailed > 0 ? "failed" : subtasksRunning > 0 ? "running" : subtasksDone === subtaskCount ? "done" : void 0,
+								title: t$4("card.subtasksBreakdown", {
+									total: String(subtaskCount),
+									done: String(subtasksDone),
+									running: String(subtasksRunning),
+									failed: String(subtasksFailed)
+								}),
+								children: [
+									t$4("card.subtasks", { count: String(subtaskCount) }),
+									subtasksFailed > 0 ? " · " + t$4("card.subtasksFailed", { count: String(subtasksFailed) }) : "",
+									subtasksFailed === 0 && subtasksRunning > 0 ? " · " + t$4("card.subtasksRunning", { count: String(subtasksRunning) }) : ""
+								]
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+								className: board_module_css_default.cardTime,
+								children: [
+									t$4("board.updated"),
+									" ",
+									formatTime$3(task.updatedAt)
+								]
+							}),
+							task.freeze !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: board_module_css_default.cardSchedule,
+								title: task.freeze.goal,
+								children: t$4("card.frozen")
+							}),
+							!archived && task.schedule?.enabled === true && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: board_module_css_default.cardSchedule,
+								title: task.schedule.nextRunAt !== void 0 ? `${t$4("card.scheduled")} · ${formatHostTimestamp(task.schedule.nextRunAt, timeZone)}` : t$4("card.scheduled"),
+								children: t$4("card.scheduled")
+							}),
+							latest !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+								className: board_module_css_default.cardRun,
+								"data-result": archived ? void 0 : latest.result,
+								children: [
+									runs,
+									" ",
+									t$4("board.runs")
+								]
+							}),
+							latest?.sessionId !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: board_module_css_default.cardSession,
+								title: latest.sessionId,
+								children: "⌁"
+							}),
+							!archived && (task.status === "running" || pending) && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: board_module_css_default.cardSpinner,
+								"aria-hidden": "true"
+							})
+						]
+					}),
+					!archived && pending && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+						className: board_module_css_default.cardRunningLabel,
+						children: [t$4("board.pending"), "…"]
+					}),
+					!archived && latest !== void 0 && executionLabel(latest) === "running" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+						className: board_module_css_default.cardRunningLabel,
+						children: [latest.ownResult === void 0 ? t$4("detail.result.running") : t$4("detail.subtasks.waiting"), "…"]
+					})
+				]
+			});
+		}
+		/** Memoized card: re-renders only when the card's own task record changes. */
+		const TaskCard = (0, react.memo)(TaskCardInner);
+		//#endregion
 		//#region ../dsh-task-board/src/client/board/parse-model-pref.ts
 		/**
 		* The model the user last picked for AI parsing, remembered per browser so the
@@ -6996,6 +7444,7 @@ window.__ModuleLoader__.load({
 			const [goalRun, setGoalRun] = (0, react.useState)(initialTask?.goalRun ?? true);
 			const [scheduleEnabled, setScheduleEnabled] = (0, react.useState)(initialTask?.schedule?.enabled ?? false);
 			const [scheduleCron, setScheduleCron] = (0, react.useState)(initialTask?.schedule?.cron ?? "");
+			const [scheduleZone, setScheduleZone] = (0, react.useState)(initialTask?.schedule?.timeZone ?? "");
 			const [scheduleError, setScheduleError] = (0, react.useState)(void 0);
 			const [freezeText, setFreezeText] = (0, react.useState)("");
 			const [freezeError, setFreezeError] = (0, react.useState)(void 0);
@@ -7098,7 +7547,8 @@ window.__ModuleLoader__.load({
 					...tagList.length > 0 ? { tags: tagList } : {},
 					schedule: scheduleEnabled ? {
 						enabled: true,
-						cron: scheduleCron.trim()
+						cron: scheduleCron.trim(),
+						...scheduleZone === "" ? {} : { timeZone: scheduleZone }
 					} : void 0
 				});
 				if (task === void 0) {
@@ -7113,8 +7563,9 @@ window.__ModuleLoader__.load({
 				}
 				onClose();
 			};
-			/** Next-run preview for a valid armed cron (creation-time only). */
-			const scheduleNextRun = scheduleEnabled && scheduleCron.trim() !== "" && isValidCron(scheduleCron) ? nextRunAtMs(scheduleCron, Date.now()) : void 0;
+			const hostTimeZone = controller.getSnapshot().host?.scheduler.timeZone;
+			const scheduleTimeZone = scheduleZone === "" ? hostTimeZone : scheduleZone;
+			const scheduleNextRun = scheduleEnabled && scheduleCron.trim() !== "" && isValidCron(scheduleCron) ? nextRunAtMs(scheduleCron, Date.now(), scheduleTimeZone) : void 0;
 			const modalTitle = parentTask !== void 0 ? t$4("new.subtaskTitle") : isDuplicate ? t$4("new.duplicateTitle") : t$4("board.new");
 			const builtinPresets = options.presets.filter((preset) => isBuiltinPreset(preset.id));
 			const customPresets = options.presets.filter((preset) => !isBuiltinPreset(preset.id));
@@ -7519,12 +7970,29 @@ window.__ModuleLoader__.load({
 								className: board_module_css_default.formError,
 								children: scheduleError
 							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+								className: board_module_css_default.scheduleZone,
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t$4("detail.schedule.timeZone") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("select", {
+									className: board_module_css_default.schedulePreset,
+									value: scheduleZone,
+									"aria-label": t$4("detail.schedule.timeZone"),
+									title: t$4("detail.schedule.timeZoneHint"),
+									onChange: (event) => {
+										setScheduleZone(event.target.value);
+										setScheduleError(void 0);
+									},
+									children: zoneChoices(hostTimeZone, initialTask?.schedule?.timeZone).map((choice) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
+										value: choice.id,
+										children: choice.label
+									}, choice.id === "" ? "__host" : choice.id))
+								})]
+							}),
 							scheduleError === void 0 && scheduleNextRun !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("p", {
 								className: board_module_css_default.scheduleMeta,
 								children: [
 									t$4("detail.schedule.nextRun"),
 									" ",
-									new Date(scheduleNextRun).toLocaleString()
+									nextRunLabel(scheduleNextRun, scheduleTimeZone, formatHostTimestamp, Date.now())
 								]
 							})
 						] })]
@@ -7542,151 +8010,6 @@ window.__ModuleLoader__.load({
 			done: "board.status.done",
 			failed: "board.status.failed"
 		};
-		//#endregion
-		//#region ../dsh-task-board/src/client/board/TaskCard.tsx
-		/**
-		* Task card: the board's column item. Clicking opens the task detail — it
-		* never executes anything directly (detail holds the Run button).
-		*
-		* Memoized: the card re-renders only when its own task record changes, so a
-		* status/filter update on one card (or scrolling) never re-renders every
-		* card on the board. The per-card onClick is built with a stable task reference
-		* by the board, so the memo boundary is effective.
-		*/
-		/** Compact relative/absolute time label. */
-		function formatHostTimestamp(ms, timeZone) {
-			try {
-				return new Intl.DateTimeFormat(void 0, {
-					dateStyle: "medium",
-					timeStyle: "medium",
-					...timeZone === void 0 ? {} : { timeZone }
-				}).format(new Date(ms));
-			} catch {
-				return new Date(ms).toISOString();
-			}
-		}
-		function formatTime$3(ms, timeZone) {
-			const date = new Date(ms);
-			const minutes = Math.floor((Date.now() - ms) / 6e4);
-			if (minutes < 1) return t$4("time.justNow");
-			if (minutes < 60) return `${minutes}m`;
-			if (minutes < 1440) return `${Math.floor(minutes / 60)}h`;
-			if (timeZone !== void 0) return formatHostTimestamp(ms, timeZone);
-			return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-		}
-		function TaskCardInner({ task, pending, timeZone, onClick, subtaskCount = 0, isSubtask = false, subtasksDone = 0, subtasksRunning = 0, subtasksFailed = 0 }) {
-			const latest = task.executions[task.executions.length - 1];
-			const runs = task.executions.length;
-			const archived = task.archivedAt !== void 0;
-			const isDraggable = !archived && task.status !== "running" && !pending;
-			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
-				type: "button",
-				className: board_module_css_default.card,
-				"data-status": archived ? "archived" : task.status,
-				"data-dsh-part": "card",
-				"data-pending": pending || void 0,
-				draggable: isDraggable,
-				onDragStart: isDraggable ? (event) => {
-					event.dataTransfer.setData("text/plain", task.id);
-					event.dataTransfer.effectAllowed = "move";
-				} : void 0,
-				onClick,
-				title: task.description !== "" ? task.description : task.title,
-				children: [
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: board_module_css_default.cardTitle,
-						children: task.title
-					}),
-					task.tags !== void 0 && task.tags.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: board_module_css_default.cardTags,
-						children: task.tags.map((tag) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-							className: board_module_css_default.cardTag,
-							"data-tag-tone": tagTone(tag.name),
-							"data-dsh-part": "tag-badge",
-							"data-tag-hint": tag.promptPrefix === void 0 ? void 0 : tag.promptPrefix,
-							title: tag.promptPrefix === void 0 ? tag.name : tag.promptPrefix,
-							children: tag.name
-						}, tag.name))
-					}),
-					task.description !== "" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: board_module_css_default.cardExcerpt,
-						children: task.description
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-						className: board_module_css_default.cardMeta,
-						children: [
-							isSubtask && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-								className: board_module_css_default.cardSubtask,
-								"data-dsh-part": "subtask-badge",
-								children: t$4("card.subtask")
-							}),
-							subtaskCount > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-								className: board_module_css_default.cardSubtask,
-								"data-dsh-part": "subtask-count",
-								"data-tone": subtasksFailed > 0 ? "failed" : subtasksRunning > 0 ? "running" : subtasksDone === subtaskCount ? "done" : void 0,
-								title: t$4("card.subtasksBreakdown", {
-									total: String(subtaskCount),
-									done: String(subtasksDone),
-									running: String(subtasksRunning),
-									failed: String(subtasksFailed)
-								}),
-								children: [
-									t$4("card.subtasks", { count: String(subtaskCount) }),
-									subtasksFailed > 0 ? " · " + t$4("card.subtasksFailed", { count: String(subtasksFailed) }) : "",
-									subtasksFailed === 0 && subtasksRunning > 0 ? " · " + t$4("card.subtasksRunning", { count: String(subtasksRunning) }) : ""
-								]
-							}),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-								className: board_module_css_default.cardTime,
-								children: [
-									t$4("board.updated"),
-									" ",
-									formatTime$3(task.updatedAt)
-								]
-							}),
-							task.freeze !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-								className: board_module_css_default.cardSchedule,
-								title: task.freeze.goal,
-								children: t$4("card.frozen")
-							}),
-							!archived && task.schedule?.enabled === true && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-								className: board_module_css_default.cardSchedule,
-								title: task.schedule.nextRunAt !== void 0 ? `${t$4("card.scheduled")} · ${formatHostTimestamp(task.schedule.nextRunAt, timeZone)}` : t$4("card.scheduled"),
-								children: t$4("card.scheduled")
-							}),
-							latest !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-								className: board_module_css_default.cardRun,
-								"data-result": archived ? void 0 : latest.result,
-								children: [
-									runs,
-									" ",
-									t$4("board.runs")
-								]
-							}),
-							latest?.sessionId !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-								className: board_module_css_default.cardSession,
-								title: latest.sessionId,
-								children: "⌁"
-							}),
-							!archived && (task.status === "running" || pending) && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-								className: board_module_css_default.cardSpinner,
-								"aria-hidden": "true"
-							})
-						]
-					}),
-					!archived && pending && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-						className: board_module_css_default.cardRunningLabel,
-						children: [t$4("board.pending"), "…"]
-					}),
-					!archived && latest !== void 0 && executionLabel(latest) === "running" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-						className: board_module_css_default.cardRunningLabel,
-						children: [latest.ownResult === void 0 ? t$4("detail.result.running") : t$4("detail.subtasks.waiting"), "…"]
-					})
-				]
-			});
-		}
-		/** Memoized card: re-renders only when the card's own task record changes. */
-		const TaskCard = (0, react.memo)(TaskCardInner);
 		//#endregion
 		//#region ../dsh-task-board/src/client/board/ConfirmDialog.tsx
 		/**
@@ -7841,7 +8164,15 @@ window.__ModuleLoader__.load({
 			const [error, setError] = (0, react.useState)(void 0);
 			const snapshot = controller.getSnapshot();
 			const limit = snapshot.host?.maxSubtaskDepth ?? 1;
-			const candidates = snapshot.tasks.filter((task) => task.archivedAt === void 0 && task.status !== "running" && task.parentId === void 0 && task.id !== parent.id && checkParentLink(snapshot.tasks, task.id, parent.id, limit).ok);
+			const tasks = snapshot.tasks;
+			const candidates = (0, react.useMemo)(() => {
+				const lineage = buildLineageIndex(tasks);
+				return tasks.filter((task) => task.archivedAt === void 0 && task.status !== "running" && task.parentId === void 0 && task.id !== parent.id && checkParentLink(tasks, task.id, parent.id, limit, lineage).ok);
+			}, [
+				tasks,
+				parent.id,
+				limit
+			]);
 			const link = async (taskId) => {
 				setPending(true);
 				setError(void 0);
@@ -7973,15 +8304,8 @@ window.__ModuleLoader__.load({
 			});
 		}
 		/** The execution-target editor: workspace / mode / permission pickers. */
-		function ExecutionSettingsSection({ controller, task, pending }) {
-			const [options, setOptions] = (0, react.useState)(controller.getSnapshot().executionOptions);
-			const teamRunOffered = () => controller.getSnapshot().host?.teamRunAvailable === true;
-			const [teamRunAvailable, setTeamRunAvailable] = (0, react.useState)(teamRunOffered());
-			(0, react.useEffect)(() => controller.subscribe(() => {
-				const snapshot = controller.getSnapshot();
-				setOptions(snapshot.executionOptions);
-				setTeamRunAvailable(snapshot.host?.teamRunAvailable === true);
-			}), [controller]);
+		function ExecutionSettingsSection({ controller, task, pending, executionOptions, teamRunAvailable }) {
+			const options = executionOptions;
 			const workspaceId = task.workspaceId ?? "";
 			const mode = task.mode ?? "";
 			const permission = task.permission ?? "";
@@ -8155,7 +8479,7 @@ window.__ModuleLoader__.load({
 				]
 			});
 		}
-		/** The scheduled-runs editor: enable toggle, cron input + presets, next-run info. */
+		/** The scheduled-runs editor: enable toggle, cron input + presets, zone, next-run info. */
 		function ScheduleSection({ controller, task, pending }) {
 			const schedule = task.schedule;
 			const [cron, setCron] = (0, react.useState)(schedule?.cron ?? "0 9 * * *");
@@ -8163,17 +8487,21 @@ window.__ModuleLoader__.load({
 			const [nextRunAt, setNextRunAt] = (0, react.useState)(schedule?.nextRunAt);
 			const [lastTriggeredAt, setLastTriggeredAt] = (0, react.useState)(schedule?.lastTriggeredAt);
 			const [error, setError] = (0, react.useState)(void 0);
-			const timeZone = controller.getSnapshot().host?.scheduler.timeZone;
+			const hostTimeZone = controller.getSnapshot().host?.scheduler.timeZone;
+			const [zone, setZone] = (0, react.useState)(schedule?.timeZone ?? "");
+			const now = Date.now();
 			(0, react.useEffect)(() => {
 				setCron(schedule?.cron ?? "0 9 * * *");
 				setEnabled(schedule?.enabled ?? false);
 				setNextRunAt(schedule?.nextRunAt);
 				setLastTriggeredAt(schedule?.lastTriggeredAt);
+				setZone(schedule?.timeZone ?? "");
 				setError(void 0);
 			}, [
 				task.id,
 				schedule?.enabled,
 				schedule?.cron,
+				schedule?.timeZone,
 				schedule?.nextRunAt,
 				schedule?.lastTriggeredAt
 			]);
@@ -8187,6 +8515,15 @@ window.__ModuleLoader__.load({
 				}
 				setError(void 0);
 				controller.setSchedule(task.id, { cron: trimmed });
+			};
+			/**
+			* Change the rule's zone. `''` clears the stored zone, which is how a user
+			* returns a rule to following the Host zone.
+			*/
+			const changeZone = (value) => {
+				setZone(value);
+				setError(void 0);
+				controller.setSchedule(task.id, { timeZone: value === "" ? null : value });
 			};
 			/** Arm/disarm the schedule (arming first persists the edited cron). */
 			const toggleEnabled = (next) => {
@@ -8207,8 +8544,10 @@ window.__ModuleLoader__.load({
 				setError(void 0);
 				controller.setSchedule(task.id, { cron: preset });
 			};
-			const nextLabel = !enabled || nextRunAt === void 0 ? t$4("detail.schedule.notScheduled") : nextRunAt <= Date.now() ? t$4("detail.schedule.dueSoon") : formatHostTimestamp(nextRunAt, timeZone);
-			const lastLabel = lastTriggeredAt === void 0 ? "—" : formatHostTimestamp(lastTriggeredAt, timeZone);
+			const effectiveZone = zone === "" ? hostTimeZone : zone;
+			const nextLabel = !enabled || nextRunAt === void 0 ? t$4("detail.schedule.notScheduled") : nextRunAt <= now ? t$4("detail.schedule.dueSoon") : nextRunLabel(nextRunAt, effectiveZone, formatHostTimestamp, now);
+			const lastLabel = lastTriggeredAt === void 0 ? "—" : formatHostTimestamp(lastTriggeredAt, effectiveZone);
+			const zones = zoneChoices(hostTimeZone, schedule?.timeZone);
 			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
 				className: board_module_css_default.detailSection,
 				children: [
@@ -8260,6 +8599,23 @@ window.__ModuleLoader__.load({
 							}, preset.cron))]
 						})]
 					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+						className: board_module_css_default.scheduleZone,
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t$4("detail.schedule.timeZone") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("select", {
+							className: board_module_css_default.schedulePreset,
+							value: zone,
+							disabled: pending,
+							"aria-label": t$4("detail.schedule.timeZone"),
+							title: t$4("detail.schedule.timeZoneHint"),
+							onChange: (event) => {
+								changeZone(event.target.value);
+							},
+							children: zones.map((choice) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
+								value: choice.id,
+								children: choice.label
+							}, choice.id === "" ? "__host" : choice.id))
+						})]
+					}),
 					error !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
 						className: board_module_css_default.formError,
 						children: error
@@ -8284,9 +8640,7 @@ window.__ModuleLoader__.load({
 		* and the actions that grow or prune the tree. Every gate here mirrors the
 		* Host lineage gate for affordance only; the Host re-checks the action.
 		*/
-		function SubtaskSection({ controller, task, pending, archived }) {
-			const [snapshot, setSnapshot] = (0, react.useState)(controller.getSnapshot());
-			(0, react.useEffect)(() => controller.subscribe(() => setSnapshot(controller.getSnapshot())), [controller]);
+		function SubtaskSection({ controller, task, pending, archived, snapshot }) {
 			const [showAdd, setShowAdd] = (0, react.useState)(false);
 			const [showLink, setShowLink] = (0, react.useState)(false);
 			const tasks = snapshot.tasks;
@@ -8485,7 +8839,8 @@ window.__ModuleLoader__.load({
 										controller,
 										task: current,
 										pending,
-										archived
+										archived,
+										snapshot
 									}),
 									current.tags !== void 0 && current.tags.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
 										className: board_module_css_default.detailSection,
@@ -8613,7 +8968,9 @@ window.__ModuleLoader__.load({
 									!archived && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(ExecutionSettingsSection, {
 										controller,
 										task: current,
-										pending
+										pending,
+										executionOptions: snapshot.executionOptions,
+										teamRunAvailable: snapshot.host?.teamRunAvailable === true
 									}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ScheduleSection, {
 										controller,
 										task: current,
@@ -10534,7 +10891,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$5() {
 			try {
-				return "0.4.3-dsh.20260928.1";
+				return "0.4.4-dsh.20260929.1";
 			} catch {
 				return;
 			}
@@ -10862,6 +11219,44 @@ window.__ModuleLoader__.load({
 			"layout"
 		];
 		/**
+		* Read the agent-preset roster through whichever face the running host
+		* serves: the generated api-remotes face (`remote.agentPresets`,
+		* 0.1.2-alpha.2) or the connection RPC face
+		* (`connection.api.agentPresets`, hosts below that cohort). Answers
+		* undefined when the host serves neither, so the caller leaves the picker
+		* options untouched instead of erroring.
+		*/
+		async function readPresetRoster(ctx, remote) {
+			let remotes;
+			try {
+				remotes = remote.agentPresets;
+			} catch {
+				remotes = void 0;
+			}
+			if (remotes !== void 0) {
+				const response = await remotes.list();
+				if (!response.ok) return {
+					ok: false,
+					presets: []
+				};
+				return {
+					ok: true,
+					presets: response.value.presets
+				};
+			}
+			const legacy = ctx.get("connection").api?.agentPresets;
+			if (legacy === void 0) return void 0;
+			const response = await legacy.list({});
+			if (!response.result.ok || response.result.value === void 0) return {
+				ok: false,
+				presets: []
+			};
+			return {
+				ok: true,
+				presets: response.result.value.presets ?? []
+			};
+		}
+		/**
 		* Mount the task board.
 		* @param ctx - client root context (services: sessions, workspaces).
 		*/
@@ -10927,6 +11322,21 @@ window.__ModuleLoader__.load({
 				controller.setWorkspaceCreator(async (path) => {
 					return { workspaceId: (await workspaces.create({ path })).workspaceId };
 				});
+				const pushPresetOptions = async () => {
+					try {
+						const roster = await readPresetRoster(ctx, remote);
+						if (roster === void 0 || !roster.ok) return;
+						controller.setExecutionOptions({ presets: roster.presets.map((preset) => ({
+							id: preset.id,
+							name: preset.name,
+							description: preset.description,
+							broken: preset.broken,
+							isDefault: preset.isDefault
+						})) });
+					} catch (error) {
+						console.error("[dsh-task-board] agent preset roster read failed", error);
+					}
+				};
 				const pushModelOptions = async () => {
 					try {
 						let models = [];
@@ -10982,8 +11392,10 @@ window.__ModuleLoader__.load({
 						console.error("[dsh-task-board] model options read failed", error);
 					}
 				};
+				pushPresetOptions();
 				pushModelOptions();
 				disposers.push(ctx.on("connection/reset", () => {
+					pushPresetOptions();
 					pushModelOptions();
 				}));
 				try {
@@ -12798,7 +13210,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$4() {
 			try {
-				return "0.4.3-dsh.20260928.1";
+				return "0.4.4-dsh.20260929.1";
 			} catch {
 				return;
 			}
@@ -14710,7 +15122,7 @@ window.__ModuleLoader__.load({
 		* `blob:`, `data:`, `about:` and `filesystem:` stay on the web side: a
 		* network page mints those documents, so they must keep the fence.
 		*/
-		const WEB_PAGE_PROTOCOLS = [
+		const WEB_PAGE_PROTOCOLS$1 = [
 			"http:",
 			"https:",
 			"blob:",
@@ -14724,7 +15136,7 @@ window.__ModuleLoader__.load({
 		* @returns true for the network transports and the documents they mint.
 		*/
 		function isWebPageProtocol(protocol) {
-			return WEB_PAGE_PROTOCOLS.includes(protocol);
+			return WEB_PAGE_PROTOCOLS$1.includes(protocol);
 		}
 		/**
 		* Hostname-only loopback classification: localhost, the IPv6 loopback literal
@@ -14810,7 +15222,7 @@ window.__ModuleLoader__.load({
 			deviceQuery: REMOTE_DEVICE_QUERY,
 			uploadPath: "/api/session/uploadFileBinary",
 			uploadHookGlobal: "__DSH_FILE_UPLOAD__",
-			webProtocols: WEB_PAGE_PROTOCOLS,
+			webProtocols: WEB_PAGE_PROTOCOLS$1,
 			hostGrantGlobal: "__DSH_REMOTE_HOST_GRANT__"
 		};
 		/** The window global the boot patch publishes its seat under. */
@@ -15243,7 +15655,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$3() {
 			try {
-				return "0.4.3-dsh.20260928.1";
+				return "0.4.4-dsh.20260929.1";
 			} catch {
 				return;
 			}
@@ -15317,6 +15729,16 @@ window.__ModuleLoader__.load({
 		const ACTIVE_CLASS = "dsh-remote-portrait";
 		/** Body class while the collapsed rail is hidden behind the whale. */
 		const RAIL_HIDDEN_CLASS = "dsh-remote-rail-hidden";
+		/**
+		* The official sidebar column root. Also the scope of the row sweep: every row
+		* the drag suppression covers is a descendant of it, so the document-wide scan
+		* it replaces only ever returned these.
+		*/
+		const SIDEBAR_SELECTOR = "[class*=\"_sidebarCol\"]";
+		/** The official draggable session/project rows (see disableRowDrag). */
+		const ROW_SELECTOR = "[class*=\"_sessionRow\"], [class*=\"_projectRow\"]";
+		/** The injected stylesheet, addressed through the same cached lookup. */
+		const STYLE_SELECTOR = `style[data-plugin-css="${ADAPT_CSS_ID}"]`;
 		/** Whale button id. */
 		const WHALE_ID = "dshRemoteWhale";
 		/** Compact picker: synthesized model button id. */
@@ -15484,6 +15906,8 @@ window.__ModuleLoader__.load({
 			let whaleObserver = null;
 			/** Header subtree observer: marks the geometry measurement dirty on re-render. */
 			let headerObserver = null;
+			/** Document child-list observer: invalidates the cached-absent selector set. */
+			let domObserver = null;
 			let observedHeader = null;
 			/** Whether the seated-actions geometry needs re-measuring (see alignActionsText). */
 			let headerGeometryDirty = true;
@@ -15502,16 +15926,19 @@ window.__ModuleLoader__.load({
 			* rail compaction) while the body class stays.
 			*/
 			function ensureAdaptStyle() {
-				if (nodeOf(`style[data-plugin-css="${ADAPT_CSS_ID}"]`) !== null) return;
+				if (nodeOf(STYLE_SELECTOR) !== null) return;
 				const tag = document.createElement("style");
 				tag.dataset.plugin = "remote-web-ui";
 				tag.dataset.pluginCss = ADAPT_CSS_ID;
 				tag.textContent = ADAPT_CSS.join("");
 				document.head.appendChild(tag);
+				nodeCache.set(STYLE_SELECTOR, tag);
+				nodeMissCache.delete(STYLE_SELECTOR);
 			}
 			function apply() {
 				if (active) return;
 				active = true;
+				forgetAbsentSelectors();
 				document.body.classList.add(ACTIVE_CLASS);
 				try {
 					w.__dshRemoteAdapt?.closeDetails?.();
@@ -15523,6 +15950,7 @@ window.__ModuleLoader__.load({
 					meta.setAttribute("content", `${savedViewportContent}, viewport-fit=cover`);
 				}
 				ensureWhale();
+				ensureDomObserver();
 				syncWhale();
 				setWhaleTimer(true);
 				seatHeaderActions();
@@ -15548,6 +15976,40 @@ window.__ModuleLoader__.load({
 					whaleObserver.disconnect();
 					whaleObserver = null;
 				}
+				if (domObserver !== null) {
+					domObserver.disconnect();
+					domObserver = null;
+				}
+				forgetAbsentSelectors();
+			}
+			/**
+			* Observe the document for the two kinds of change that can make a cached-absent
+			* target discoverable again (see nodeOf): node insertion/removal, and the
+			* class / compat-stamp attributes the cached selectors match on.
+			*
+			* Body class writes are excluded by target: the layer toggles three body
+			* classes every tick, and counting those would invalidate the negative cache
+			* on every tick and restore the very scan this cache removes. They cannot
+			* create a target either — every cached selector matches an element other
+			* than <body>.
+			*
+			* The record queue is drained on a microtask, so this stays off the layout
+			* path; a chat turn's insertions are a handful per second, not per element.
+			*/
+			function ensureDomObserver() {
+				if (domObserver !== null || typeof MutationObserver === "undefined" || !document.body) return;
+				domObserver = new MutationObserver((records) => {
+					for (const record of records) if (record.type === "childList" || record.target !== document.body) {
+						noteDomChange();
+						return;
+					}
+				});
+				domObserver.observe(document.body, {
+					childList: true,
+					subtree: true,
+					attributes: true,
+					attributeFilter: ["class", "data-dsh-frame"]
+				});
 			}
 			/** Start/stop the 600ms sync tick; a no-op when already in the asked state. */
 			function setWhaleTimer(on) {
@@ -15796,7 +16258,7 @@ window.__ModuleLoader__.load({
 			const dragOverridden = /* @__PURE__ */ new Map();
 			function disableRowDrag() {
 				if (!active) return;
-				const rows = document.querySelectorAll("[class*=\"_sidebarCol\"] [class*=\"_sessionRow\"], [class*=\"_sidebarCol\"] [class*=\"_projectRow\"]");
+				const rows = sidebarRows();
 				for (const row of rows) if (row.getAttribute("draggable") !== "false") {
 					if (!dragOverridden.has(row)) dragOverridden.set(row, row.getAttribute("draggable"));
 					row.setAttribute("draggable", "false");
@@ -15817,13 +16279,82 @@ window.__ModuleLoader__.load({
 			* node on a major re-render, which the isConnected guard detects.
 			*/
 			const nodeCache = /* @__PURE__ */ new Map();
+			/**
+			* Selectors known to be absent as of {@link domGeneration}. A miss is the
+			* common case, not the exception: the layer holds no overlay of its own, and
+			* several official surfaces it looks for (tabs row, tools row, sidebar rows)
+			* legitimately do not exist at once. Re-walking a conversation-sized document
+			* for the same absent selector on every 600ms tick was waste that almost
+			* always resolved to null: five document-wide lookups per tick on the measured
+			* fixture, zero after this cache. That is a lookup count — the wall-clock
+			* saving is real while the mounted content is quiet and shrinks to the
+			* row-scope saving when a turn streams (see the Agent Note for the harness and
+			* the before/after numbers).
+			*
+			* A miss is trusted only while the observed content has not changed, so a
+			* surface that appears is still found on the very next tick — the same
+			* discovery latency the unconditional probe had. The cache is never aged by a
+			* clock: it is cleared by {@link noteDomChange} while the observer is live and
+			* by {@link forgetAbsentSelectors} across the windows where it is not (apply
+			* and revert). One blind spot is deliberate and load-bearing: the observer
+			* watches <body>, so a head-resident target is not covered by that signal —
+			* the one such target is seeded into the cache where it is created (see
+			* ensureAdaptStyle).
+			*/
+			const nodeMissCache = /* @__PURE__ */ new Set();
+			/**
+			* Bumped whenever a cached target may have appeared or disappeared. A surface
+			* qualifies on a class token or on the aggregate compat stamp
+			* (`data-dsh-frame`), so both insertions/removals AND those two attributes
+			* can change the answer. Nothing the layer writes per tick lands here: its own
+			* class writes are all on <body>, and its row/transform/label writes touch
+			* other attributes entirely (see ensureDomObserver).
+			*/
+			let domGeneration = 0;
+			/** The generation the negative cache was recorded against. */
+			let missGeneration = -1;
+			function noteDomChange() {
+				domGeneration += 1;
+			}
+			/**
+			* Drop every cached "absent" verdict. Called on apply and revert: while the
+			* observer is disconnected the layer is blind to insertions, so a verdict
+			* recorded before the gap could otherwise outlive the change that falsified
+			* it and be served without a probe. The positive cache needs no equivalent —
+			* its `isConnected` guard already re-resolves a replaced node.
+			*/
+			function forgetAbsentSelectors() {
+				nodeMissCache.clear();
+				domGeneration += 1;
+			}
 			function nodeOf(selector) {
 				const cached = nodeCache.get(selector);
-				if (cached !== void 0 && cached.isConnected) return cached;
+				if (cached !== void 0) {
+					if (cached.isConnected) return cached;
+					nodeCache.delete(selector);
+				}
+				if (missGeneration !== domGeneration) {
+					nodeMissCache.clear();
+					missGeneration = domGeneration;
+				}
+				if (nodeMissCache.has(selector)) return null;
 				const found = document.querySelector(selector);
-				if (found === null) nodeCache.delete(selector);
-				else nodeCache.set(selector, found);
+				if (found === null) {
+					nodeMissCache.add(selector);
+					return null;
+				}
+				nodeCache.set(selector, found);
 				return found;
+			}
+			/**
+			* The session/project rows the drag suppression covers, scoped to the cached
+			* sidebar root. Each row carries the sidebar column class as an ancestor, so
+			* the document-wide scan this replaces only ever returned rows from here.
+			*/
+			function sidebarRows() {
+				const sidebar = nodeOf(SIDEBAR_SELECTOR);
+				if (sidebar === null) return [];
+				return Array.from(sidebar.querySelectorAll(ROW_SELECTOR));
 			}
 			/** The official application frame, through the same cached lookup. */
 			function frameEl() {
@@ -17395,7 +17926,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$2() {
 			try {
-				return "0.4.3-dsh.20260928.1";
+				return "0.4.4-dsh.20260929.1";
 			} catch {
 				return;
 			}
@@ -17610,6 +18141,7 @@ window.__ModuleLoader__.load({
 			"terminal.ready": "终端已连接（{alias}）",
 			"terminal.exited": "终端已退出（{alias}）",
 			"terminal.error": "终端错误：{error}",
+			"terminal.noWebSocket": "当前页面不支持 WebSocket（应用外壳只转发 HTTP），请改用浏览器打开的 Web 界面使用终端。",
 			"terminal.auth.title": "二次身份验证 (2FA / 交互式认证)",
 			"terminal.auth.submit": "提交验证码",
 			"terminal.auth.cancel": "取消",
@@ -17770,6 +18302,7 @@ window.__ModuleLoader__.load({
 			"terminal.ready": "Terminal connected ({alias})",
 			"terminal.exited": "Terminal exited ({alias})",
 			"terminal.error": "Terminal error: {error}",
+			"terminal.noWebSocket": "This page cannot carry a WebSocket (the application shell forwards HTTP only). Open the Web UI in a browser to use the terminal.",
 			"terminal.auth.title": "Two-Factor Authentication (2FA)",
 			"terminal.auth.submit": "Submit Code",
 			"terminal.auth.cancel": "Cancel",
@@ -17946,6 +18479,63 @@ window.__ModuleLoader__.load({
 			for (const [key, value] of Object.entries(params)) if (value !== void 0 && value !== "") search.set(key, String(value));
 			const text = search.toString();
 			return text === "" ? "" : "?" + text;
+		}
+		/**
+		* The WebSocket URL the terminal route is reached at, or undefined when this
+		* page cannot carry one.
+		*
+		* A page delivered by an application on this machine (the official DSH
+		* Desktop shell serves its Web GUI from `dsh-app://app/`) has no WebSocket
+		* transport: its scheme handler forwards HTTP requests to the local host but
+		* cannot upgrade a socket, so `ws://app/...` never connects and the terminal
+		* reports "connection error" (issue #1744). Every other page is a web page and
+		* resolves the socket against its own origin, exactly as before.
+		*
+		* A blank authority is treated the same as an application scheme: there is
+		* nothing to dial, and the caller gets the actionable reason instead of a
+		* socket that can only fail.
+		*
+		* @param location - the page location to read.
+		* @param search - the query string carrying `alias` or `session`.
+		* @returns the absolute `ws:`/`wss:` URL, or undefined when the page cannot carry one.
+		*/
+		function terminalSocketUrl(location, search) {
+			if (WEB_PAGE_PROTOCOLS.includes(location.protocol)) return (location.protocol === "https:" ? "wss" : "ws") + "://" + location.host + SSH_API.terminal + search;
+		}
+		/**
+		* Schemes a network page can be delivered with. Every other scheme belongs to
+		* an application on this machine, which is the same classification the remote
+		* channel and the update seat use (`isWebPageProtocol` / `isApplicationDeliveredPage`).
+		*/
+		const WEB_PAGE_PROTOCOLS = [
+			"http:",
+			"https:",
+			"blob:",
+			"data:",
+			"about:",
+			"filesystem:"
+		];
+		/**
+		* A terminal connection that never opened: it reports one failure once the
+		* view has attached its `onExit`, so the tab shows why instead of sitting on a
+		* spinner, and every later frame is a no-op.
+		*/
+		function failedTerminal(reason) {
+			const connection = {
+				onReady: void 0,
+				onOutput: void 0,
+				onExit: void 0,
+				onAuthPrompt: void 0,
+				send: () => void 0,
+				resize: () => void 0,
+				sendAuthResponse: () => void 0,
+				detach: () => void 0,
+				close: () => void 0
+			};
+			queueMicrotask(() => {
+				connection.onExit?.(null, reason);
+			});
+			return connection;
 		}
 		/** The browser half's only data entry point. */
 		var SshApi = class {
@@ -18181,8 +18771,14 @@ window.__ModuleLoader__.load({
 			}
 			/** One terminal socket over either an alias (open) or a session id (attach). */
 			terminalSocket(search) {
-				const url = (window.location.protocol === "https:" ? "wss" : "ws") + "://" + window.location.host + SSH_API.terminal + search;
-				const socket = new WebSocket(url);
+				const target = terminalSocketUrl(window.location, search);
+				if (target === void 0) return failedTerminal(tt$1("terminal.noWebSocket"));
+				let socket;
+				try {
+					socket = new WebSocket(target);
+				} catch (error) {
+					return failedTerminal(error instanceof Error ? error.message : String(error));
+				}
 				let leaving = false;
 				const sendFrame = (frame) => {
 					if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(frame));
@@ -33840,7 +34436,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$1() {
 			try {
-				return "0.4.3-dsh.20260928.1";
+				return "0.4.4-dsh.20260929.1";
 			} catch {
 				return;
 			}
@@ -37339,7 +37935,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion() {
 			try {
-				return "0.4.3-dsh.20260928.1";
+				return "0.4.4-dsh.20260929.1";
 			} catch {
 				return;
 			}

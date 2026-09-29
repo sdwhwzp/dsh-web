@@ -97,6 +97,8 @@ function scheduleView(schedule: ScheduleRule): Record<string, unknown> {
   return {
     enabled: schedule.enabled,
     cron: schedule.cron,
+    // Absent means the rule follows the Host zone, which the board view reports.
+    ...(schedule.timeZone === undefined ? {} : { timeZone: schedule.timeZone }),
     ...(schedule.nextRunAt === undefined ? {} : { nextRunAt: schedule.nextRunAt }),
     ...(schedule.lastTriggeredAt === undefined ? {} : { lastTriggeredAt: schedule.lastTriggeredAt }),
   }
@@ -341,18 +343,19 @@ function buildManageTool(host: ToolHost): ToolDefinition {
   return defineTool({
     name: 'task_board_manage',
     description: [
-      'Move, archive, restore, or delete one task board card.',
+      'Move, archive, restore, delete, or settle one task board card.',
       'move-todo and move-backlog are the manual column moves; a running card cannot be moved.',
+      'settle force-closes the open execution of a card the board can no longer observe (a stuck running card) and records it cancelled with the caller as the reason, so the card returns to the todo column and can be run again.',
       'archive takes the whole subtask tree off the board and is refused while any member has an unsettled execution; restore brings the task, its ancestors and its subtree back; delete removes one card and is refused while it still has subtasks (detach or delete them first) or while it runs.',
       'It cannot confirm a permission binding: the confirmation gate is a human act performed in the board UI.',
-      'Triggers: 任务看板, task board, 看板, 归档, archive, 删除任务, delete task, 移动任务, move task.',
+      'Triggers: 任务看板, task board, 看板, 归档, archive, 删除任务, delete task, 移动任务, move task, 卡住, stuck, 强制结算, settle.',
     ].join(' '),
     parameters: {
       taskId: { type: 'string', required: true, description: 'The task to act on.' },
       action: {
         type: 'string',
         required: true,
-        enum: ['move-todo', 'move-backlog', 'archive', 'restore', 'delete'],
+        enum: ['move-todo', 'move-backlog', 'archive', 'restore', 'delete', 'settle'],
         description: 'The lifecycle operation to perform.',
       },
     },
@@ -364,6 +367,7 @@ function buildManageTool(host: ToolHost): ToolDefinition {
         'move-todo': { kind: 'move', taskId: args.taskId, status: 'todo' },
         'move-backlog': { kind: 'move', taskId: args.taskId, status: 'backlog' },
         archive: { kind: 'archive', taskId: args.taskId },
+        settle: { kind: 'settle', taskId: args.taskId },
         restore: { kind: 'restore', taskId: args.taskId },
         delete: { kind: 'delete', taskId: args.taskId },
       }
@@ -389,7 +393,8 @@ function buildScheduleTool(host: ToolHost): ToolDefinition {
   return defineTool({
     name: 'task_board_schedule',
     description: [
-      'Arm, change, or disarm a task scheduled runs (5-field cron in the Host local time zone; day-of-month and day-of-week use OR semantics).',
+      'Arm, change, or disarm a task scheduled runs (5-field cron; day-of-month and day-of-week follow Vixie semantics: both restricted means OR, otherwise AND).',
+      'The cron wall clock is read in the rule stored IANA time zone; omit timeZone to use the Host zone reported by task_board_list/task_board_get. DST gaps are skipped and an ambiguous fall-back time fires once, at the earlier instant.',
       'A due scheduled task runs the same cascade a manual run does, so a root task runs its whole subtask tree.',
       'A schedule whose tree contains an unconfirmed above-default permission is refused and rolls to its next occurrence; the reason is reported in the list board summary as schedulerError.',
       'Missed occurrences during Host downtime are skipped, never queued; a task that is already running skips its occurrence.',
@@ -399,21 +404,28 @@ function buildScheduleTool(host: ToolHost): ToolDefinition {
       taskId: { type: 'string', required: true, description: 'The task whose schedule changes.' },
       enabled: { type: 'boolean', description: 'Arm (true) or disarm (false) the schedule.' },
       cron: { type: 'string', description: '5-field cron expression: minute hour day-of-month month day-of-week.' },
+      timeZone: {
+        type: 'string',
+        description: 'IANA zone the cron wall clock is read in (for example Asia/Shanghai). Omit to keep the stored zone, or pass an empty string to clear it back to the Host zone.',
+      },
     },
     output: { schema: { type: 'json' }, render: renderJson },
     async execute(args, exec) {
       const activeHost = typeof host === 'function' ? host(exec) : host
-      if (args.enabled === undefined && args.cron === undefined) {
-        return refused('nothing-to-change', 'pass enabled and/or cron')
+      if (args.enabled === undefined && args.cron === undefined && args.timeZone === undefined) {
+        return refused('nothing-to-change', 'pass enabled and/or cron and/or timeZone')
       }
       // A missing card must read as a missing card: the ledger reports an
       // unknown id through the same refusal as a malformed cron.
       if (!activeHost.snapshot().tasks.some(task => task.id === args.taskId)) {
         return refused('task-not-found', 'no task with id ' + args.taskId)
       }
-      const patch: { enabled?: boolean; cron?: string } = {
+      const patch: { enabled?: boolean; cron?: string; timeZone?: string | null } = {
         ...(args.enabled === undefined ? {} : { enabled: args.enabled }),
         ...(args.cron === undefined ? {} : { cron: args.cron }),
+        // An empty string is the documented way to clear the stored zone, so
+        // the model never has to emit an explicit null through JSON args.
+        ...(args.timeZone === undefined ? {} : { timeZone: args.timeZone === '' ? null : args.timeZone }),
       }
       try {
         const snapshot = activeHost.apply(crypto.randomUUID(), { kind: 'set-schedule', taskId: args.taskId, patch }, callingSessionId(exec))
@@ -601,7 +613,21 @@ function buildUpdateTool(host: ToolHost): ToolDefinition {
       prompt: { type: 'string', description: 'New execution prompt.' },
       workspaceId: { type: 'string', description: 'New workspace id; an empty string clears it.' },
       mode: { type: 'string', description: 'New agent preset id; an empty string clears it.' },
-      permission: { type: 'string', enum: [...TASK_PERMISSIONS, ''], description: 'New permission preset; an empty string clears it back to the session default.' },
+      // `enum` with a clearing value would advertise the empty string as a
+      // legal member of the enum. Some OpenAI-compatible gateways forward the
+      // tool schema to Gemini, which rejects an empty enum member outright
+      // ("cannot be empty") and fails the whole request - not just this tool -
+      // even for a plain greeting, because the schema ships with every call
+      // (issue #1748). Splitting the clear value into its own `const` branch
+      // keeps both the real enum intact and the wire representation valid for
+      // those gateways.
+      permission: {
+        oneOf: [
+          { type: 'string', enum: [...TASK_PERMISSIONS] },
+          { type: 'string', const: '' },
+        ],
+        description: 'New permission preset; an empty string clears it back to the session default.',
+      },
       model: { type: 'string', description: 'New pinned model; an empty string clears it.' },
       reuseSession: { type: 'boolean', description: 'Continue later runs in the previous execution session.' },
       teamRun: { type: 'boolean', description: 'Switches this task between a plain cascade (one session per member) and an Agent Team run (Lead session plus a teammate per subtask).' },

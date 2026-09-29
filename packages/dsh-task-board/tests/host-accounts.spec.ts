@@ -116,6 +116,29 @@ describe('task-board deployment identities', () => {
     expect(readFileSync(file, 'utf8')).toBe(bytes)
   })
 
+  it('admin keeps schedule ownership and trigger instants when a v3 ledger gains rule zones', () => {
+    // Given a v3 account-owned schedule with a recorded next occurrence.
+    const now = Date.UTC(2026, 8, 29, 12)
+    const dir = root()
+    const first = ledger(dir, () => now)
+    first.applyRequest('create', { kind: 'create', id: 'scheduled', input: { ...input(), schedule: { enabled: true, cron: '* * * * *' } } }, undefined, alice)
+    const document = JSON.parse(readFileSync(first.file, 'utf8'))
+    const nextRunAt = document.tasks[0].schedule.nextRunAt
+    document.schemaVersion = 3
+    delete document.tasks[0].schedule.timeZone
+    first.dispose()
+    writeFileSync(first.file, JSON.stringify(document))
+
+    // When the Host migrates the document and a foreign account changes its rule.
+    const migrated = ledger(dir, () => now)
+    expect(() => migrated.applyRequest('foreign-zone', { kind: 'set-schedule', taskId: 'scheduled', patch: { timeZone: 'UTC' } }, undefined, bob)).toThrow('another account')
+
+    // Then the owner and occurrence survive, and the persisted rule has the Host zone.
+    expect(migrated.taskPrincipal('scheduled')).toEqual(alice)
+    expect(migrated.state().tasks[0].schedule).toMatchObject({ nextRunAt, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })
+    expect(JSON.parse(readFileSync(migrated.file, 'utf8')).schemaVersion).toBe(4)
+  })
+
   it('admin uses the same identity throughout task execution and inspection', async () => {
     // Given an authenticated task owner, when launching and inspecting execution, then every gateway request carries that identity and revocation blocks another launch.
     const fixture = accountFixture()
@@ -144,7 +167,7 @@ describe('task-board deployment identities', () => {
     expect(execute).toHaveBeenNthCalledWith(1, 'session-a', '/permission read-only', expect.any(AbortSignal))
     expect(execute).toHaveBeenNthCalledWith(2, 'session-a', '/goal ' + task.prompt, expect.any(AbortSignal))
     expect((await runner.listRunning(alice)).known).toBe(true)
-    expect(await runner.inspect('session-a', 1, undefined, alice)).toEqual({ outcome: 'succeeded' })
+    expect(await runner.inspect('session-a', 1, undefined, {}, alice)).toEqual({ outcome: 'succeeded' })
     expect(calls.map(call => call.method)).toEqual(['create', 'rename', 'selectModel', 'prompt', 'list', 'list', 'follow', 'page', 'projections'])
     await expect(runner.launch(task, { principal: alice, reuseSessionId: 'session-a' })).resolves.toBe('session-a')
     expect(calls.slice(-2).map(call => call.method)).toEqual(['selectModel', 'prompt'])
@@ -255,5 +278,8 @@ describe('account-owned task cascades', () => {
     expect(reopened.runtimeView().openExecutions.map(run => run.principal)).toEqual([alice, alice])
     expect(reopened.taskPrincipal('child')).toEqual(alice)
     expect(() => reopened.applyRequest('detach-other', { kind: 'set-parent', taskId: 'child', parentId: null }, undefined, bob)).toThrow('another account')
+    expect(() => reopened.applyRequest('settle-other', { kind: 'settle', taskId: 'parent' }, undefined, bob)).toThrow('another account')
+    reopened.applyRequest('settle-own', { kind: 'settle', taskId: 'parent' }, 'Alice', alice)
+    expect(reopened.state().tasks.map(task => task.executions[0].result)).toEqual(['cancelled', 'cancelled'])
   })
 })

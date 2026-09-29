@@ -53,6 +53,8 @@ dsh plugin --profile web add link:$(pwd)/packages/dsh-session-id
 
 ## 已知限制
 
+本包提供 Host 与浏览器入口；由于不维护独立的 Host 状态，因此不声明 invariant 插件。
+
 - 需要声明了 `sidebar.footer.action` 席位的 DSH Web 外壳（0.1.0-rc.8 及更新版本）；
   旧版外壳上入口不会渲染。
 - 只读查看器：只展示与复制 ID，不打开或管理会话。

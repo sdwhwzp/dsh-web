@@ -145,6 +145,25 @@ describe('agent tool definitions', () => {
     // Then neither the surface nor the lifecycle action enum carries one
     expect(names).not.toContain('confirm')
     expect(actions).not.toContain('confirm')
+    // The manage tool also owns the manual escape hatch for a stuck running card
+    expect(actions).toContain('settle')
+  })
+
+  it('operator can clear a permission without an empty member in any enum', () => {
+    // Given a live board service
+    const live = harness()
+    const update = live.tools.find(tool => tool.name === 'task_board_update')
+    const permission = (update?.parameters as { properties?: Record<string, { oneOf?: Array<{ enum?: string[] }> }> }).properties?.permission
+
+    // When the update tool's permission parameter is read
+    // Then the clearing value is its own const branch, because an OpenAI-compatible
+    // gateway that forwards this schema to Gemini rejects an empty enum member and
+    // fails every request that carries the tool list (issue #1748)
+    const members = permission?.oneOf?.flatMap(branch => branch.enum ?? []) ?? []
+    expect(members).toEqual(['read-only', 'workspace-write', 'danger-full-access'])
+    expect(members).not.toContain('')
+    // The clear value is still reachable, as its own exact branch
+    expect(permission?.oneOf).toHaveLength(2)
   })
 })
 
@@ -440,6 +459,54 @@ describe('task_board_schedule', () => {
     expect(schedule.cron).toBe('0 9 * * *')
     expect(typeof schedule.nextRunAt).toBe('number')
     expect((disarmed.schedule as { enabled: boolean }).enabled).toBe(false)
+  })
+
+  it('user arming a rule in an explicit zone sees that zone on the schedule', async () => {
+    // Given a plain card
+    const live = harness()
+    await call(live, 'task_board_create', { title: 'root' })
+    const taskId = await onlyTaskId(live)
+
+    // When the user arms a rule pinned to a zone
+    const armed = await call(live, 'task_board_schedule', {
+      taskId, enabled: true, cron: '0 9 * * *', timeZone: 'Asia/Shanghai',
+    })
+
+    // Then the schedule reports the stored zone alongside the expression
+    const schedule = armed.schedule as { enabled: boolean; cron: string; timeZone?: string; nextRunAt?: number }
+    expect(schedule.enabled).toBe(true)
+    expect(schedule.cron).toBe('0 9 * * *')
+    expect(schedule.timeZone).toBe('Asia/Shanghai')
+    expect(typeof schedule.nextRunAt).toBe('number')
+  })
+
+  it('user clearing the time zone with an empty string gets the stored zone removed', async () => {
+    // Given a card whose rule is pinned to a zone
+    const live = harness()
+    await call(live, 'task_board_create', { title: 'root' })
+    const taskId = await onlyTaskId(live)
+    await call(live, 'task_board_schedule', { taskId, enabled: true, cron: '0 9 * * *', timeZone: 'Asia/Shanghai' })
+
+    // When the model clears it with an empty string
+    const cleared = await call(live, 'task_board_schedule', { taskId, timeZone: '' })
+
+    // Then no zone is stored any more
+    expect((cleared.schedule as { timeZone?: string }).timeZone).toBeUndefined()
+  })
+
+  it('user arming a rule with an unusable zone is refused and the rule stays unset', async () => {
+    // Given a card
+    const live = harness()
+    await call(live, 'task_board_create', { title: 'root' })
+    const taskId = await onlyTaskId(live)
+
+    // When the model names a zone that cannot resolve
+    const refused = await call(live, 'task_board_schedule', { taskId, enabled: true, cron: '0 9 * * *', timeZone: 'Nowhere/Nope' })
+
+    // Then the action is refused and no rule was written
+    expect(refused.ok).toBe(false)
+    const get = await call(live, 'task_board_get', { taskId })
+    expect((get.task as { schedule?: unknown }).schedule).toBeUndefined()
   })
 
   it('user arming a schedule on an unknown card is told the card is missing', async () => {

@@ -32,7 +32,7 @@ The plugin is a pure browser bundle (the host half intentionally has no behavior
 
 ## Install
 
-Requires DSH 0.1.7-rc.2 or later: the plugin is developed against the 0.1.7-rc.2 DSH cohort and its `@deepseek-ai/*` runtime services are provided by the host itself.
+Requires DSH 0.2.0-rc.1 or later: the plugin is developed against the 0.2.0-rc.1 DSH cohort and its `@deepseek-ai/*` runtime services are provided by the host itself.
 
 In your profile (e.g. `~/.dsh/profiles/web`):
 
@@ -53,6 +53,8 @@ The plugin is also part of the dsh-web-all aggregate bundle, so profiles that in
 None: the plugin has no settings keys and no settings card. Choosing the language happens in the official locale surface (`Settings -> General -> Language`).
 
 ## Known limitations
+
+The package exposes its Host and browser entry points; it declares no invariant plugin because it owns no independent Host state.
 
 - The official shell namespaces (`common`, `settings.locale`) are not part of this pack, so the DSH chrome itself keeps its own zh/en while the family plugins render Russian.
 - When a source package adds or changes a zh key, the matching ru key must be mirrored in this package; `pnpm i18n:check` enforces the parity and fails on missing keys.

@@ -7,6 +7,7 @@ import { HostTaskLedger } from '../src/host-ledger.ts'
 import { TaskBoardHostService, installStreamErrorGuards, safeConsoleError, type TeamSpawnInput } from '../src/host-service.ts'
 import { PowerInhibitor } from '../src/power-inhibitor.ts'
 import { createTask, EXECUTION_HISTORY_LIMIT, startExecution, withSchedule } from '../src/core/tasks.ts'
+import type { TaskBoardPrincipal } from '../src/host-accounts.ts'
 
 const roots: string[] = []
 const NOW = 1_700_000_000_000
@@ -16,6 +17,7 @@ type GatewayRequest = {
   method: string
   args: Record<string, unknown>
   signal?: AbortSignal
+  principal?: TaskBoardPrincipal
 }
 
 type GatewayHandler = (request: GatewayRequest) => unknown | Promise<unknown>
@@ -165,9 +167,12 @@ describe('team-run dispatch', () => {
     expect(prompts).toHaveLength(1)
     expect(spawns.map(input => input.leadSessionId)).toEqual(['session-lead', 'session-lead'])
     expect(spawns.map(input => input.name)).toEqual([
-      expect.stringMatching(/^collect-carbon-[0-9a-f]{8}$/),
-      expect.stringMatching(/^model-[0-9a-f]{8}$/),
+      expect.stringMatching(/^collect-carbon-[0-9a-f]{4}-[0-9a-f]{8}$/),
+      expect.stringMatching(/^model-[0-9a-f]{4}-[0-9a-f]{8}$/),
     ])
+    // Two members of one run group can never share a name: Agent Teams refuses
+    // the second spawn, which is how three subtasks of a real run never started.
+    expect(new Set(spawns.map(input => input.name)).size).toBe(spawns.length)
     expect(spawns[0].prompt).toContain('collect')
     const tasks = ledger.state().tasks
     expect(tasks.find(task => task.id === 'root')?.executions.at(-1)?.sessionId).toBe('session-lead')
@@ -448,6 +453,77 @@ describe('TaskBoardHostService scheduling without a browser', () => {
     expect(ledger.state().tasks[0].status).toBe('done')
     expect(stream).toHaveBeenCalledOnce()
     service.dispose()
+  })
+
+  it('operator sees an execution reported failed when its session history stays unreadable', async () => {
+    // Given a running execution whose session history cannot be read at all
+    const ledger = new HostTaskLedger(root())
+    const base = createTask({ title: 'A', description: '', prompt: '' }, 1_000, 'task-a')
+    const opened = startExecution(base, 1_100, 'execution-a').task
+    const imported = {
+      ...opened,
+      status: 'running' as const,
+      executions: opened.executions.map(execution => ({ ...execution, sessionId: 'session-a' })),
+    }
+    ledger.applyRequest('import', { kind: 'import', sourceId: 'browser', tasks: [imported] })
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { gateway } = makeGateway(request => {
+      if (request.method === 'list') return { items: [{ sessionId: 'session-a', running: false }] }
+      throw new Error('history offline')
+    }, () => ({
+      async *[Symbol.asyncIterator]() {
+        throw new Error('follow offline')
+      },
+    }))
+    const service = new TaskBoardHostService(gateway, {
+      ledger,
+      power: new PowerInhibitor({ platform: 'linux' }),
+    })
+    try {
+      const poll = service as unknown as { pollSessions(): Promise<void> }
+      // When the poll meets the unreadable history
+      await poll.pollSessions()
+      // Then the first failure is only reported: a transient reader failure must
+      // never fail a card
+      expect(ledger.state().tasks[0].status).toBe('running')
+      expect(errors).toHaveBeenCalledWith(expect.stringContaining('history is unreadable'))
+      // And a sustained one is reported as a failure instead of hanging the card
+      for (let turn = 0; turn < 30; turn += 1) await poll.pollSessions()
+      const settled = ledger.state().tasks[0]
+      expect(settled.executions[0].result).toBe('failed')
+      expect(settled.status).toBe('failed')
+      expect(settled.executions[0].error).toContain('the outcome cannot be determined')
+    } finally {
+      errors.mockRestore()
+      service.dispose()
+    }
+  })
+
+  it('admin sees unreadable executions settle independently across account rosters', async () => {
+    // Given two accounts with separate open executions and unreadable histories.
+    const ledger = new HostTaskLedger(root(), () => NOW)
+    for (const id of ['alice', 'bob']) {
+      const principal: TaskBoardPrincipal = { source: 'test', id, username: id, role: 'admin' }
+      ledger.applyRequest('create-' + id, { kind: 'create', id, input: { title: id, description: '', prompt: '' } }, undefined, principal)
+      const result = ledger.applyRequest('run-' + id, { kind: 'run', taskId: id }, undefined, principal)
+      ledger.attachSession(id, result.runs![0].execution.id, 'session-' + id)
+    }
+    const { gateway } = makeGateway(request => ({ items: [{ sessionId: 'session-' + request.principal?.id, running: false }] }))
+    const service = new TaskBoardHostService(gateway, { ledger, power: new PowerInhibitor({ platform: 'linux' }) })
+    try {
+      // When every roster is polled up to the consecutive-failure threshold.
+      for (let turn = 0; turn < 23; turn += 1) await service['pollSessions']()
+      expect(ledger.state().tasks.map(task => task.status)).toEqual(['running', 'running'])
+      await service['pollSessions']()
+      // Then neither account's poll resets the other account's failure streak.
+      expect(ledger.state().tasks.map(task => task.status)).toEqual(['failed', 'failed'])
+      expect(ledger.state().tasks.map(task => task.executions[0].error)).toEqual([
+        expect.stringContaining('24 consecutive polls'),
+        expect.stringContaining('24 consecutive polls'),
+      ])
+    } finally {
+      service.dispose()
+    }
   })
 
   it('holds exactly one recurring poll timer, and start() is idempotent', () => {
