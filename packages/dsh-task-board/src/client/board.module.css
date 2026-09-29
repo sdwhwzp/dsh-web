@@ -420,7 +420,9 @@
   max-height: calc(100vh - 96px);
   overflow: hidden;
   padding: 18px;
-  background: var(--dsw-alias-bg-base);
+  /* Page backgrounds may be transparent in wallpaper skins; dialogs must cover the board. */
+  background: var(--dsw-alias-bg-overlay, var(--dsw-alias-bg-layer-1));
+  background: rgb(from var(--dsw-alias-bg-overlay, var(--dsw-alias-bg-layer-1)) r g b / 1);
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 14px;
   box-shadow: var(--dsw-shadow-lv3);
@@ -595,7 +597,9 @@
   flex-direction: column;
   width: min(640px, calc(100vw - 48px));
   max-height: calc(100vh - 80px);
-  background: var(--dsw-alias-bg-base);
+  /* Page backgrounds may be transparent in wallpaper skins; dialogs must cover the board. */
+  background: var(--dsw-alias-bg-overlay, var(--dsw-alias-bg-layer-1));
+  background: rgb(from var(--dsw-alias-bg-overlay, var(--dsw-alias-bg-layer-1)) r g b / 1);
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 14px;
   box-shadow: var(--dsw-shadow-lv3);
@@ -977,7 +981,7 @@
     z-index: 1;
     flex-wrap: wrap;
     padding-top: 8px;
-    background: var(--dsw-alias-bg-base);
+    background: inherit;
   }
 
   .modalFooter > button {
