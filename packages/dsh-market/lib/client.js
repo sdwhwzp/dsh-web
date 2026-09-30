@@ -540,6 +540,8 @@ window.__ModuleLoader__.load({
 			disposeForm;
 			disposed = false;
 			saving = false;
+			/** A save requested during a Host write runs after that write settles. */
+			saveQueued = false;
 			failed = false;
 			failedReason;
 			/** @param scope - the bound configuration form for this card's namespace. */
@@ -615,7 +617,7 @@ window.__ModuleLoader__.load({
 						});
 					},
 					save: () => {
-						this.save();
+						this.requestSave();
 					},
 					discard: () => {
 						if (this.staged.size === 0 && !this.failed) return;
@@ -625,6 +627,20 @@ window.__ModuleLoader__.load({
 						this.publish();
 					}
 				};
+			}
+			/**
+			* Serialize saves, retaining the latest draft requested during a Host write.
+			* @returns settlement after the active queue drains, or immediately when this call queues another save.
+			*/
+			async requestSave() {
+				if (this.saving) {
+					this.saveQueued = true;
+					return;
+				}
+				await this.save();
+				if (!this.saveQueued) return;
+				this.saveQueued = false;
+				await this.requestSave();
 			}
 			/**
 			* Write every staged edit in one atomic form mutation, then re-seed from
@@ -2458,7 +2474,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion() {
 			try {
-				return "0.4.4-dsh.20260929.2";
+				return "0.4.4-dsh.20260930.1";
 			} catch {
 				return;
 			}

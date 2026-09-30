@@ -215,6 +215,8 @@ export class CardForm<T> {
   private readonly disposeForm: () => void
   private disposed = false
   private saving = false
+  /** A save requested during a Host write runs after that write settles. */
+  private saveQueued = false
   private failed = false
   private failedReason: string | undefined
 
@@ -283,7 +285,7 @@ export class CardForm<T> {
       resetField: (field) => {
         this.stage(field, { text: this.specOf(field).format(this.baseValue(field)), clear: true })
       },
-      save: () => { void this.save() },
+      save: () => { void this.requestSave() },
       discard: () => {
         if (this.staged.size === 0 && !this.failed) return
         this.staged.clear()
@@ -292,6 +294,21 @@ export class CardForm<T> {
         this.publish()
       },
     }
+  }
+
+  /**
+   * Serialize saves, retaining the latest draft requested during a Host write.
+   * @returns settlement after the active queue drains, or immediately when this call queues another save.
+   */
+  async requestSave(): Promise<void> {
+    if (this.saving) {
+      this.saveQueued = true
+      return
+    }
+    await this.save()
+    if (!this.saveQueued) return
+    this.saveQueued = false
+    await this.requestSave()
   }
 
   /**
