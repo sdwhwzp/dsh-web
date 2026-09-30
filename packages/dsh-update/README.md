@@ -31,6 +31,7 @@ update trigger away.
   green exit alone is not reported as success.
 - **Release notes**: the panel fetches the matching GitHub release notes and lists
   the component versions it moved.
+- **Host requirement**: an available update displays its declared minimum DSH version, so the host can be upgraded first when needed.
 - **Restart hint**: a successful update asks the user to restart `dsh web`, which
   is when the new package versions load.
 

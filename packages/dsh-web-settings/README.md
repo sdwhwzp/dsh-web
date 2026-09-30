@@ -61,6 +61,8 @@ Before the 0.1.7 cohort, `$DSH_HOME/settings.yaml` carried one top-level section
 
 Once the composition has settled, this package adopts them through two ordered rules:
 
+Declared fields are read from each entry's live configuration value, including on DSH 0.2. A nested namespace must be an object; a scalar field with the same name does not claim another plugin's namespace.
+
 1. **Alias rule.** Each top-level section name is resolved through the same tables the bridge serves namespaces with: the family namespace aliases first, then the profile entry id that namespace is addressed by.
 2. **Field rule.** A section the alias rule cannot place is matched against the top-level Config fields the served entries declare; exactly one entry must declare a field of that name, and that entry takes the section. This is how a namespace a plugin folded into its own Config still lands: the Skin Center declares `skin-background`, `skin-custom-theme`, and `skin-wallpaper` as fields of one entry, so the legacy sections of those names belong at those paths.
 
