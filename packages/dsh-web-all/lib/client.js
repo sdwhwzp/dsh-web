@@ -20,9 +20,9 @@ window.__ModuleLoader__.load({
 		let _deepseek_ai_cordis = require("@deepseek-ai/cordis");
 		let react_jsx_runtime = require("react/jsx-runtime");
 		let react = require("react");
+		let react_dom_client = require("react-dom/client");
 		let _deepseek_ai_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 		let react_dom = require("react-dom");
-		let react_dom_client = require("react-dom/client");
 		//#region \0dsh-store-engine
 		const platform = ["@deepseek-ai/dsh-client", "-store"].join("");
 		const legacy = ["@deepseek-ai/dsh-client-runtime", "/client"].join("");
@@ -671,7 +671,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$8() {
 			try {
-				return "0.4.4-dsh.20260930.2";
+				return "0.4.4-dsh.20260930.3";
 			} catch {
 				return;
 			}
@@ -800,7 +800,7 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region \0dsh-css:packages/dsh-plugin-manager/src/client/plugin-manager.module.css.mjs
-		const css$15 = ".ZsMDKq_section{max-width:760px;color:var(--dsw-alias-label-primary);flex-direction:column;gap:10px;display:flex}.ZsMDKq_title{margin:0;font-size:13px;font-weight:600;line-height:20px}.ZsMDKq_notice{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);border-radius:8px;flex-direction:column;gap:8px;padding:16px;display:flex}.ZsMDKq_notice p{color:var(--dsw-alias-label-secondary);margin:0}.ZsMDKq_hint{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px}.ZsMDKq_actionRow{flex-wrap:wrap;align-items:center;gap:10px;display:flex}.ZsMDKq_button{font:inherit;cursor:pointer;border:1px solid var(--dsw-alias-border-l3);border-radius:var(--dsw-radius-sm,6px);color:var(--dsw-alias-label-primary);background:0 0;padding:5px 12px;font-size:12.5px;line-height:18px}.ZsMDKq_button:hover:enabled{background:var(--dsw-alias-interactive-bg-hover)}.ZsMDKq_button:disabled{cursor:default;opacity:.55}.ZsMDKq_button:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:2px}.ZsMDKq_primary{color:var(--dsw-alias-label-primary-foreground);background:var(--dsw-alias-button-primary-fill);border-color:var(--dsw-alias-button-primary-fill)}.ZsMDKq_primary:hover:enabled{background:var(--dsw-alias-button-primary-hover);border-color:var(--dsw-alias-button-primary-hover)}.ZsMDKq_latest{color:var(--dsw-alias-state-business-primary);font-size:12px}.ZsMDKq_compatHint{color:var(--dsw-alias-label-tertiary);font-size:12px}.ZsMDKq_compatBlocked{color:var(--dsw-alias-label-danger);font-size:12px}.ZsMDKq_ok{color:var(--dsw-alias-state-success-primary);margin:0;font-size:12px}.ZsMDKq_error{color:var(--dsw-alias-label-danger);word-break:break-word;margin:0;font-size:12px}.ZsMDKq_progressRow{flex-direction:column;gap:6px;display:flex}.ZsMDKq_progressTrack{background:var(--dsw-alias-bg-layer-2);border-radius:3px;height:6px;overflow:hidden}.ZsMDKq_progressBar{background:var(--dsw-alias-state-business-primary);height:100%;transition:width .2s}.ZsMDKq_progressBar[data-indeterminate=true]{width:40%;animation:1.2s ease-in-out infinite ZsMDKq_pluginManagerIndeterminate}@keyframes ZsMDKq_pluginManagerIndeterminate{0%{transform:translate(-100%)}to{transform:translate(250%)}}@media (prefers-reduced-motion:reduce){.ZsMDKq_progressBar[data-indeterminate=true]{width:40%;animation:none}}.ZsMDKq_restartRow{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-brand);border-radius:8px;padding:10px 12px}.ZsMDKq_restartRow p{color:var(--dsw-alias-brand-primary);margin:0}";
+		const css$15 = ".ZsMDKq_section{max-width:760px;color:var(--dsw-alias-label-primary);flex-direction:column;gap:10px;display:flex}.ZsMDKq_title{margin:0;font-size:13px;font-weight:600;line-height:20px}.ZsMDKq_notice{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);border-radius:8px;flex-direction:column;gap:8px;padding:16px;display:flex}.ZsMDKq_notice p{color:var(--dsw-alias-label-secondary);margin:0}.ZsMDKq_hint{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px}.ZsMDKq_actionRow{flex-wrap:wrap;align-items:center;gap:10px;display:flex}.ZsMDKq_button{font:inherit;cursor:pointer;border:1px solid var(--dsw-alias-border-l3);border-radius:var(--dsw-radius-sm,6px);color:var(--dsw-alias-label-primary);background:0 0;padding:5px 12px;font-size:12.5px;line-height:18px}.ZsMDKq_button:hover:enabled{background:var(--dsw-alias-interactive-bg-hover)}.ZsMDKq_button:disabled{cursor:default;opacity:.55}.ZsMDKq_button:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:2px}.ZsMDKq_primary{color:var(--dsw-alias-label-primary-foreground);background:var(--dsw-alias-button-primary-fill);border-color:var(--dsw-alias-button-primary-fill)}.ZsMDKq_primary:hover:enabled{background:var(--dsw-alias-button-primary-hover);border-color:var(--dsw-alias-button-primary-hover)}.ZsMDKq_latest{color:var(--dsw-alias-state-business-primary);font-size:12px}.ZsMDKq_compatHint{color:var(--dsw-alias-label-tertiary);font-size:12px}.ZsMDKq_compatBlocked{color:var(--dsw-alias-label-danger);font-size:12px}.ZsMDKq_ok{color:var(--dsw-alias-state-success-primary);margin:0;font-size:12px}.ZsMDKq_error{color:var(--dsw-alias-label-danger);word-break:break-word;margin:0;font-size:12px}.ZsMDKq_progressRow{flex-direction:column;gap:6px;display:flex}.ZsMDKq_progressTrack{background:var(--dsw-alias-bg-layer-2);border-radius:3px;height:6px;overflow:hidden}.ZsMDKq_progressBar{background:var(--dsw-alias-state-business-primary);height:100%;transition:width .2s}.ZsMDKq_progressBar[data-indeterminate=true]{width:40%;animation:1.2s ease-in-out infinite ZsMDKq_pluginManagerIndeterminate}@keyframes ZsMDKq_pluginManagerIndeterminate{0%{transform:translate(-100%)}to{transform:translate(250%)}}@media (prefers-reduced-motion:reduce){.ZsMDKq_progressBar[data-indeterminate=true]{width:40%;animation:none}}.ZsMDKq_restartRow{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-brand);border-radius:8px;padding:10px 12px}.ZsMDKq_restartRow p{color:var(--dsw-alias-brand-primary);margin:0}.ZsMDKq_mount{align-self:center;margin-left:auto;position:relative}.ZsMDKq_toolbar{color:var(--dsw-alias-label-primary);align-items:center;gap:8px;font-size:12.5px;line-height:18px;display:flex;position:relative}.ZsMDKq_toolbarButton{font:inherit;cursor:pointer;border:1px solid var(--dsw-alias-border-l3);border-radius:var(--dsw-radius-sm,6px);color:var(--dsw-alias-label-primary);background:0 0;padding:3px 10px}.ZsMDKq_toolbarButton:hover:enabled{background:var(--dsw-alias-interactive-bg-hover)}.ZsMDKq_toolbarButton:disabled{cursor:default;opacity:.55}.ZsMDKq_toolbarButton:focus-visible,.ZsMDKq_toolbarSummary:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:2px}.ZsMDKq_toolbarSummary{font:inherit;cursor:pointer;color:var(--dsw-alias-label-secondary);background:0 0;border:0;padding:3px 2px}.ZsMDKq_toolbarSummary:hover{color:var(--dsw-alias-label-primary)}.ZsMDKq_toolbarHint{max-width:320px;color:var(--dsw-alias-label-tertiary)}.ZsMDKq_panel{z-index:40;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);width:max-content;min-width:260px;max-width:min(440px,60vw);max-height:320px;box-shadow:var(--dsw-shadow-lv3,0 8px 24px #00000024);text-align:left;border-radius:10px;flex-direction:column;gap:8px;padding:12px;display:flex;position:absolute;top:calc(100% + 6px);right:0;overflow:auto}.ZsMDKq_panelActions{justify-content:flex-end;gap:8px;display:flex}.ZsMDKq_panelList{flex-direction:column;gap:6px;margin:0;padding:0;list-style:none;display:flex}.ZsMDKq_panelRow{flex-wrap:wrap;align-items:baseline;gap:6px;display:flex}.ZsMDKq_panelName{font-family:var(--dsw-font-mono,ui-monospace, SFMono-Regular, Menlo, monospace);word-break:break-all;font-size:12px}.ZsMDKq_panelVersion{color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;font-size:12px}";
 		const tagId$15 = "@linxin666/dsh-web-all/packages/dsh-plugin-manager/src/client/plugin-manager.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$15) + "]") === null) {
 			const tag = document.createElement("style");
@@ -817,8 +817,15 @@ window.__ModuleLoader__.load({
 			"error": "ZsMDKq_error",
 			"hint": "ZsMDKq_hint",
 			"latest": "ZsMDKq_latest",
+			"mount": "ZsMDKq_mount",
 			"notice": "ZsMDKq_notice",
 			"ok": "ZsMDKq_ok",
+			"panel": "ZsMDKq_panel",
+			"panelActions": "ZsMDKq_panelActions",
+			"panelList": "ZsMDKq_panelList",
+			"panelName": "ZsMDKq_panelName",
+			"panelRow": "ZsMDKq_panelRow",
+			"panelVersion": "ZsMDKq_panelVersion",
 			"pluginManagerIndeterminate": "ZsMDKq_pluginManagerIndeterminate",
 			"primary": "ZsMDKq_primary",
 			"progressBar": "ZsMDKq_progressBar",
@@ -826,7 +833,11 @@ window.__ModuleLoader__.load({
 			"progressTrack": "ZsMDKq_progressTrack",
 			"restartRow": "ZsMDKq_restartRow",
 			"section": "ZsMDKq_section",
-			"title": "ZsMDKq_title"
+			"title": "ZsMDKq_title",
+			"toolbar": "ZsMDKq_toolbar",
+			"toolbarButton": "ZsMDKq_toolbarButton",
+			"toolbarHint": "ZsMDKq_toolbarHint",
+			"toolbarSummary": "ZsMDKq_toolbarSummary"
 		};
 		//#endregion
 		//#region ../dsh-plugin-manager/src/client/PluginUpdatePatch.tsx
@@ -851,9 +862,9 @@ window.__ModuleLoader__.load({
 		* @module @linxin666/dsh-client-ui-plugin-manager/client
 		*/
 		/** Error text for a caught request or lifecycle failure. */
-		function messageOf$2(error) {
+		function messageOf$3(error) {
 			if (error instanceof AggregateError) {
-				const details = error.errors.map(messageOf$2).join("; ");
+				const details = error.errors.map(messageOf$3).join("; ");
 				return details === "" ? error.message : `${error.message}: ${details}`;
 			}
 			return error instanceof Error ? error.message : String(error);
@@ -921,7 +932,7 @@ window.__ModuleLoader__.load({
 					setFound(items.find((item) => item.id === name));
 					setChecked(true);
 				}).catch((reason) => {
-					setError(t("failed", { reason: messageOf$2(reason) }));
+					setError(t("failed", { reason: messageOf$3(reason) }));
 				}).finally(() => {
 					busyRef.current = false;
 					setBusy(void 0);
@@ -937,7 +948,7 @@ window.__ModuleLoader__.load({
 					setChecked(false);
 					setDirty(true);
 				}).catch((reason) => {
-					setError(t("failed", { reason: messageOf$2(reason) }));
+					setError(t("failed", { reason: messageOf$3(reason) }));
 				}).finally(() => {
 					busyRef.current = false;
 					setBusy(void 0);
@@ -1022,13 +1033,493 @@ window.__ModuleLoader__.load({
 			});
 		}
 		//#endregion
+		//#region ../dsh-plugin-manager/src/client/body-mutations.ts
+		/** Cross-bundle registry key; `Symbol.for` so every module copy agrees. */
+		const HUB_KEY$2 = Symbol.for("dsh-web.body-mutation-hub");
+		const INVALIDATION_ONLY$2 = Symbol.for("dsh-web.body-mutation-invalidation");
+		function needsRecords$2(subscribers) {
+			for (const listener of subscribers) if (!listener[INVALIDATION_ONLY$2]) return true;
+			return false;
+		}
+		/**
+		* Subscribe to a coalesced DOM re-check without retaining mutation records.
+		* The marked wrapper also works with an older hub, which delivers records
+		* that it simply ignores until a page reload picks up the updated hub.
+		*/
+		function subscribeBodyInvalidations$2(subscriber) {
+			const listener = () => {
+				subscriber();
+			};
+			listener[INVALIDATION_ONLY$2] = true;
+			return subscribeBodyMutations$2(listener);
+		}
+		/**
+		* Subscribe to body-level childList mutations.
+		* @param subscriber - called at most once per animation frame with the records
+		*   collected since the previous flush; must be safe to run repeatedly.
+		* @returns the disposer removing this subscriber (and the observer when it was
+		*   the last one).
+		*/
+		function subscribeBodyMutations$2(subscriber) {
+			if (typeof globalThis === "undefined" || typeof document === "undefined") return () => {};
+			if (typeof MutationObserver !== "function") return () => {};
+			const registry = globalThis;
+			let hub = registry[HUB_KEY$2];
+			if (hub === void 0) {
+				const subscribers = /* @__PURE__ */ new Set();
+				const created = {
+					observer: void 0,
+					subscribers,
+					pending: [],
+					scheduled: false
+				};
+				const flush = () => {
+					created.frame = void 0;
+					created.scheduled = false;
+					const batch = created.pending;
+					created.pending = [];
+					for (const listener of [...subscribers]) {
+						if (!subscribers.has(listener)) continue;
+						try {
+							listener(batch);
+						} catch {}
+					}
+				};
+				const schedule = () => {
+					if (created.scheduled) return;
+					created.scheduled = true;
+					if (typeof requestAnimationFrame === "function") created.frame = requestAnimationFrame(flush);
+					else flush();
+				};
+				created.observer = new MutationObserver((records) => {
+					if (needsRecords$2(subscribers)) for (const record of records) created.pending.push(record);
+					schedule();
+				});
+				created.observer.observe(document.body ?? document.documentElement, {
+					childList: true,
+					subtree: true
+				});
+				registry[HUB_KEY$2] = created;
+				hub = created;
+			}
+			const active = hub;
+			active.subscribers.add(subscriber);
+			let subscribed = true;
+			return () => {
+				if (!subscribed) return;
+				subscribed = false;
+				active.subscribers.delete(subscriber);
+				if (!needsRecords$2(active.subscribers)) active.pending = [];
+				if (active.subscribers.size === 0 && registry[HUB_KEY$2] === active) {
+					active.observer.disconnect();
+					if (active.frame !== void 0 && typeof cancelAnimationFrame === "function") cancelAnimationFrame(active.frame);
+					active.frame = void 0;
+					active.pending = [];
+					active.scheduled = false;
+					delete registry[HUB_KEY$2];
+				}
+			};
+		}
+		//#endregion
+		//#region ../dsh-plugin-manager/src/core/updates.ts
+		/** The npm scope DSH's own packages are published under. */
+		const OFFICIAL_SCOPE = "@deepseek-ai/";
+		/** Whether a package id is a third-party plugin rather than a DSH-shipped one. */
+		function isThirdPartyPlugin(id) {
+			return !id.startsWith(OFFICIAL_SCOPE);
+		}
+		/** The third-party update rows, in host order. */
+		function thirdPartyUpdates(items) {
+			return items.filter((item) => isThirdPartyPlugin(item.id));
+		}
+		/** Whether the running DSH host satisfies the row's declared minimum. */
+		function isUpdateApplicable(item) {
+			return item.compatible !== false;
+		}
+		/** The third-party rows this runtime can actually apply. */
+		function applicableUpdates(items) {
+			return thirdPartyUpdates(items).filter(isUpdateApplicable);
+		}
+		//#endregion
+		//#region ../dsh-plugin-manager/src/client/PluginListToolbar.tsx
+		/**
+		* The list-level toolbar: check every installed third-party plugin for a newer
+		* registry release, apply them in one run, then restart DSH to load them.
+		*
+		* It exists because the official Plugins page compares one package at a time
+		* (its `plugins.detail.section` contributions render on a bundle's page), while
+		* the answer a user wants when they open the page is "is anything of mine out
+		* of date, and can I just fix it". It is mounted beside the page's "Installed"
+		* heading (see plugin-toolbar-mount.tsx) because that heading is the page's own
+		* chrome and the page declares no seat next to it.
+		*
+		* Policy lives in core/updates.ts (third-party only, compatibility-gated) and
+		* the operations come from the injected face, so this component is pure
+		* rendering plus the sequence of calls: nothing here touches the DOM beyond its
+		* own subtree.
+		* @module @linxin666/dsh-client-ui-plugin-manager/client
+		*/
+		/** Error text for a caught request or lifecycle failure. */
+		function messageOf$2(error) {
+			if (error instanceof AggregateError) {
+				const details = error.errors.map(messageOf$2).join("; ");
+				return details === "" ? error.message : `${error.message}: ${details}`;
+			}
+			return error instanceof Error ? error.message : String(error);
+		}
+		/**
+		* The toolbar itself. All state is local: the page around it owns the plugin
+		* list, and a restart tears this component down anyway.
+		*/
+		function PluginListToolbar(props) {
+			const { t, isLoopback, checkUpdates, update, restartPlan, restart } = props;
+			const [phase, setPhase] = (0, react.useState)("idle");
+			const [checked, setChecked] = (0, react.useState)(false);
+			/** Every third-party row the last check reported, including the applied ones. */
+			const [found, setFound] = (0, react.useState)(0);
+			const [rows, setRows] = (0, react.useState)([]);
+			const [applied, setApplied] = (0, react.useState)([]);
+			const [cursor, setCursor] = (0, react.useState)(void 0);
+			const [error, setError] = (0, react.useState)(void 0);
+			const [panel, setPanel] = (0, react.useState)("none");
+			/** How the host says it would restart, read before the confirmation is shown. */
+			const [plan, setPlan] = (0, react.useState)(void 0);
+			const [restartMode, setRestartMode] = (0, react.useState)(void 0);
+			/** Synchronous in-flight mirror of the phase: a click and a keypress can land in one frame. */
+			const busyRef = (0, react.useRef)(false);
+			const pending = applicableUpdates(rows);
+			/** Close the flyout on Escape, the shell's own dismissal gesture. */
+			(0, react.useEffect)(() => {
+				if (panel === "none") return;
+				const onKey = (event) => {
+					if (event.key === "Escape") setPanel("none");
+				};
+				window.addEventListener("keydown", onKey);
+				return () => {
+					window.removeEventListener("keydown", onKey);
+				};
+			}, [panel]);
+			const onCheck = () => {
+				if (busyRef.current) return;
+				busyRef.current = true;
+				setPhase("checking");
+				setError(void 0);
+				setRestartMode(void 0);
+				checkUpdates().then((items) => {
+					const thirdParty = thirdPartyUpdates(items);
+					setRows(thirdParty);
+					setFound(thirdParty.length);
+					setApplied([]);
+					setChecked(true);
+					setPanel("list");
+				}).catch((reason) => {
+					setError(t("failed", { reason: messageOf$2(reason) }));
+					setPanel("list");
+				}).finally(() => {
+					busyRef.current = false;
+					setPhase("idle");
+				});
+			};
+			const onUpdateAll = () => {
+				if (busyRef.current) return;
+				const queue = applicableUpdates(rows);
+				if (queue.length === 0) return;
+				busyRef.current = true;
+				setPhase("updating");
+				setError(void 0);
+				(async () => {
+					const done = [];
+					for (const [index, row] of queue.entries()) {
+						setCursor({
+							name: row.id,
+							index: index + 1,
+							total: queue.length
+						});
+						try {
+							await update(row.id);
+						} catch (reason) {
+							setError(t("failed", { reason: messageOf$2(reason) }));
+							break;
+						}
+						done.push(row.id);
+						setApplied([...done]);
+						setRows((current) => current.filter((item) => item.id !== row.id));
+					}
+					setCursor(void 0);
+				})().finally(() => {
+					busyRef.current = false;
+					setPhase("idle");
+				});
+			};
+			/** Ask the host how it would restart, then show the confirmation that matches. */
+			const onAskRestart = () => {
+				if (busyRef.current) return;
+				busyRef.current = true;
+				setError(void 0);
+				restartPlan().then((mode) => {
+					setPlan(mode);
+					setPanel("restart");
+				}).catch((reason) => {
+					setError(t("failed", { reason: messageOf$2(reason) }));
+					setPanel("list");
+				}).finally(() => {
+					busyRef.current = false;
+				});
+			};
+			const onRestart = () => {
+				if (busyRef.current) return;
+				busyRef.current = true;
+				setError(void 0);
+				restart().then((mode) => {
+					setRestartMode(mode);
+					setPlan(void 0);
+					setPanel("none");
+				}).catch((reason) => {
+					setError(t("failed", { reason: messageOf$2(reason) }));
+				}).finally(() => {
+					busyRef.current = false;
+				});
+			};
+			const shellProps = {
+				"data-dsh-plugin": "plugin-manager",
+				"data-dsh-part": "update-toolbar",
+				"data-update-toolbar": true
+			};
+			if (!isLoopback) return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+				className: plugin_manager_module_css_default.toolbar,
+				...shellProps,
+				"data-state": "local-only",
+				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+					type: "button",
+					className: plugin_manager_module_css_default.toolbarButton,
+					disabled: true,
+					title: t("localOnlyBody"),
+					children: t("checkUpdates")
+				})
+			});
+			const busy = phase !== "idle";
+			/** One alert line, rendered in whichever flyout is open when it appears. */
+			const errorLine = error === void 0 ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+				className: plugin_manager_module_css_default.error,
+				role: "alert",
+				"data-update-error": true,
+				children: error
+			});
+			/** What is still pending after a partial run (the applied rows leave the list). */
+			const remaining = found - applied.length;
+			const summary = cursor !== void 0 ? t("updatingAll", {
+				name: cursor.name,
+				index: String(cursor.index),
+				total: String(cursor.total)
+			}) : remaining > 0 ? t("updatesAvailable", { count: String(remaining) }) : applied.length > 0 ? t("updateAllDone") : t("noUpdates");
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: plugin_manager_module_css_default.toolbar,
+				...shellProps,
+				"data-state": restartMode ?? phase,
+				"aria-busy": busy,
+				children: [
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: plugin_manager_module_css_default.toolbarButton,
+						"data-update-check": true,
+						disabled: busy,
+						onClick: onCheck,
+						children: phase === "checking" ? t("checking") : t("checkUpdates")
+					}),
+					checked && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: plugin_manager_module_css_default.toolbarSummary,
+						"data-update-summary": true,
+						"data-pending": pending.length,
+						"aria-expanded": panel === "list",
+						onClick: () => {
+							setPanel(panel === "list" ? "none" : "list");
+						},
+						children: summary
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: applied.length > 0 ? `${plugin_manager_module_css_default.toolbarButton} ${plugin_manager_module_css_default.primary}` : plugin_manager_module_css_default.toolbarButton,
+						"data-update-restart": true,
+						"data-restart-pending": applied.length,
+						disabled: busy || restartMode === "relaunch",
+						onClick: () => {
+							if (panel === "restart") {
+								setPanel("none");
+								setPlan(void 0);
+								return;
+							}
+							onAskRestart();
+						},
+						children: restartMode === "relaunch" ? t("restarting") : t("restartNow")
+					}),
+					restartMode !== void 0 && panel !== "restart" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: plugin_manager_module_css_default.toolbarHint,
+						role: "status",
+						"data-update-restart-hint": restartMode,
+						children: restartMode === "shell" ? t("restartDesktopHint") : restartMode === "manual" ? t("restartManualHint") : t("restartRelaunchHint")
+					}),
+					panel === "list" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: plugin_manager_module_css_default.panel,
+						"data-update-panel": true,
+						role: "group",
+						"aria-label": t("updatesPanelTitle"),
+						children: [
+							errorLine,
+							applied.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+								className: plugin_manager_module_css_default.ok,
+								"data-update-applied": true,
+								children: t("updateAllDone")
+							}),
+							rows.length === 0 && applied.length === 0 && error === void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+								className: plugin_manager_module_css_default.hint,
+								children: t("noUpdates")
+							}),
+							rows.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
+								className: plugin_manager_module_css_default.panelList,
+								children: rows.map((row) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("li", {
+									className: plugin_manager_module_css_default.panelRow,
+									"data-update-row": row.id,
+									"data-compatible": isUpdateApplicable(row) ? "yes" : "no",
+									children: [
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+											className: plugin_manager_module_css_default.panelName,
+											children: row.id
+										}),
+										/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+											className: plugin_manager_module_css_default.panelVersion,
+											children: [
+												row.current,
+												" → ",
+												row.latest
+											]
+										}),
+										row.compatible === false && row.requiresDsh !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+											className: plugin_manager_module_css_default.compatBlocked,
+											children: t("updateBlockedDsh", { min: displayMinimumVersion(row.requiresDsh) })
+										})
+									]
+								}, row.id))
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: plugin_manager_module_css_default.panelActions,
+								children: [pending.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: `${plugin_manager_module_css_default.button} ${plugin_manager_module_css_default.primary}`,
+									"data-update-all": true,
+									disabled: busy,
+									onClick: onUpdateAll,
+									children: phase === "updating" ? t("updating") : t("updateAll", { count: String(pending.length) })
+								}), applied.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: `${plugin_manager_module_css_default.button} ${plugin_manager_module_css_default.primary}`,
+									"data-update-panel-restart": true,
+									disabled: busy,
+									onClick: onAskRestart,
+									children: t("restartNow")
+								})]
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+								className: plugin_manager_module_css_default.hint,
+								children: t("thirdPartyOnly")
+							})
+						]
+					}),
+					panel === "restart" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: plugin_manager_module_css_default.panel,
+						"data-update-restart-panel": true,
+						"data-restart-plan": plan,
+						role: "group",
+						"aria-label": t("restartNow"),
+						children: [
+							errorLine,
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+								className: plugin_manager_module_css_default.hint,
+								"data-restart-plan-hint": plan,
+								children: plan === "shell" ? t("restartPlanShell") : plan === "manual" ? t("restartPlanManual") : t("restartPlanRelaunch")
+							}),
+							plan === "shell" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+								className: plugin_manager_module_css_default.hint,
+								children: t("restartShellWarning")
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: plugin_manager_module_css_default.panelActions,
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: plugin_manager_module_css_default.button,
+									"data-restart-cancel": true,
+									onClick: () => {
+										setPanel("none");
+										setPlan(void 0);
+									},
+									children: t("cancel")
+								}), plan !== "manual" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: `${plugin_manager_module_css_default.button} ${plugin_manager_module_css_default.primary}`,
+									"data-restart-confirm": true,
+									onClick: onRestart,
+									children: t("restartConfirm")
+								})]
+							})
+						]
+					})
+				]
+			});
+		}
+		/**
+		* The official page's "Installed" group heading, when it is mounted. Class
+		* names are CSS-module hashes in the official bundle, so the seat is found
+		* through the page's own data attributes plus DOM position.
+		* @returns the heading element to append into, or undefined off the list view.
+		*/
+		function toolbarSeat() {
+			const head = (document.querySelector("[data-plugin-panel]")?.querySelector("[data-plugin-group=\"bundles\"]"))?.firstElementChild;
+			return head instanceof HTMLElement ? head : void 0;
+		}
+		/**
+		* Mount the toolbar into the Installed heading.
+		* @param options - props factory and the optional locale subscription.
+		* @returns disposer removing the container, its observers and its React root.
+		*/
+		function mountPluginListToolbar(options) {
+			if (typeof document === "undefined") return () => {};
+			if (document.querySelector("[data-dsh-plugin-manager-toolbar]") !== null) return () => {};
+			const container = document.createElement("div");
+			container.setAttribute("data-dsh-plugin-manager-toolbar", "");
+			container.className = plugin_manager_module_css_default.mount;
+			const root = (0, react_dom_client.createRoot)(container);
+			const render = () => {
+				root.render((0, react.createElement)(PluginListToolbar, options.props()));
+			};
+			render();
+			/** Keep the container inside the heading; detach while the list is away. */
+			const place = () => {
+				const seat = toolbarSeat();
+				if (seat === void 0) {
+					container.remove();
+					return;
+				}
+				if (container.parentElement !== seat) seat.append(container);
+			};
+			place();
+			const unsubscribeBody = subscribeBodyInvalidations$2(place);
+			const unsubscribeLocale = options.subscribe === void 0 ? (() => {}) : options.subscribe(render);
+			return () => {
+				unsubscribeBody();
+				unsubscribeLocale();
+				root.unmount();
+				container.remove();
+			};
+		}
+		//#endregion
 		//#region ../dsh-plugin-manager/src/client/locales.ts
 		/**
 		* Locale dictionaries for the plugin-manager's official-page patch. The zh
 		* dictionary is the key source; the en dictionary mirrors the exact key set.
 		*
-		* The key set covers only what this package still renders: the
-		* check-for-updates block on a bundle's page in the official Plugins panel.
+		* The key set covers only what this package renders: the check-for-updates
+		* block on a bundle's page in the official Plugins panel, and the list-level
+		* update toolbar mounted beside that panel's "Installed" heading.
 		* The former tab's keys (inventory, conflicts, repair seeds, safe mode,
 		* aggregate children) left with that tab.
 		* @module @linxin666/dsh-client-ui-plugin-manager/client
@@ -1045,6 +1536,23 @@ window.__ModuleLoader__.load({
 			"updateRequiresDsh": "需要 DSH ≥ {min}",
 			"updateBlockedDsh": "需要 DSH ≥ {min}，请先升级 DSH 再更新",
 			"restartHint": "插件变更将在重启应用后生效。",
+			"updatesAvailable": "{count} 个可更新",
+			"updateAll": "全部更新（{count}）",
+			"updatingAll": "更新 {name}（{index}/{total}）",
+			"updateAllDone": "更新完成，重启后生效。",
+			"updatesPanelTitle": "插件更新",
+			"thirdPartyOnly": "只检查第三方插件；官方 @deepseek-ai/ 包随 DSH 本体升级。",
+			"restartNow": "立即重启",
+			"restarting": "正在重启…",
+			"restartConfirm": "确认重启",
+			"restartPlanRelaunch": "会重启 DSH 服务，正在运行的任务会中断。",
+			"restartPlanShell": "桌面版通过系统对话框重启：确认后会弹出官方的「应用无法启动或已意外停止」对话框，请在对话框中点「重启」。",
+			"restartPlanManual": "当前进程无法自动重启，请手动重启 DSH。",
+			"restartShellWarning": "它同时会写一份崩溃报告；也可以手动重启：退出 DeepSeek Harness（⌘Q）后重新打开。",
+			"restartDesktopHint": "请在随后出现的系统对话框中选择「重启」。",
+			"restartRelaunchHint": "已请求重启；服务恢复后刷新页面即可。",
+			"restartManualHint": "当前进程无法自动重启，请手动重启 DSH。",
+			"cancel": "取消",
 			"failed": "操作失败：{reason}",
 			"fetching": "正在获取插件信息…",
 			"downloading": "正在下载…",
@@ -1066,6 +1574,23 @@ window.__ModuleLoader__.load({
 			"updateRequiresDsh": "Requires DSH >= {min}",
 			"updateBlockedDsh": "Requires DSH >= {min}; upgrade DSH before updating",
 			"restartHint": "Plugin changes take effect after restarting the application.",
+			"updatesAvailable": "{count} updates available",
+			"updateAll": "Update all ({count})",
+			"updatingAll": "Updating {name} ({index}/{total})",
+			"updateAllDone": "Updated; restart to take effect.",
+			"updatesPanelTitle": "Plugin updates",
+			"thirdPartyOnly": "Third-party plugins only; @deepseek-ai/ packages upgrade with DSH itself.",
+			"restartNow": "Restart now",
+			"restarting": "Restarting…",
+			"restartConfirm": "Restart",
+			"restartPlanRelaunch": "The DSH service restarts; running tasks are interrupted.",
+			"restartPlanShell": "The desktop app restarts through its system dialog: confirming shows the official \"DeepSeek Harness is unavailable\" dialog; click Restart in it.",
+			"restartPlanManual": "This process cannot restart itself; restart DSH yourself.",
+			"restartShellWarning": "It also writes a crash report. You can instead restart manually: quit DeepSeek Harness (Cmd+Q) and open it again.",
+			"restartDesktopHint": "Choose Restart in the system dialog that follows.",
+			"restartRelaunchHint": "Restart requested; reload the page once the server is back.",
+			"restartManualHint": "This process cannot restart itself; restart DSH yourself.",
+			"cancel": "Cancel",
 			"failed": "Operation failed: {reason}",
 			"fetching": "Fetching plugin metadata…",
 			"downloading": "Downloading…",
@@ -1181,6 +1706,17 @@ window.__ModuleLoader__.load({
 			});
 		}
 		/**
+		* Validate and normalize a `restart` response value.
+		* @param value - decoded but untrusted response value.
+		* @returns the mode the host actually used.
+		*/
+		function parseRestartMode(value) {
+			const restart = isRecord$1(value) ? value.restart : void 0;
+			const mode = isRecord$1(restart) ? restart.mode : void 0;
+			if (mode !== "relaunch" && mode !== "shell" && mode !== "manual") throw new Error("plugin-manager: response must contain a restart mode");
+			return mode;
+		}
+		/**
 		* Validate and normalize a `failures` response value.
 		* @param value - decoded but untrusted response value.
 		* @returns the typed failures snapshot.
@@ -1215,7 +1751,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$7() {
 			try {
-				return "0.4.4-dsh.20260930.2";
+				return "0.4.4-dsh.20260930.3";
 			} catch {
 				return;
 			}
@@ -1292,6 +1828,7 @@ window.__ModuleLoader__.load({
 		const UNINSTALL_ENDPOINT = "uninstall";
 		const SET_ENABLED_ENDPOINT = "set-enabled";
 		const CHECK_UPDATES_ENDPOINT = "check-updates";
+		const RESTART_ENDPOINT = "restart";
 		const STATUS_ENDPOINT = "status";
 		const FAILURES_ENDPOINT = "failures";
 		const GATEWAY_PREFIX = "api/plugin-manager";
@@ -1422,7 +1959,9 @@ window.__ModuleLoader__.load({
 					kind: "idle",
 					stage: "fetch"
 				},
-				failures: async () => parseFailuresSnapshot(await gatewayJson(`${GATEWAY_PREFIX}/failures`))
+				failures: async () => parseFailuresSnapshot(await gatewayJson(`${GATEWAY_PREFIX}/failures`)),
+				restartPlan: async () => parseRestartMode(await gatewayJson(`${GATEWAY_PREFIX}/${RESTART_ENDPOINT}`)),
+				restart: async () => parseRestartMode(await gatewayJson(`${GATEWAY_PREFIX}/${RESTART_ENDPOINT}`, { method: "POST" }))
 			};
 			let modePromise;
 			const ensureMode = () => {
@@ -1472,6 +2011,8 @@ window.__ModuleLoader__.load({
 					return item;
 				},
 				checkUpdates: async () => await ensureMode() === "official" ? official.checkUpdates() : gateway.checkUpdates(),
+				restartPlan: () => gateway.restartPlan(),
+				restart: () => gateway.restart(),
 				status: async () => await ensureMode() === "official" ? official.status() : gateway.status(),
 				failures: async () => await ensureMode() === "official" ? official.failures() : gateway.failures(),
 				onChange: (cb) => {
@@ -1499,6 +2040,23 @@ window.__ModuleLoader__.load({
 			try {
 				if (!ctx.get("pluginManager")) ctx.provide(PLUGIN_MANAGER_SERVICE, face);
 			} catch {}
+			ctx.effect(() => {
+				try {
+					return mountPluginListToolbar({
+						props: () => ({
+							isLoopback: face.isLoopback,
+							checkUpdates: face.checkUpdates,
+							update: face.update,
+							restartPlan: face.restartPlan,
+							restart: face.restart,
+							t: ctx.locale.bind(NS$10)
+						}),
+						subscribe: (listener) => ctx.locale.subscribe(listener)
+					});
+				} catch {
+					return () => {};
+				}
+			}, "plugin-manager: update toolbar");
 			ctx.slots.inject("plugins.detail.section", () => {
 				try {
 					return ctx.slots.register({
@@ -2034,7 +2592,7 @@ window.__ModuleLoader__.load({
 			disposeForm;
 			disposed = false;
 			saving = false;
-			/** A save requested during a Host write runs after that write settles. */
+			/** A save asked for while one was in flight; it runs once the first settles (#1754). */
 			saveQueued = false;
 			failed = false;
 			failedReason;
@@ -3968,7 +4526,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$6() {
 			try {
-				return "0.4.4-dsh.20260930.2";
+				return "0.4.4-dsh.20260930.3";
 			} catch {
 				return;
 			}
@@ -4097,6 +4655,63 @@ window.__ModuleLoader__.load({
 					return () => {};
 				}
 			});
+		}
+		//#endregion
+		//#region ../dsh-task-board/src/core/github/types.ts
+		/** Validate whether a value is a structural GitHubTaskMetadata object. */
+		function isGitHubTaskMetadata(value) {
+			if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+			const gh = value;
+			if (gh.provider !== "github") return false;
+			if (typeof gh.owner !== "string" || gh.owner.trim() === "") return false;
+			if (typeof gh.repository !== "string" || gh.repository.trim() === "") return false;
+			if (typeof gh.issueNumber !== "number" || !Number.isInteger(gh.issueNumber) || gh.issueNumber <= 0) return false;
+			if (typeof gh.issueUrl !== "string" || gh.issueUrl.trim() === "") return false;
+			if (!Array.isArray(gh.remoteLabels) || !gh.remoteLabels.every((l) => typeof l === "string")) return false;
+			if (gh.remoteState !== void 0 && gh.remoteState !== "open" && gh.remoteState !== "closed") return false;
+			if (gh.pullRequest !== void 0) {
+				if (typeof gh.pullRequest !== "object" || gh.pullRequest === null || Array.isArray(gh.pullRequest)) return false;
+				const pr = gh.pullRequest;
+				if (typeof pr.number !== "number" || !Number.isInteger(pr.number) || pr.number <= 0) return false;
+				if (typeof pr.url !== "string" || pr.url.trim() === "") return false;
+				if (pr.state !== "open" && pr.state !== "closed" && pr.state !== "merged") return false;
+			}
+			return true;
+		}
+		/** Normalize and repair an integrations container from the ledger or wire. */
+		function normalizeIntegrations(value) {
+			if (typeof value !== "object" || value === null || Array.isArray(value)) return void 0;
+			const container = value;
+			if (container.github === void 0) return void 0;
+			if (!isGitHubTaskMetadata(container.github)) return void 0;
+			const gh = container.github;
+			let pullRequest;
+			if (gh.pullRequest !== void 0) pullRequest = {
+				number: gh.pullRequest.number,
+				url: gh.pullRequest.url.trim(),
+				state: gh.pullRequest.state,
+				...gh.pullRequest.draft === true ? { draft: true } : {},
+				...typeof gh.pullRequest.headBranch === "string" && gh.pullRequest.headBranch !== "" ? { headBranch: gh.pullRequest.headBranch } : {},
+				...typeof gh.pullRequest.baseBranch === "string" && gh.pullRequest.baseBranch !== "" ? { baseBranch: gh.pullRequest.baseBranch } : {},
+				...typeof gh.pullRequest.mergedAt === "number" && Number.isFinite(gh.pullRequest.mergedAt) ? { mergedAt: gh.pullRequest.mergedAt } : {}
+			};
+			return { github: {
+				provider: "github",
+				owner: gh.owner.trim(),
+				repository: gh.repository.trim(),
+				issueNumber: gh.issueNumber,
+				issueUrl: gh.issueUrl.trim(),
+				remoteLabels: [...gh.remoteLabels],
+				...typeof gh.issueNodeId === "string" && gh.issueNodeId !== "" ? { issueNodeId: gh.issueNodeId } : {},
+				...typeof gh.remoteTitle === "string" ? { remoteTitle: gh.remoteTitle } : {},
+				...typeof gh.remoteBody === "string" ? { remoteBody: gh.remoteBody } : {},
+				...gh.remoteState !== void 0 ? { remoteState: gh.remoteState } : {},
+				...typeof gh.lastSyncedAt === "number" && Number.isFinite(gh.lastSyncedAt) ? { lastSyncedAt: gh.lastSyncedAt } : {},
+				...typeof gh.lastRemoteUpdatedAt === "number" && Number.isFinite(gh.lastRemoteUpdatedAt) ? { lastRemoteUpdatedAt: gh.lastRemoteUpdatedAt } : {},
+				...typeof gh.lastSyncError === "string" && gh.lastSyncError !== "" ? { lastSyncError: gh.lastSyncError } : {},
+				...pullRequest !== void 0 ? { pullRequest } : {},
+				...gh.deactivated === true ? { deactivated: true } : {}
+			} };
 		}
 		/**
 		* Repair a persisted tag list: keep the well-formed entries, trim, drop
@@ -4277,6 +4892,7 @@ window.__ModuleLoader__.load({
 		/** Create a task from user input. */
 		function createTask(input, now, id) {
 			const tags = normalizeTags(input.tags);
+			const integrations = normalizeIntegrations(input.integrations);
 			return {
 				id,
 				title: input.title.trim(),
@@ -4299,7 +4915,8 @@ window.__ModuleLoader__.load({
 					...input.handover,
 					bundledAt: now
 				} },
-				...tags === void 0 ? {} : { tags }
+				...tags === void 0 ? {} : { tags },
+				...integrations === void 0 ? {} : { integrations }
 			};
 		}
 		/** Clone a task with an updated status and a fresh updatedAt. */
@@ -5492,6 +6109,34 @@ window.__ModuleLoader__.load({
 				this.persistAndNotify();
 				return true;
 			}
+			/** Trigger synchronization between GitHub and the task board. */
+			async refreshGitHub(taskId, owner, repository) {
+				if (this.deps.transport === void 0) return false;
+				return await this.commitRemote({
+					kind: "github-refresh",
+					taskId,
+					owner,
+					repository
+				}, taskId);
+			}
+			/** Create a GitHub Pull Request for a task. */
+			async createGitHubPr(taskId, input) {
+				if (this.deps.transport === void 0) return false;
+				return await this.commitRemote({
+					kind: "github-create-pr",
+					taskId,
+					...input
+				}, taskId);
+			}
+			/** Link an existing GitHub Pull Request to a task. */
+			async linkGitHubPr(taskId, pullRequestNumber) {
+				if (this.deps.transport === void 0) return false;
+				return await this.commitRemote({
+					kind: "github-link-pr",
+					taskId,
+					pullRequestNumber
+				}, taskId);
+			}
 			/**
 			* Update a task's schedule rule. A blank or invalid cron expression is
 			* rejected (returns false, state untouched). When the rule ends up enabled
@@ -6029,6 +6674,7 @@ window.__ModuleLoader__.load({
 			if (record.workspaceId !== void 0 && typeof record.workspaceId !== "string") return false;
 			if (record.mode !== void 0 && typeof record.mode !== "string") return false;
 			if (record.permission !== void 0 && typeof record.permission !== "string") return false;
+			if (record.integrations !== void 0 && (typeof record.integrations !== "object" || record.integrations === null || Array.isArray(record.integrations))) return false;
 			if (record.reuseSession !== void 0 && typeof record.reuseSession !== "boolean") return false;
 			if (record.goalRun !== void 0 && typeof record.goalRun !== "boolean") return false;
 			if (!Array.isArray(record.executions)) return false;
@@ -6155,6 +6801,7 @@ window.__ModuleLoader__.load({
 				task.handover = normalizeHandover(row.handover);
 				task.tags = normalizeTags(row.tags);
 				task.permissionConfirmedAt = typeof row.permissionConfirmedAt === "number" && Number.isFinite(row.permissionConfirmedAt) ? row.permissionConfirmedAt : void 0;
+				task.integrations = normalizeIntegrations(row.integrations);
 				tasks.push(task);
 			}
 			return tasks;
@@ -6503,7 +7150,38 @@ window.__ModuleLoader__.load({
 			"card.subtasksBreakdown": "子任务 {total}：已完成 {done}，运行中 {running}，失败 {failed}",
 			"board.hideSubtasks": "隐藏子任务",
 			"board.showSubtasks": "显示子任务",
-			"board.subtaskFilterHint": "看板默认只显示父任务；搜索或按标签筛选时会自动展开子任务。"
+			"board.subtaskFilterHint": "看板默认只显示父任务；搜索或按标签筛选时会自动展开子任务。",
+			"detail.github.title": "GitHub Issue",
+			"detail.github.issue": "Issue #{number}",
+			"detail.github.repo": "仓库",
+			"detail.github.state.open": "开启",
+			"detail.github.state.closed": "已关闭",
+			"detail.github.labels": "GitHub 标签",
+			"detail.github.syncedAt": "同步于 {time}",
+			"detail.github.syncError": "同步异常：{error}",
+			"detail.github.open": "在 GitHub 打开",
+			"detail.github.refresh": "同步 Issue",
+			"detail.github.refreshing": "正在同步…",
+			"detail.github.pr": "Pull Request",
+			"detail.github.prNumber": "PR #{number}",
+			"detail.github.prState.open": "开启",
+			"detail.github.prState.closed": "已关闭",
+			"detail.github.prState.merged": "已合并",
+			"detail.github.prDraft": "草稿",
+			"detail.github.createPr": "创建 PR",
+			"detail.github.createPrTitle": "创建 Pull Request",
+			"detail.github.headBranch": "远程来源分支 (Head)",
+			"detail.github.headBranchPlaceholder": "例如 feature-branch",
+			"detail.github.baseBranch": "目标基线分支 (Base)",
+			"detail.github.linkPr": "关联 PR",
+			"detail.github.linkPrTitle": "关联已有 Pull Request",
+			"detail.github.prNumberInput": "PR 编号",
+			"detail.github.deactivated": "该 Issue 在 GitHub 上已移除包含标签，已在看板停用。",
+			"settings.github.title": "GitHub 集成",
+			"settings.github.configuredRepos": "已配置仓库 ({count})",
+			"settings.github.noRepos": "未配置 GitHub 仓库（通过 profile patch 或环境变量配置）",
+			"settings.github.credentialOk": "Host 凭据：有效",
+			"settings.github.credentialMissing": "Host 凭据：未检测到（请设置 GITHUB_TOKEN 环境变量）"
 		};
 		/** en dictionary, complete against the zh key set. */
 		const en$9 = {
@@ -6764,7 +7442,38 @@ window.__ModuleLoader__.load({
 			"card.subtasksBreakdown": "Subtasks {total}: {done} done, {running} running, {failed} failed",
 			"board.hideSubtasks": "Hide subtasks",
 			"board.showSubtasks": "Show subtasks",
-			"board.subtaskFilterHint": "The board shows parent tasks only; a text or label filter reveals the subtasks automatically."
+			"board.subtaskFilterHint": "The board shows parent tasks only; a text or label filter reveals the subtasks automatically.",
+			"detail.github.title": "GitHub Issue",
+			"detail.github.issue": "Issue #{number}",
+			"detail.github.repo": "Repository",
+			"detail.github.state.open": "Open",
+			"detail.github.state.closed": "Closed",
+			"detail.github.labels": "GitHub Labels",
+			"detail.github.syncedAt": "Synced at {time}",
+			"detail.github.syncError": "Sync error: {error}",
+			"detail.github.open": "Open on GitHub",
+			"detail.github.refresh": "Sync Issue",
+			"detail.github.refreshing": "Syncing…",
+			"detail.github.pr": "Pull Request",
+			"detail.github.prNumber": "PR #{number}",
+			"detail.github.prState.open": "Open",
+			"detail.github.prState.closed": "Closed",
+			"detail.github.prState.merged": "Merged",
+			"detail.github.prDraft": "Draft",
+			"detail.github.createPr": "Create PR",
+			"detail.github.createPrTitle": "Create Pull Request",
+			"detail.github.headBranch": "Remote Head Branch",
+			"detail.github.headBranchPlaceholder": "e.g. feature-branch",
+			"detail.github.baseBranch": "Target Base Branch",
+			"detail.github.linkPr": "Link PR",
+			"detail.github.linkPrTitle": "Link Existing Pull Request",
+			"detail.github.prNumberInput": "PR Number",
+			"detail.github.deactivated": "Inclusion label was removed on GitHub; item is deactivated on the board.",
+			"settings.github.title": "GitHub Integration",
+			"settings.github.configuredRepos": "Configured Repositories ({count})",
+			"settings.github.noRepos": "No GitHub repositories configured (configure in profile patch or environment)",
+			"settings.github.credentialOk": "Host credential: Valid",
+			"settings.github.credentialMissing": "Host credential: None detected (set GITHUB_TOKEN environment variable)"
 		};
 		/** Active dictionary, picked by the document language at call time. */
 		function dictionary$5() {
@@ -8819,6 +9528,329 @@ window.__ModuleLoader__.load({
 				]
 			});
 		}
+		function CreatePrModal({ controller, task, onClose }) {
+			const gh = task.integrations?.github;
+			const [headBranch, setHeadBranch] = (0, react.useState)(`issue-${gh?.issueNumber ?? ""}`);
+			const [baseBranch, setBaseBranch] = (0, react.useState)("main");
+			const [draft, setDraft] = (0, react.useState)(false);
+			const [loading, setLoading] = (0, react.useState)(false);
+			const [error, setError] = (0, react.useState)();
+			const handleCreate = async () => {
+				if (headBranch.trim() === "") return;
+				setLoading(true);
+				setError(void 0);
+				try {
+					if (!await controller.createGitHubPr(task.id, {
+						headBranch: headBranch.trim(),
+						baseBranch: baseBranch.trim() || void 0,
+						draft
+					})) setError(controller.getSnapshot().transportError ?? "Failed to create PR");
+					else onClose();
+				} catch (e) {
+					setError(e instanceof Error ? e.message : String(e));
+				} finally {
+					setLoading(false);
+				}
+			};
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+				className: board_module_css_default.modalBackdrop,
+				onMouseDown: (e) => {
+					if (e.target === e.currentTarget) onClose();
+				},
+				children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: board_module_css_default.modal,
+					role: "dialog",
+					"aria-label": t$4("detail.github.createPrTitle"),
+					children: [
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h3", {
+							className: board_module_css_default.modalTitle,
+							children: t$4("detail.github.createPrTitle")
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: board_module_css_default.modalBody,
+							children: [
+								error !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+									className: board_module_css_default.formError,
+									children: error
+								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+									className: board_module_css_default.field,
+									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: board_module_css_default.fieldLabel,
+										children: t$4("detail.github.headBranch")
+									}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+										type: "text",
+										className: board_module_css_default.input,
+										value: headBranch,
+										placeholder: t$4("detail.github.headBranchPlaceholder"),
+										onChange: (e) => setHeadBranch(e.target.value),
+										disabled: loading
+									})]
+								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+									className: board_module_css_default.field,
+									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: board_module_css_default.fieldLabel,
+										children: t$4("detail.github.baseBranch")
+									}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+										type: "text",
+										className: board_module_css_default.input,
+										value: baseBranch,
+										onChange: (e) => setBaseBranch(e.target.value),
+										disabled: loading
+									})]
+								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+									className: board_module_css_default.scheduleToggle,
+									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+										type: "checkbox",
+										checked: draft,
+										onChange: (e) => setDraft(e.target.checked),
+										disabled: loading
+									}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t$4("detail.github.prDraft") })]
+								})
+							]
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("footer", {
+							className: board_module_css_default.modalFooter,
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								type: "button",
+								className: board_module_css_default.ghostButton,
+								onClick: onClose,
+								disabled: loading,
+								children: t$4("new.cancel")
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								type: "button",
+								className: board_module_css_default.primaryButton,
+								onClick: handleCreate,
+								disabled: loading || headBranch.trim() === "",
+								children: loading ? t$4("detail.github.refreshing") : t$4("detail.github.createPr")
+							})]
+						})
+					]
+				})
+			});
+		}
+		function LinkPrModal({ controller, task, onClose }) {
+			const [prNumber, setPrNumber] = (0, react.useState)("");
+			const [loading, setLoading] = (0, react.useState)(false);
+			const [error, setError] = (0, react.useState)();
+			const handleLink = async () => {
+				const num = Number(prNumber);
+				if (!Number.isInteger(num) || num <= 0) return;
+				setLoading(true);
+				setError(void 0);
+				try {
+					if (!await controller.linkGitHubPr(task.id, num)) setError(controller.getSnapshot().transportError ?? "Failed to link PR");
+					else onClose();
+				} catch (e) {
+					setError(e instanceof Error ? e.message : String(e));
+				} finally {
+					setLoading(false);
+				}
+			};
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+				className: board_module_css_default.modalBackdrop,
+				onMouseDown: (e) => {
+					if (e.target === e.currentTarget) onClose();
+				},
+				children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: board_module_css_default.modal,
+					role: "dialog",
+					"aria-label": t$4("detail.github.linkPrTitle"),
+					children: [
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h3", {
+							className: board_module_css_default.modalTitle,
+							children: t$4("detail.github.linkPrTitle")
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: board_module_css_default.modalBody,
+							children: [error !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+								className: board_module_css_default.formError,
+								children: error
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+								className: board_module_css_default.field,
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: board_module_css_default.fieldLabel,
+									children: t$4("detail.github.prNumberInput")
+								}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+									type: "number",
+									className: board_module_css_default.input,
+									value: prNumber,
+									min: "1",
+									onChange: (e) => setPrNumber(e.target.value),
+									disabled: loading
+								})]
+							})]
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("footer", {
+							className: board_module_css_default.modalFooter,
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								type: "button",
+								className: board_module_css_default.ghostButton,
+								onClick: onClose,
+								disabled: loading,
+								children: t$4("new.cancel")
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								type: "button",
+								className: board_module_css_default.primaryButton,
+								onClick: handleLink,
+								disabled: loading || !Number.isInteger(Number(prNumber)) || Number(prNumber) <= 0,
+								children: loading ? t$4("detail.github.refreshing") : t$4("detail.github.linkPr")
+							})]
+						})
+					]
+				})
+			});
+		}
+		function GitHubSection({ controller, task, pending, timeZone }) {
+			const gh = task.integrations?.github;
+			if (gh === void 0) return null;
+			const [refreshing, setRefreshing] = (0, react.useState)(false);
+			const [showCreatePr, setShowCreatePr] = (0, react.useState)(false);
+			const [showLinkPr, setShowLinkPr] = (0, react.useState)(false);
+			const handleRefresh = async () => {
+				setRefreshing(true);
+				try {
+					await controller.refreshGitHub(task.id);
+				} finally {
+					setRefreshing(false);
+				}
+			};
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
+				className: board_module_css_default.detailSection,
+				"data-dsh-part": "github-integration",
+				children: [
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h4", { children: t$4("detail.github.title") }),
+					gh.deactivated === true && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+						className: board_module_css_default.formError,
+						children: t$4("detail.github.deactivated")
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: board_module_css_default.detailText,
+						style: {
+							display: "flex",
+							alignItems: "center",
+							gap: "8px",
+							flexWrap: "wrap"
+						},
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("a", {
+							href: gh.issueUrl,
+							target: "_blank",
+							rel: "noopener noreferrer",
+							className: board_module_css_default.linkButton,
+							"data-dsh-part": "github-link",
+							title: gh.issueUrl,
+							children: [
+								gh.owner,
+								"/",
+								gh.repository,
+								" #",
+								gh.issueNumber,
+								" ↗"
+							]
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: board_module_css_default.statusBadge,
+							"data-status": gh.remoteState === "closed" ? "done" : "todo",
+							children: t$4(`detail.github.state.${gh.remoteState ?? "open"}`)
+						})]
+					}),
+					gh.remoteLabels.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+						className: board_module_css_default.cardTags,
+						style: { marginTop: "6px" },
+						children: gh.remoteLabels.map((label) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: board_module_css_default.cardTag,
+							"data-dsh-part": "github-label",
+							title: label,
+							children: label
+						}, label))
+					}),
+					gh.pullRequest !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: board_module_css_default.detailText,
+						"data-dsh-part": "github-pr",
+						style: {
+							marginTop: "8px",
+							display: "flex",
+							alignItems: "center",
+							gap: "8px",
+							flexWrap: "wrap"
+						},
+						children: [
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", { children: [t$4("detail.github.pr"), ":"] }),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("a", {
+								href: gh.pullRequest.url,
+								target: "_blank",
+								rel: "noopener noreferrer",
+								className: board_module_css_default.linkButton,
+								title: gh.pullRequest.url,
+								children: [t$4("detail.github.prNumber", { number: String(gh.pullRequest.number) }), " ↗"]
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: board_module_css_default.statusBadge,
+								"data-status": gh.pullRequest.state === "merged" ? "done" : gh.pullRequest.state === "closed" ? "failed" : "running",
+								children: t$4(`detail.github.prState.${gh.pullRequest.state}`)
+							}),
+							gh.pullRequest.draft && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: board_module_css_default.cardTag,
+								children: t$4("detail.github.prDraft")
+							}),
+							gh.pullRequest.headBranch && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+								className: board_module_css_default.detailMeta,
+								children: [
+									"(",
+									gh.pullRequest.headBranch,
+									" → ",
+									gh.pullRequest.baseBranch ?? "main",
+									")"
+								]
+							})
+						]
+					}),
+					gh.lastSyncedAt !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+						className: board_module_css_default.detailMeta,
+						style: { marginTop: "6px" },
+						children: t$4("detail.github.syncedAt", { time: formatHostTimestamp(gh.lastSyncedAt, timeZone) })
+					}),
+					gh.lastSyncError !== void 0 && gh.lastSyncError !== "" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+						className: board_module_css_default.formError,
+						children: t$4("detail.github.syncError", { error: gh.lastSyncError })
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: board_module_css_default.moveRow,
+						style: { marginTop: "8px" },
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							type: "button",
+							className: board_module_css_default.ghostButton,
+							disabled: pending || refreshing,
+							onClick: handleRefresh,
+							children: refreshing ? t$4("detail.github.refreshing") : t$4("detail.github.refresh")
+						}), gh.pullRequest === void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							type: "button",
+							className: board_module_css_default.ghostButton,
+							disabled: pending || refreshing,
+							onClick: () => setShowCreatePr(true),
+							children: t$4("detail.github.createPr")
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							type: "button",
+							className: board_module_css_default.ghostButton,
+							disabled: pending || refreshing,
+							onClick: () => setShowLinkPr(true),
+							children: t$4("detail.github.linkPr")
+						})] })]
+					}),
+					showCreatePr && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(CreatePrModal, {
+						controller,
+						task,
+						onClose: () => setShowCreatePr(false)
+					}),
+					showLinkPr && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(LinkPrModal, {
+						controller,
+						task,
+						onClose: () => setShowLinkPr(false)
+					})
+				]
+			});
+		}
 		/** Task detail overlay. */
 		function TaskDetail({ controller, task }) {
 			const [confirmDelete, setConfirmDelete] = (0, react.useState)(false);
@@ -9025,6 +10057,12 @@ window.__ModuleLoader__.load({
 										className: board_module_css_default.detailMeta,
 										children: t$4("detail.permissionConfirmed", { time: formatHostTimestamp(current.permissionConfirmedAt, timeZone) })
 									}),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)(GitHubSection, {
+										controller,
+										task: current,
+										pending,
+										timeZone
+									}),
 									/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
 										className: board_module_css_default.detailSection,
 										children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h4", { children: t$4("detail.prompt") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("pre", {
@@ -9213,6 +10251,10 @@ window.__ModuleLoader__.load({
 				...(task.tags ?? []).map((tag) => tag.name)
 			];
 			if (task.freeze !== void 0) haystacks.push(task.freeze.goal, task.freeze.progress, task.freeze.next);
+			if (task.integrations?.github !== void 0) {
+				const gh = task.integrations.github;
+				haystacks.push(gh.owner, gh.repository, `${gh.owner}/${gh.repository}`, `#${gh.issueNumber}`, String(gh.issueNumber), ...gh.remoteLabels);
+			}
 			return haystacks.some((text) => text.toLowerCase().includes(needle));
 		}
 		/**
@@ -9263,7 +10305,10 @@ window.__ModuleLoader__.load({
 			const selected = selectedTaskOf(snapshot);
 			const archiveView = snapshot.archiveView;
 			const knownTags = collectKnownTags(snapshot.tasks);
-			const onBoard = snapshot.tasks.filter((task) => archiveView ? task.archivedAt !== void 0 : task.archivedAt === void 0);
+			const onBoard = snapshot.tasks.filter((task) => {
+				if (task.integrations?.github?.deactivated === true) return false;
+				return archiveView ? task.archivedAt !== void 0 : task.archivedAt === void 0;
+			});
 			const subtaskCounts = /* @__PURE__ */ new Map();
 			const subtaskRollup = /* @__PURE__ */ new Map();
 			for (const task of onBoard) {
@@ -10182,7 +11227,7 @@ window.__ModuleLoader__.load({
 			disposeForm;
 			disposed = false;
 			saving = false;
-			/** A save requested during a Host write runs after that write settles. */
+			/** A save asked for while one was in flight; it runs once the first settles (#1754). */
 			saveQueued = false;
 			failed = false;
 			failedReason;
@@ -10505,8 +11550,12 @@ window.__ModuleLoader__.load({
 			const state = props.useTaskBoardSettingsCard((snapshot) => snapshot);
 			const disabled = !state.writable;
 			const [power, setPower] = (0, react.useState)();
+			const [github, setGithub] = (0, react.useState)();
 			(0, react.useEffect)(() => {
 				let live = true;
+				fetch("api/task-board/state").then((r) => r.ok ? r.json() : void 0).then((data) => {
+					if (data?.github && live) setGithub(data.github);
+				}).catch(() => {});
 				const events = new EventSource("api/task-board/events");
 				events.onmessage = (message) => {
 					try {
@@ -10601,6 +11650,63 @@ window.__ModuleLoader__.load({
 						onReset: () => {
 							props.resetField("maxSubtaskDepth");
 						}
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						"data-dsh-part": "github-settings",
+						style: {
+							marginTop: "16px",
+							borderTop: "1px solid var(--dsw-alias-border-subtle, #333)",
+							paddingTop: "12px"
+						},
+						children: [
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h4", {
+								style: {
+									margin: "0 0 8px 0",
+									fontSize: "13px",
+									fontWeight: 600
+								},
+								children: t("settings.github.title")
+							}),
+							github?.repositories && github.repositories.length > 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("p", {
+								style: {
+									margin: "4px 0",
+									fontSize: "12px"
+								},
+								children: [t("settings.github.configuredRepos", { count: String(github.repositories.length) }), ":"]
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
+								style: {
+									margin: "4px 0 8px 16px",
+									padding: 0,
+									fontSize: "12px"
+								},
+								children: github.repositories.map((r) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("li", { children: [
+									/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("strong", { children: [
+										r.owner,
+										"/",
+										r.repository
+									] }),
+									" (label: ",
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("code", { children: r.inclusionLabel }),
+									r.prCreationEnabled ? ", auto PR" : "",
+									")"
+								] }, `${r.owner}/${r.repository}`))
+							})] }) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+								style: {
+									margin: "4px 0 8px 0",
+									fontSize: "12px",
+									opacity: .8
+								},
+								children: t("settings.github.noRepos")
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+								style: {
+									margin: "4px 0",
+									fontSize: "12px",
+									opacity: .8
+								},
+								children: github?.hasCredential ? t("settings.github.credentialOk") : t("settings.github.credentialMissing")
+							})
+						]
 					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: t("settings.powerStatus", {
 						platform: power?.platform ?? t("settings.powerUnknown"),
@@ -10974,7 +12080,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$5() {
 			try {
-				return "0.4.4-dsh.20260930.2";
+				return "0.4.4-dsh.20260930.3";
 			} catch {
 				return;
 			}
@@ -13293,7 +14399,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$4() {
 			try {
-				return "0.4.4-dsh.20260930.2";
+				return "0.4.4-dsh.20260930.3";
 			} catch {
 				return;
 			}
@@ -14236,7 +15342,7 @@ window.__ModuleLoader__.load({
 			disposeForm;
 			disposed = false;
 			saving = false;
-			/** A save requested during a Host write runs after that write settles. */
+			/** A save asked for while one was in flight; it runs once the first settles (#1754). */
 			saveQueued = false;
 			failed = false;
 			failedReason;
@@ -15754,7 +16860,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$3() {
 			try {
-				return "0.4.4-dsh.20260930.2";
+				return "0.4.4-dsh.20260930.3";
 			} catch {
 				return;
 			}
@@ -18043,7 +19149,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$2() {
 			try {
-				return "0.4.4-dsh.20260930.2";
+				return "0.4.4-dsh.20260930.3";
 			} catch {
 				return;
 			}
@@ -34553,7 +35659,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$1() {
 			try {
-				return "0.4.4-dsh.20260930.2";
+				return "0.4.4-dsh.20260930.3";
 			} catch {
 				return;
 			}
@@ -35852,7 +36958,7 @@ window.__ModuleLoader__.load({
 			disposeForm;
 			disposed = false;
 			saving = false;
-			/** A save requested during a Host write runs after that write settles. */
+			/** A save asked for while one was in flight; it runs once the first settles (#1754). */
 			saveQueued = false;
 			failed = false;
 			failedReason;
@@ -38068,7 +39174,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion() {
 			try {
-				return "0.4.4-dsh.20260930.2";
+				return "0.4.4-dsh.20260930.3";
 			} catch {
 				return;
 			}

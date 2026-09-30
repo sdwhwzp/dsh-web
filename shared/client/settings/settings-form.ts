@@ -214,7 +214,7 @@ export class CardForm<T> {
   private readonly disposeForm: () => void
   private disposed = false
   private saving = false
-  /** A save requested during a Host write runs after that write settles. */
+  /** A save asked for while one was in flight; it runs once the first settles (#1754). */
   private saveQueued = false
   private failed = false
   private failedReason: string | undefined

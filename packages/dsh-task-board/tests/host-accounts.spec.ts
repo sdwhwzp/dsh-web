@@ -9,6 +9,7 @@ import { TaskBoardAccounts, type TaskBoardPrincipal } from '../src/host-accounts
 import { HostTaskLedger } from '../src/host-ledger.ts'
 import { HostExecutionRunner } from '../src/host-runner.ts'
 import { TaskBoardHostService } from '../src/host-service.ts'
+import { GitHubApiClient } from '../src/host/github/client.ts'
 import { createTask } from '../src/core/tasks.ts'
 import { PowerInhibitor } from '../src/power-inhibitor.ts'
 import { parseActionEnvelope } from '../src/protocol.ts'
@@ -49,6 +50,24 @@ afterEach(() => {
 })
 
 describe('task-board deployment identities', () => {
+  it('admin account mode hides shared GitHub credentials and refuses GitHub actions', async () => {
+    // Given an authenticated deployment configured with a Host-wide GitHub credential.
+    const fixture = accountFixture()
+    const fetch = vi.fn(async () => new Response('[]'))
+    const host = new TaskBoardHostService({} as TypertGateway, {
+      ledger: ledger(), accounts: fixture.accounts,
+      githubClient: new GitHubApiClient({ token: 'fixture-token', fetch }),
+      githubRepositories: [],
+    })
+    disposers.push(() => host.dispose())
+    // When an administrator reads or refreshes the shared integration.
+    expect(host.github).toBeUndefined()
+    await expect(host.apply('refresh', { kind: 'github-refresh' }, undefined, alice)).rejects.toThrow('not configured')
+    // Then no request uses the server credential, and missing identities still fail first.
+    expect(fetch).not.toHaveBeenCalled()
+    expect(() => host.apply('anonymous', { kind: 'github-refresh' })).toThrow('administrator')
+  })
+
   it('admin receives task-board access only through current carrier authorization', async () => {
     // Given carrier authorization, when ordinary, absent, revoked or rejected identities request access, then only the active administrator is accepted.
     const fixture = accountFixture()

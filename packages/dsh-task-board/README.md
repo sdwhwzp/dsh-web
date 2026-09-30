@@ -33,7 +33,7 @@ A hot-pluggable DeepSeek Harness (DSH) Web GUI plugin with a Host-authoritative 
 - **Live synchronization**: mutations return a full revisioned snapshot; SSE announces revision, scheduler, and power changes, while reconnect and page visibility recovery fetch a full snapshot.
 - **Optional idle-sleep protection**: off by default; when enabled it covers every running DSH session, enabled non-archived task-board schedules, and unknown session state.
 - **System-prompt injection**: the Host registers a `plugin:task-board` section (order 200) through `SystemPrompt.section`, and the task-board settings can disable the announcement without disabling the board. The guidance also reminds agents to close any visible `todo_write` plan before the final answer.
-- **Agent tools**: every session gets eight model-facing tools (`task_board_list`, `task_board_get`, `task_board_create`, `task_board_update`, `task_board_set_parent`, `task_board_run`, `task_board_manage`, `task_board_schedule`) that drive the same Host ledger the browser drives, so an agent can list the board, create subtasks, link or detach them, run a cascade, move a card to any column (declaring it done, failed, or in progress without a run), archive/restore/delete it, settle a card the board can no longer observe, and arm its cron schedule from the conversation.
+- **Agent tools**: every session gets eight general board tools (`task_board_list`, `task_board_get`, `task_board_create`, `task_board_update`, `task_board_set_parent`, `task_board_run`, `task_board_manage`, `task_board_schedule`) that drive the same Host ledger the browser drives, so an agent can list the board, create subtasks, link or detach them, run a cascade, move a card to any column (declaring it done, failed, or in progress without a run), archive/restore/delete it, settle a card the board can no longer observe, and arm its cron schedule from the conversation.
 
 ## Architecture and protocol
 
@@ -61,6 +61,8 @@ The board is operable from a conversation, not only from the GUI. Each tool driv
 - `task_board_schedule` arms, changes, or disarms a card's cron schedule, including its IANA time zone (an empty `timeZone` clears it back to the Host zone).
 
 There is deliberately no tool that confirms a permission binding: that gate exists so a human lifts an above-default permission, and an agent able to stamp it would make the gate decorative. An agent that hits `confirmation-required` asks the user to confirm the card in the board UI. Tool calls are attributed: a run records the calling session as its initiator, and a create/update stamps it into a continuation card's snapshot.
+
+- **GitHub issue cards (standalone Hosts)**: configured repositories synchronize issues carrying the inclusion label into cards, reconcile their remote state, and write back only DSH-managed lifecycle labels. Five additional tools (`task_board_github_list`, `task_board_github_get`, `task_board_github_refresh`, `task_board_github_create_pr`, `task_board_github_link_pr`) inspect, refresh and associate pull requests. PR creation requires the configured opt-in and an existing remote head branch. Account-backed deployments keep shared GitHub integration unavailable.
 
 ## Install
 
@@ -92,6 +94,8 @@ dsh plugin --profile web add link:$(pwd)/packages/dsh-task-board
 | `sessionDefaultPermission` | `read-only` | The deployment's session-default permission. A card whose effective permission (handover bundle or pin) is above this value requires a human confirmation before it may run; cron refuses unconfirmed cards. |
 | `maxSubtaskDepth` | `1` | Subtask depth limit, 1 to 3. At 1 a task may carry one level of subtasks and a subtask cannot be given subtasks of its own; every extra level multiplies the sessions one run of the root opens. |
 | `teamProvider` | `spawn` | Continuable-subagent provider the Agent Teams service composes a teammate from. Only team-mode runs use it; it matches the Agent Teams tool plugin's `freshProvider` default. |
+| `githubTokenEnv` | `GITHUB_TOKEN` | Environment variable holding the standalone GitHub credential; never sent to the browser or model. |
+| `githubRepositories` | `[]` | Repository rows with `owner` and `repository`; inclusion label defaults to `dsh`, polling to 300000 ms, PR creation to disabled and base branch to `main`. |
 
 Direct browser access remains limited to the DSH loopback origin. For a same-host authenticated reverse proxy, bind DSH Web to loopback, set `trustedProxyHosts`, place a high-entropy token in the environment variable selected by `proxyTokenEnv`, and configure the proxy to replace (not forward from the client) `X-Dsh-Task-Board-Proxy-Token` after it authenticates the request. The proxy Host must be allowlisted, and the browser `Origin` must have that same authority. Restart the Host after changing these composition-level proxy settings.
 
@@ -112,6 +116,7 @@ On macOS the backend starts `/usr/bin/caffeinate -i -w <host-pid>` and never req
 
 - When a deployment provides account authentication, every route, including AI draft parsing, awaits a transport-verified, active administrator before invoking its handler. Standalone Hosts without account providers retain local access. Account identities come from the Host Connection or signed-principal provider, never from the action body or its audit-only `initiator`.
 - The Host atomically stores each task's owner alongside the ledger, outside browser snapshots and imports. Creating a card, or explicitly running or setting a schedule on an unowned card, binds it to the authenticated administrator; only that owner may mutate it. Imports cannot replace owned cards. Other administrators may view the shared board.
+- GitHub synchronization uses Host-wide credentials only in standalone deployments. Account-backed deployments do not expose or poll that shared integration; per-account gateway boards do not inherit its credentials.
 - Agent tools resolve the Host-verified principal on every call and apply the same administrator-only access check to reads and writes. Subtask links refuse other account owners, and each cascade participant retains its owner across restart.
 - Manual runs, cron, session reuse, and restart recovery pass the saved owner to every Session gateway operation. The Host rechecks the active account before each operation and permission change, and closes SSE streams after access is revoked. Unowned scheduled cards fail before creating a session until an administrator explicitly binds them.
 - The plugin stays inside the existing DSH Web deployment and network boundary and emits no permissive CORS headers. State, action, and SSE routes share the same access fence; bare local command-line requests are not accepted as browser requests.

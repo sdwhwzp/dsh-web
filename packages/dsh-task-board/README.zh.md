@@ -33,7 +33,7 @@
 - **实时同步**：变更返回完整 revision snapshot；SSE 只提示 revision、scheduler 与 power 变化，重连和页面恢复可见时重新拉完整 snapshot。
 - **可选空闲睡眠保护**：默认关闭；开启后覆盖全部运行中的 DSH 会话、已启用且未归档的任务计划和未知会话状态。
 - **系统提示词注入**：Host 通过 `SystemPrompt.section` 注册 order 200 的 `plugin:task-board` 段；任务看板设置可单独关闭声明而不关闭看板。该提示也会提醒 agent 在最终回复前收尾可见的 `todo_write` 计划列表。
-- **Agent 工具**：每个会话都可使用八个面向模型的工具（`task_board_list`、`task_board_get`、`task_board_create`、`task_board_update`、`task_board_set_parent`、`task_board_run`、`task_board_manage`、`task_board_schedule`），它们驱动与浏览器完全相同的 Host 账本，因此 agent 可以在对话里列出看板、创建子任务、关联或解除关联、执行级联、把卡片移到任意列（含不经执行直接声明完成、失败或进行中）、归档/恢复/删除卡片、对看板已无法观察的卡片强制结算，以及为卡片配置 cron 计划。
+- **Agent 工具**：每个会话都可使用八个通用看板工具（`task_board_list`、`task_board_get`、`task_board_create`、`task_board_update`、`task_board_set_parent`、`task_board_run`、`task_board_manage`、`task_board_schedule`），它们驱动与浏览器完全相同的 Host 账本，因此 agent 可以在对话里列出看板、创建子任务、关联或解除关联、执行级联、把卡片移到任意列（含不经执行直接声明完成、失败或进行中）、归档/恢复/删除卡片、对看板已无法观察的卡片强制结算，以及为卡片配置 cron 计划。
 
 ## 架构与协议
 
@@ -61,6 +61,8 @@
 - `task_board_schedule`：启用、修改或关闭卡片的 cron 计划，包括其 IANA 时区（`timeZone` 传空字符串即清除，回退到 Host 时区）。
 
 这里刻意没有「确认权限」工具：该门禁存在的意义就是由人工放行高于默认值的权限，若 agent 能自行盖章，这道门就形同虚设。遇到 `confirmation-required` 的 agent 应当请用户在界面确认该卡片。工具调用带归属：执行会把发起会话记为 initiator，创建/更新则会把发起会话写进续接卡片快照。
+
+- **GitHub Issue 卡片（独立 Host）**：配置的仓库会将带有纳入标签的 Issue 同步为卡片、核对远端状态，并仅回写 DSH 管理的生命周期标签。另有五个工具（`task_board_github_list`、`task_board_github_get`、`task_board_github_refresh`、`task_board_github_create_pr`、`task_board_github_link_pr`）用于查看、刷新及关联 PR。创建 PR 要求配置中显式开启，且远端目标开发分支已存在。启用账号认证的部署不提供共享 GitHub 集成。
 
 ## 安装
 
@@ -92,6 +94,8 @@ dsh plugin --profile web add link:$(pwd)/packages/dsh-task-board
 | `sessionDefaultPermission` | `read-only` | 部署的会话默认权限。卡片有效权限（交接包或钉住字段）高于该值时，运行前必须经人工确认；cron 拒绝调度待确认卡片。 |
 | `maxSubtaskDepth` | `1` | 子任务深度上限，1 到 3。取 1 时一个任务只能有一层子任务，子任务不能再创建或关联子任务；每多一层，执行根任务一次开启的会话数就会成倍增加。 |
 | `teamProvider` | `spawn` | Agent Teams 服务用来组成 teammate 的 continuable-subagent provider。仅团队执行模式使用，与 Agent Teams 工具插件的 `freshProvider` 默认值一致。 |
+| `githubTokenEnv` | `GITHUB_TOKEN` | 保存独立 Host GitHub 凭据的环境变量，不发送给浏览器或模型。 |
+| `githubRepositories` | `[]` | 包含 `owner` 与 `repository` 的仓库配置；纳入标签默认 `dsh`，轮询默认 300000 ms，PR 创建默认关闭，目标分支默认 `main`。 |
 
 浏览器直接访问仍限制为 DSH loopback origin。若使用同机认证反向代理，应让 DSH Web 绑定 loopback，配置 `trustedProxyHosts`，在 `proxyTokenEnv` 指定的环境变量中放置高熵 token，并让代理在完成认证后替换（不能透传客户端提供的）`X-Dsh-Task-Board-Proxy-Token`。代理 Host 必须在白名单内，浏览器 `Origin` 必须与其 authority 相同。修改这些 composition 级代理设置后需重启 Host。
 
@@ -112,6 +116,7 @@ macOS 后端启动 `/usr/bin/caffeinate -i -w <host-pid>`，绝不请求 `-d`。
 
 - 部署提供账号认证时，每条路由（包括 AI 草稿解析）都会等待传输层验证管理员身份有效后才执行处理器；没有账号 provider 的独立 Host 保留本地访问方式。身份来自 Host Connection 或签名身份 provider，不接受动作正文或仅供审计的 `initiator` 作为身份。
 - Host 将任务所有者与账本原子保存，身份字段不进入浏览器快照或导入数据。创建卡片，或显式执行、设置无所有者卡片的计划时，会绑定当前认证管理员；只有所有者能修改该卡片。导入不能覆盖已有所有者的卡片，其他管理员可查看共享看板。
+- GitHub 同步仅在独立部署中使用 Host 共享凭据。启用账号认证的部署不提供或轮询该共享集成；账号网关的独立看板不会继承这些凭据。
 - Agent 工具每次调用都解析 Host 已验证的身份，并对读写使用相同的管理员访问检查。子任务关联拒绝其他账号所有者，级联中的每个任务在重启后仍保留所有者。
 - 手动执行、cron、会话复用与重启恢复都会将保存的所有者传给每个 Session gateway 操作。Host 在每次操作与权限变更前重新检查账号状态，并在权限撤销后关闭 SSE 流。无所有者的计划卡片在创建会话前失败，须由管理员显式绑定后才能执行。
 - 插件仍处在 DSH Web 既有部署与网络边界内，不返回宽松 CORS 头。state、action 与 SSE 共用同一访问栅栏；裸本地命令行请求不会被当作浏览器请求接受。

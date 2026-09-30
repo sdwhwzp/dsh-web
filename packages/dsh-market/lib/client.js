@@ -540,7 +540,7 @@ window.__ModuleLoader__.load({
 			disposeForm;
 			disposed = false;
 			saving = false;
-			/** A save requested during a Host write runs after that write settles. */
+			/** A save asked for while one was in flight; it runs once the first settles (#1754). */
 			saveQueued = false;
 			failed = false;
 			failedReason;
@@ -2474,7 +2474,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion() {
 			try {
-				return "0.4.4-dsh.20260930.2";
+				return "0.4.4-dsh.20260930.3";
 			} catch {
 				return;
 			}
