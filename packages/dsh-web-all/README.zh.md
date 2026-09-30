@@ -34,13 +34,10 @@ dsh plugin --profile web add @linxin666/dsh-web-all@latest
 dsh web
 ```
 
-**DSH Desktop（桌面客户端）**：
-```sh
-dsh plugin --profile desktop add @linxin666/dsh-web-all@latest
-# 检查是否已挂载
-dsh --profile desktop --dump-config
-# 完全退出并重新启动 DSH Desktop 桌面应用
-```
+**官方桌面客户端（DeepSeek Harness Desktop）**：
+- 打开官方桌面客户端，进入“设置 → 插件”（或左侧导航栏的插件入口）
+- 在插件安装输入框中输入 `@linxin666/dsh-web-all` 并确认安装
+- 安装完成后完全退出并重新启动官方桌面客户端
 
 ### 从仓库安装（开发调试）
 
@@ -52,7 +49,7 @@ node scripts/link-profile.mjs
 dsh plugin --profile web add link:$(pwd)/packages/dsh-web-all
 ```
 
-安装后重启 `dsh web`（或 DSH Desktop 客户端）使插件生效。
+安装后重启 `dsh web`（或官方桌面客户端）使插件生效。
 
 ### 手工升级
 

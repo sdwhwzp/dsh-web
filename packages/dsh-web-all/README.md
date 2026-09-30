@@ -34,13 +34,10 @@ dsh plugin --profile web add @linxin666/dsh-web-all@latest
 dsh web
 ```
 
-**DSH Desktop (Desktop Client)**:
-```sh
-dsh plugin --profile desktop add @linxin666/dsh-web-all@latest
-# Verify bundle mount
-dsh --profile desktop --dump-config
-# Fully quit and restart DSH Desktop application
-```
+**Official Desktop Client (DeepSeek Harness Desktop)**:
+- Open the official desktop client and navigate to "Settings > Plugins" (or the sidebar plugins view)
+- Enter `@linxin666/dsh-web-all` into the install input field and click Install
+- Fully quit and restart the desktop client once installation completes
 
 ### From the repository (development)
 
@@ -52,7 +49,7 @@ node scripts/link-profile.mjs
 dsh plugin --profile web add link:$(pwd)/packages/dsh-web-all
 ```
 
-Restart `dsh web` (or DSH Desktop application) for the plugins to take effect.
+Restart `dsh web` (or the official desktop client) for the plugins to take effect.
 
 ### Manual upgrade
 
