@@ -671,7 +671,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$8() {
 			try {
-				return "0.4.4-dsh.20260930.3";
+				return "0.4.4-dsh.20261001.1";
 			} catch {
 				return;
 			}
@@ -1751,7 +1751,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$7() {
 			try {
-				return "0.4.4-dsh.20260930.3";
+				return "0.4.4-dsh.20261001.1";
 			} catch {
 				return;
 			}
@@ -4526,7 +4526,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$6() {
 			try {
-				return "0.4.4-dsh.20260930.3";
+				return "0.4.4-dsh.20261001.1";
 			} catch {
 				return;
 			}
@@ -12084,7 +12084,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$5() {
 			try {
-				return "0.4.4-dsh.20260930.3";
+				return "0.4.4-dsh.20261001.1";
 			} catch {
 				return;
 			}
@@ -14403,7 +14403,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$4() {
 			try {
-				return "0.4.4-dsh.20260930.3";
+				return "0.4.4-dsh.20261001.1";
 			} catch {
 				return;
 			}
@@ -16864,7 +16864,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$3() {
 			try {
-				return "0.4.4-dsh.20260930.3";
+				return "0.4.4-dsh.20261001.1";
 			} catch {
 				return;
 			}
@@ -19153,7 +19153,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$2() {
 			try {
-				return "0.4.4-dsh.20260930.3";
+				return "0.4.4-dsh.20261001.1";
 			} catch {
 				return;
 			}
@@ -35663,7 +35663,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$1() {
 			try {
-				return "0.4.4-dsh.20260930.3";
+				return "0.4.4-dsh.20261001.1";
 			} catch {
 				return;
 			}
@@ -39178,7 +39178,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion() {
 			try {
-				return "0.4.4-dsh.20260930.3";
+				return "0.4.4-dsh.20261001.1";
 			} catch {
 				return;
 			}
@@ -39582,6 +39582,7 @@ window.__ModuleLoader__.load({
 		}
 		const DEEPSEEK = {
 			ids: ["deepseek", "deepseek-official"],
+			familyOnlyIds: ["deepseek-account"],
 			displayName: "DeepSeek",
 			balance: {
 				origin: "https://api.deepseek.com",
@@ -39967,11 +39968,20 @@ window.__ModuleLoader__.load({
 		/**
 		* Whether a provider route belongs to the official DeepSeek family: the only
 		* family with a spend price book and a settings-section-owned env credential
-		* (llm-deepseek) rather than a pi-ai profile. Drives the env fallback in
-		* credential resolution and the fold-time cost stamping.
+		* (llm-deepseek) rather than a pi-ai profile. Drives the fold-time cost
+		* stamping, the client fold-time spend estimate, and the whale-yuan bank.
+		*
+		* Family membership is wider than the probe directory. The account route
+		* (deepseek-account) bills the same account but authenticates with the account
+		* token, so it prices and mints while `adapterFor()` still returns undefined
+		* for it and no probe or env-credential fallback can reach it. Every caller of
+		* this predicate is an accounting decision; the credential and probing
+		* decisions read `adapterFor()` instead, so the two never widen together
+		* (issue #1772).
 		*/
 		function isDeepSeekProviderRoute(provider) {
-			return adapterFor(provider) === DEEPSEEK;
+			if (adapterFor(provider) === DEEPSEEK) return true;
+			return DEEPSEEK.familyOnlyIds?.includes(provider) === true;
 		}
 		//#endregion
 		//#region ../dsh-usage/src/core/pricing.ts
