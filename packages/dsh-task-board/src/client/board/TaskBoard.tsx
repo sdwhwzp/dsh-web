@@ -3,28 +3,63 @@
  * active. Cards open the task detail (never execute directly); the header
  * offers filter, new-task, and a back-to-chat escape.
  */
-import { memo, useCallback, useEffect, useState } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { selectedTaskOf, type BoardController } from '../../core/controller.ts'
 import { COLUMNS, MANUAL_STATUSES, canMoveTask, collectKnownTags, hasOpenExecution, tagTone, type TaskRecord } from '../../core/tasks.ts'
 import { t } from '../locales.ts'
 import css from '../board.module.css'
+import { IconChevronLeft, IconPlus } from './icons.tsx'
 import { NewTaskModal } from './NewTaskModal.tsx'
+import { usePresence } from './overlay.tsx'
 import { STATUS_KEY } from './status-key.ts'
+import { TagManagerModal } from './TagManagerModal.tsx'
 import { TaskCard } from './TaskCard.tsx'
 import { TaskDetail } from './TaskDetail.tsx'
 
 /** Sentinel option value of the project row's "register a new project" entry. */
 export const NEW_PROJECT_VALUE = '__dsh_new_project__'
 
-/** Case-insensitive title/description/tag/freeze-snapshot match. */
+/**
+ * Collect every string leaf of an opaque extension payload. The board does not
+ * interpret provider data, but a provider's identifiers and labels should stay
+ * searchable from the board's own filter, so the leaf strings join the haystack.
+ */
+function collectSearchLeaves(value: unknown, out: string[]): void {
+  if (typeof value === 'string') {
+    out.push(value)
+    return
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    out.push(String(value))
+    return
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectSearchLeaves(item, out)
+    return
+  }
+  if (typeof value === 'object' && value !== null) {
+    for (const nested of Object.values(value)) collectSearchLeaves(nested, out)
+  }
+}
+
+/**
+ * Case-insensitive title/description/tag/freeze-snapshot/provider-payload match.
+ *
+ * A leading `#` is dropped from the needle. Providers render their own
+ * identifiers with that prefix (`#1758`) and the board attaches no meaning to
+ * it: stripping it keeps the identifier searchable exactly as it is written on
+ * screen, without the board learning any provider's vocabulary.
+ */
 export function matchesFilter(task: TaskRecord, filter: string): boolean {
-  if (filter.trim() === '') return true
-  const needle = filter.trim().toLowerCase()
+  const query = filter.trim().toLowerCase()
+  if (query === '') return true
+  const needle = query.startsWith('#') ? query.slice(1) : query
   const haystacks = [task.title, task.description, ...(task.tags ?? []).map(tag => tag.name)]
   if (task.freeze !== undefined) haystacks.push(task.freeze.goal, task.freeze.progress, task.freeze.next)
-  if (task.integrations?.github !== undefined) {
-    const gh = task.integrations.github
-    haystacks.push(gh.owner, gh.repository, `${gh.owner}/${gh.repository}`, `#${gh.issueNumber}`, String(gh.issueNumber), ...gh.remoteLabels)
+  if (task.integrations !== undefined) {
+    const leaves: string[] = []
+    collectSearchLeaves(task.integrations, leaves)
+    haystacks.push(...leaves)
   }
   return haystacks.some(text => text.toLowerCase().includes(needle))
 }
@@ -89,6 +124,7 @@ export function TaskBoard({ controller }: { controller: BoardController }) {
   // them automatically, so searching a subtask title still finds it.
   const [hideSubtasks, setHideSubtasks] = useState(true)
   const [showNew, setShowNew] = useState(false)
+  const [showTagManager, setShowTagManager] = useState(false)
   // Project partition (#1536): '' means "all projects". A selected project
   // narrows the board and becomes the new-task form's default workspace.
   const [projectId, setProjectId] = useState('')
@@ -98,12 +134,26 @@ export function TaskBoard({ controller }: { controller: BoardController }) {
   const [newProjectPending, setNewProjectPending] = useState(false)
   const selected = selectedTaskOf(snapshot)
   const archiveView = snapshot.archiveView
+  // Overlay lifecycle: both the detail view and the create dialog keep the
+  // last thing they showed while their exit leg runs, so closing one is the
+  // return trip of opening it instead of a node disappearing from under the
+  // pointer. The detail view's task is remembered so the surface still has its
+  // content to animate out after the selection is cleared.
+  const detailPresence = usePresence(selected !== undefined)
+  const lastDetail = useRef<TaskRecord | undefined>(undefined)
+  useEffect(() => { if (selected !== undefined) lastDetail.current = selected }, [selected])
+  const detailTask = selected ?? lastDetail.current
+  const newTaskPresence = usePresence(showNew)
+  const tagManagerPresence = usePresence(showTagManager)
   // Every label in use across the ledger (board and archive alike), so the
   // filter never loses an option just because its task was archived.
   const knownTags = collectKnownTags(snapshot.tasks)
-  // The family of cards this view owns: the board columns, or the archive.
+  // The family of cards this view owns: the board columns, or the archive. A
+  // provider-hidden card (board hidden flag, or any registered visibility
+  // predicate rejecting it) never appears here.
   const onBoard = snapshot.tasks.filter(task => {
-    if (task.integrations?.github?.deactivated === true) return false
+    if (task.hidden === true) return false
+    if (!(snapshot.visibility ?? []).every(predicate => predicate(task))) return false
     return archiveView ? task.archivedAt !== undefined : task.archivedAt === undefined
   })
   // Direct subtask count and state roll-up per task, for the card badge: a
@@ -166,7 +216,7 @@ export function TaskBoard({ controller }: { controller: BoardController }) {
           aria-label={t('board.close')}
           onClick={() => { controller.closeBoard() }}
         >
-          <span aria-hidden="true">‹</span>
+          <IconChevronLeft size={15} />
           <span>{t('board.close')}</span>
         </button>
         <h2 className={css.boardTitle}>{t('board.title')}</h2>
@@ -178,68 +228,78 @@ export function TaskBoard({ controller }: { controller: BoardController }) {
             })}
           </span>
         )}
-        {(projects.length > 0 || canCreateProject) && (
-          <label className={css.projectFilter}>
-            <span className={css.projectFilterLabel}>{t('board.project')}</span>
-            <select
-              className={css.select}
-              data-dsh-part="project-filter"
-              value={projectId}
-              aria-label={t('board.project')}
-              onChange={event => {
-                const value = event.target.value
-                if (value === NEW_PROJECT_VALUE) {
-                  setNewProjectError(undefined)
-                  setShowNewProject(true)
-                  return
-                }
-                setProjectId(value)
-              }}
+        {/* Filters, view toggles and the create action share one toolbar group so
+            the header reads as identity + tools instead of one long strip. The
+            toggles keep the outlined control and only change role colour when
+            they are on, so pressing one never resizes the row. */}
+        <div className={css.boardTools}>
+          {(projects.length > 0 || canCreateProject) && (
+            <label className={css.projectFilter}>
+              <span className={css.projectFilterLabel}>{t('board.project')}</span>
+              <select
+                className={css.select}
+                data-dsh-part="project-filter"
+                value={projectId}
+                aria-label={t('board.project')}
+                onChange={event => {
+                  const value = event.target.value
+                  if (value === NEW_PROJECT_VALUE) {
+                    setNewProjectError(undefined)
+                    setShowNewProject(true)
+                    return
+                  }
+                  setProjectId(value)
+                }}
+              >
+                <option value="">{t('board.projectAll')}</option>
+                {projects.map(project => (
+                  <option key={project.workspaceId} value={project.workspaceId}>{project.title}</option>
+                ))}
+                {canCreateProject && <option value={NEW_PROJECT_VALUE}>{t('board.projectNew')}</option>}
+              </select>
+            </label>
+          )}
+          <input
+            className={css.search}
+            type="search"
+            placeholder={t('board.search')}
+            value={filter}
+            onChange={event => { setFilter(event.target.value) }}
+            aria-label={t('board.search')}
+          />
+          {hasSubtasks && (
+            <button
+              type="button"
+              className={css.ghostButton}
+              data-dsh-part="subtask-filter"
+              data-active={hidingSubtasks ? 'true' : undefined}
+              aria-pressed={hidingSubtasks}
+              title={t('board.subtaskFilterHint')}
+              onClick={() => { setHideSubtasks(value => !value) }}
             >
-              <option value="">{t('board.projectAll')}</option>
-              {projects.map(project => (
-                <option key={project.workspaceId} value={project.workspaceId}>{project.title}</option>
-              ))}
-              {canCreateProject && <option value={NEW_PROJECT_VALUE}>{t('board.projectNew')}</option>}
-            </select>
-          </label>
-        )}
-        <input
-          className={css.search}
-          type="search"
-          placeholder={t('board.search')}
-          value={filter}
-          onChange={event => { setFilter(event.target.value) }}
-          aria-label={t('board.search')}
-        />
-        {hasSubtasks && (
+              {hidingSubtasks ? t('board.showSubtasks') : t('board.hideSubtasks')}
+            </button>
+          )}
           <button
             type="button"
-            className={hidingSubtasks ? css.primaryButton : css.ghostButton}
-            data-dsh-part="subtask-filter"
-            aria-pressed={hidingSubtasks}
-            title={t('board.subtaskFilterHint')}
-            onClick={() => { setHideSubtasks(value => !value) }}
+            className={css.ghostButton}
+            data-active={archiveView ? 'true' : undefined}
+            aria-pressed={archiveView}
+            onClick={() => { controller.toggleArchiveView() }}
           >
-            {hidingSubtasks ? t('board.showSubtasks') : t('board.hideSubtasks')}
+            {archiveView
+              ? t('board.backToBoard')
+              : t('board.archiveView', { count: String(snapshot.tasks.filter(task => task.archivedAt !== undefined).length) })}
           </button>
-        )}
-        <button
-          type="button"
-          className={archiveView ? css.primaryButton : css.ghostButton}
-          onClick={() => { controller.toggleArchiveView() }}
-        >
-          {archiveView
-            ? t('board.backToBoard')
-            : t('board.archiveView', { count: String(snapshot.tasks.filter(task => task.archivedAt !== undefined).length) })}
-        </button>
-        <button
-          type="button"
-          className={css.primaryButton}
-          onClick={() => { setShowNew(true) }}
-        >
-          + {t('board.new')}
-        </button>
+          <button
+            type="button"
+            className={css.primaryButton}
+            onClick={() => { setShowNew(true) }}
+          >
+            <IconPlus size={15} />
+            {t('board.new')}
+          </button>
+        </div>
       </header>
 
       {showNewProject && (
@@ -296,6 +356,16 @@ export function TaskBoard({ controller }: { controller: BoardController }) {
               </button>
             )
           })}
+          {/* The row can only shrink through the manager: without it a label
+              created once stays on the board forever. */}
+          <button
+            type="button"
+            className={css.linkButton}
+            data-dsh-part="tag-manage"
+            onClick={() => { setShowTagManager(true) }}
+          >
+            {t('board.tagManage')}
+          </button>
           {tagFilter.length > 0 && (
             <button type="button" className={css.linkButton} onClick={() => { setTagFilter([]) }}>
               {t('board.tagFilterClear')}
@@ -396,14 +466,22 @@ export function TaskBoard({ controller }: { controller: BoardController }) {
         )}
       </div>
 
-      {selected !== undefined && (
-        <TaskDetail controller={controller} task={selected} />
+      {detailTask !== undefined && detailPresence.mounted && (
+        <TaskDetail controller={controller} task={detailTask} phase={detailPresence.phase} />
       )}
-      {showNew && (
+      {newTaskPresence.mounted && (
         <NewTaskModal
           controller={controller}
           {...(projectId === '' ? {} : { defaultWorkspaceId: projectId })}
           onClose={() => { setShowNew(false) }}
+          phase={newTaskPresence.phase}
+        />
+      )}
+      {tagManagerPresence.mounted && (
+        <TagManagerModal
+          controller={controller}
+          onClose={() => { setShowTagManager(false) }}
+          phase={tagManagerPresence.phase}
         />
       )}
     </div>

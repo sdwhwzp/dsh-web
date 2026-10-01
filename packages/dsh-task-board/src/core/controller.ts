@@ -19,6 +19,7 @@ import { applyDeleteTask } from './use-cases/task-delete.ts'
 import { applyScheduleNextRun as applyScheduleRollForward, applySetSchedule } from './use-cases/task-schedule.ts'
 import { resolveHostTimeZone } from './schedule.ts'
 import { applySetParent } from './use-cases/task-parent.ts'
+import { applyDeleteTag, applyRenameTag } from './use-cases/task-tag.ts'
 import { applyUpdateTask, type TaskUpdatePatch } from './use-cases/task-update.ts'
 import { DEFAULT_SUBTASK_DEPTH } from './subtask.ts'
 import type {
@@ -28,6 +29,10 @@ import type {
   TaskBoardParseRequest,
   TaskBoardSnapshot,
 } from '../protocol.ts'
+import type {
+  TaskBoardExtensionActionRequest,
+  TaskBoardVisibilityPredicate,
+} from './extension.ts'
 
 export interface TaskBoardTransport {
   bootstrap(legacy: readonly TaskRecord[]): Promise<TaskBoardSnapshot>
@@ -136,7 +141,7 @@ export interface ExecutionOptionsSnapshot {
  * (revision/scheduler/power); a full snapshot also carries the deployment
  * constants the UI reads (session default permission, subtask depth).
  */
-export type HostMirror = Pick<TaskBoardSnapshot, 'revision' | 'scheduler' | 'power' | 'sessionDefaultPermission' | 'maxSubtaskDepth' | 'teamRunAvailable'>
+export type HostMirror = Pick<TaskBoardSnapshot, 'revision' | 'scheduler' | 'power' | 'sessionDefaultPermission' | 'maxSubtaskDepth' | 'teamRunAvailable' | 'extensions'>
 
 /** Immutable controller snapshot for UI subscriptions. */
 export interface ControllerSnapshot {
@@ -154,6 +159,15 @@ export interface ControllerSnapshot {
   canParseTask?: boolean
   transportError?: string
   host?: HostMirror
+  /**
+   * Provider card-visibility predicates, in registration order. A task shows
+   * only while every predicate accepts it; providers hide their own off-board
+   * cards here instead of the board hard-coding a provider rule. Optional so a
+   * hand-built snapshot (tests, a shell-less composition) defaults to visible.
+   */
+  visibility?: readonly TaskBoardVisibilityPredicate[]
+  /** Read-only summaries published by running extensions, keyed by extension id. */
+  extensions?: Readonly<Record<string, unknown>>
 }
 
 /** The selected task (resolved from the ledger), or undefined. */
@@ -201,6 +215,8 @@ export class BoardController {
   private readonly taskQueues = new Map<string, Promise<void>>()
   private transportError: string | undefined
   private hostState: HostMirror | undefined
+  /** Provider visibility predicates (immutable array; replaced on change). */
+  private visibility: readonly TaskBoardVisibilityPredicate[] = []
   private remoteSubscribed = false
   private remoteInitialization: Promise<boolean> | undefined
 
@@ -251,7 +267,40 @@ export class BoardController {
       ...(typeof this.deps.transport?.parseDraft === 'function' ? { canParseTask: true } : {}),
       ...(this.transportError === undefined ? {} : { transportError: this.transportError }),
       ...(this.hostState === undefined ? {} : { host: this.hostState }),
+      visibility: this.visibility,
+      ...(this.hostState?.extensions === undefined ? {} : { extensions: this.hostState.extensions }),
     }
+  }
+
+  /**
+   * Register one card-visibility predicate. The returned disposer removes it;
+   * both changes notify subscribers so the board re-renders.
+   */
+  registerVisibility(predicate: TaskBoardVisibilityPredicate): () => void {
+    this.visibility = [...this.visibility, predicate]
+    this.notify()
+    return () => {
+      const next = this.visibility.filter(candidate => candidate !== predicate)
+      if (next.length === this.visibility.length) return
+      this.visibility = next
+      this.notify()
+    }
+  }
+
+  /**
+   * Deliver one provider action through the board's same-origin channel. A
+   * board without a Host transport (the legacy in-memory path) refuses it.
+   */
+  async dispatchExtension(request: TaskBoardExtensionActionRequest): Promise<boolean> {
+    if (this.deps.transport === undefined) return false
+    const action: TaskBoardAction = {
+      kind: 'extension-action',
+      extensionId: request.extensionId,
+      action: request.action,
+      ...(request.taskId === undefined ? {} : { taskId: request.taskId }),
+      ...(request.payload === undefined ? {} : { payload: request.payload }),
+    }
+    return await this.commitRemote(action, request.taskId)
   }
 
   subscribe(fn: () => void): () => void {
@@ -507,27 +556,42 @@ export class BoardController {
     return true
   }
 
-  // --- github integration ------------------------------------------------------
-
-  /** Trigger synchronization between GitHub and the task board. */
-  async refreshGitHub(taskId?: string, owner?: string, repository?: string): Promise<boolean> {
-    if (this.deps.transport === undefined) return false
-    return await this.commitRemote({ kind: 'github-refresh', taskId, owner, repository }, taskId)
+  /**
+   * Rename one label across the whole ledger; a name already in use merges the
+   * two labels. Host-backed: the ledger owns the transition and confirms it, so
+   * the board's label row reflects whether the Host accepted the edit.
+   * @returns true when the edit was accepted by the authority.
+   */
+  async renameTag(from: string, to: string): Promise<boolean> {
+    if (this.deps.transport !== undefined) {
+      return await this.commitRemote({ kind: 'rename-tag', from, to })
+    }
+    const result = applyRenameTag(this.tasks, from, to, this.now())
+    if (result.error !== undefined) return false
+    if (result.changed) {
+      this.tasks = [...result.tasks]
+      this.persistAndNotify()
+    }
+    return true
   }
 
-  /** Create a GitHub Pull Request for a task. */
-  async createGitHubPr(
-    taskId: string,
-    input: { headBranch: string; baseBranch?: string; title?: string; body?: string; draft?: boolean },
-  ): Promise<boolean> {
-    if (this.deps.transport === undefined) return false
-    return await this.commitRemote({ kind: 'github-create-pr', taskId, ...input }, taskId)
-  }
-
-  /** Link an existing GitHub Pull Request to a task. */
-  async linkGitHubPr(taskId: string, pullRequestNumber: number): Promise<boolean> {
-    if (this.deps.transport === undefined) return false
-    return await this.commitRemote({ kind: 'github-link-pr', taskId, pullRequestNumber }, taskId)
+  /**
+   * Remove one label from every task that carries it, board and archive alike —
+   * the board's label row is drawn from the whole ledger, so a label left on an
+   * archived card would come straight back.
+   * @returns true when the edit was accepted by the authority.
+   */
+  async deleteTag(name: string): Promise<boolean> {
+    if (this.deps.transport !== undefined) {
+      return await this.commitRemote({ kind: 'delete-tag', name })
+    }
+    const result = applyDeleteTag(this.tasks, name, this.now())
+    if (result.error !== undefined) return false
+    if (result.changed) {
+      this.tasks = [...result.tasks]
+      this.persistAndNotify()
+    }
+    return true
   }
 
   // --- scheduling ---------------------------------------------------------------
@@ -749,6 +813,7 @@ export class BoardController {
     const sessionDefaultPermission = snapshot.sessionDefaultPermission ?? this.hostState?.sessionDefaultPermission
     const maxSubtaskDepth = snapshot.maxSubtaskDepth ?? this.hostState?.maxSubtaskDepth
     const teamRunAvailable = snapshot.teamRunAvailable ?? this.hostState?.teamRunAvailable
+    const extensions = snapshot.extensions ?? this.hostState?.extensions
     return {
       revision: snapshot.revision,
       scheduler: snapshot.scheduler,
@@ -756,6 +821,7 @@ export class BoardController {
       ...(sessionDefaultPermission === undefined ? {} : { sessionDefaultPermission }),
       ...(maxSubtaskDepth === undefined ? {} : { maxSubtaskDepth }),
       ...(teamRunAvailable === undefined ? {} : { teamRunAvailable }),
+      ...(extensions === undefined ? {} : { extensions }),
     }
   }
 

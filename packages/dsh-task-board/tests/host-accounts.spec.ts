@@ -9,7 +9,6 @@ import { TaskBoardAccounts, type TaskBoardPrincipal } from '../src/host-accounts
 import { HostTaskLedger } from '../src/host-ledger.ts'
 import { HostExecutionRunner } from '../src/host-runner.ts'
 import { TaskBoardHostService } from '../src/host-service.ts'
-import { GitHubApiClient } from '../src/host/github/client.ts'
 import { createTask } from '../src/core/tasks.ts'
 import { PowerInhibitor } from '../src/power-inhibitor.ts'
 import { parseActionEnvelope } from '../src/protocol.ts'
@@ -50,22 +49,28 @@ afterEach(() => {
 })
 
 describe('task-board deployment identities', () => {
-  it('admin account mode hides shared GitHub credentials and refuses GitHub actions', async () => {
-    // Given an authenticated deployment configured with a Host-wide GitHub credential.
+  it('admin account mode keeps shared providers inactive and refuses their actions', async () => {
+    // Given an authenticated deployment and a shared provider with an outbound request hook.
     const fixture = accountFixture()
-    const fetch = vi.fn(async () => new Response('[]'))
-    const host = new TaskBoardHostService({} as TypertGateway, {
-      ledger: ledger(), accounts: fixture.accounts,
-      githubClient: new GitHubApiClient({ token: 'fixture-token', fetch }),
-      githubRepositories: [],
-    })
+    const start = vi.fn()
+    const host = new TaskBoardHostService({} as TypertGateway, { ledger: ledger(), accounts: fixture.accounts })
     disposers.push(() => host.dispose())
-    // When an administrator reads or refreshes the shared integration.
-    expect(host.github).toBeUndefined()
-    await expect(host.apply('refresh', { kind: 'github-refresh' }, undefined, alice)).rejects.toThrow('not configured')
-    // Then no request uses the server credential, and missing identities still fail first.
-    expect(fetch).not.toHaveBeenCalled()
-    expect(() => host.apply('anonymous', { kind: 'github-refresh' })).toThrow('administrator')
+    host.registerExtension({ id: 'github', apiVersion: 1, start })
+    // When an administrator asks for the shared integration, then no credential-bearing provider starts.
+    expect(host.extensions.isActive('github')).toBe(false)
+    await expect(host.apply('refresh', { kind: 'extension-action', extensionId: 'github', action: 'refresh' }, undefined, alice)).rejects.toThrow('account-isolation-required')
+    expect(start).not.toHaveBeenCalled()
+    expect(() => host.apply('anonymous', { kind: 'extension-action', extensionId: 'github', action: 'refresh' })).toThrow('administrator')
+  })
+
+  it('admin cannot rename or delete a label on another account task', () => {
+    // Given two owners whose tasks share the same label.
+    const store = ledger()
+    for (const principal of [alice, bob]) store.applyRequest('create-' + principal.id, { kind: 'create', id: principal.id, input: { ...input(), tags: [{ name: 'shared' }] } }, undefined, principal)
+    // When one owner requests a ledger-wide rename or delete, then all affected tasks remain untouched.
+    expect(() => store.applyRequest('rename', { kind: 'rename-tag', from: 'shared', to: 'other' }, undefined, alice)).toThrow('another account')
+    expect(() => store.applyRequest('delete', { kind: 'delete-tag', name: 'shared' }, undefined, alice)).toThrow('another account')
+    expect(store.allTasks().map(task => task.tags)).toEqual([[{ name: 'shared' }], [{ name: 'shared' }]])
   })
 
   it('admin receives task-board access only through current carrier authorization', async () => {
@@ -155,7 +160,7 @@ describe('task-board deployment identities', () => {
     // Then the owner and occurrence survive, and the persisted rule has the Host zone.
     expect(migrated.taskPrincipal('scheduled')).toEqual(alice)
     expect(migrated.state().tasks[0].schedule).toMatchObject({ nextRunAt, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })
-    expect(JSON.parse(readFileSync(migrated.file, 'utf8')).schemaVersion).toBe(4)
+    expect(JSON.parse(readFileSync(migrated.file, 'utf8')).schemaVersion).toBe(5)
   })
 
   it('admin uses the same identity throughout task execution and inspection', async () => {
@@ -221,7 +226,7 @@ describe('task-board deployment identities', () => {
       // A normal board event rechecks the account before writing another SSE frame.
       service.setConfiguration(true, false)
       expect((await reader.read()).done).toBe(true)
-      for (const endpoint of ['state', 'events']) expect((await fetch(base + '/' + endpoint, { headers })).status).toBe(403)
+      for (const endpoint of ['state', 'events', 'verification']) expect((await fetch(base + '/' + endpoint, { headers })).status).toBe(403)
       expect((await fetch(base + '/action', { method: 'POST', headers, body: JSON.stringify(action) })).status).toBe(403)
     } finally {
       server.closeAllConnections()

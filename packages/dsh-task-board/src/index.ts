@@ -25,9 +25,11 @@ import { DEFAULT_SUBTASK_DEPTH, SUBTASK_DEPTH_MAX, SUBTASK_DEPTH_MIN } from './c
 import { DEFAULT_SESSION_PERMISSION } from './core/handover.ts'
 import { buildTaskBoardTools } from './host/agent-tools.ts'
 import { makeTaskBoardRoutes } from './host-routes.ts'
-import type { GitHubRepoConfig } from './core/github/types.ts'
-import { GitHubApiClient } from './host/github/client.ts'
+import { TASK_BOARD_SERVICE_NAME, type TaskBoardExtension } from './core/extension.ts'
 import { mountOnce } from './mount-once.ts'
+import { createGoalVerificationGate, type GoalFace } from './host/verification-gate.ts'
+import { normalizeCatalog, type ModelCatalogView, type VerificationSettings } from './core/verification.ts'
+import { probeWorkspaceChanges } from './host/workspace-evidence.ts'
 
 /** Order of the announcement section within the tool-guidance band. */
 const SECTION_ORDER = 200
@@ -38,7 +40,7 @@ export const DEFAULT_PROXY_TOKEN_ENV = 'DSH_TASK_BOARD_PROXY_TOKEN'
 export const inject = ['systemPrompt', 'typertGateway', 'workspaceRegistry', 'webServer', 'agents', 'commands']
 
 /** Model-facing announcement: plugin presence, capabilities, and limits. */
-export const TASK_BOARD_GUIDANCE = '本机已安装 dsh-task-board 插件（DSH Web GUI 的任务看板）：侧边栏「任务看板」入口；在 dsh-web 插件全家桶仓库（packages/dsh-task-board）统一维护，经聚合包 web-ui-all 一键安装。能力：多列看板管理任务；Host 权威账本；关闭浏览器后仍由 Host 执行和结算；任务可钉住工作区、agent 预设和权限；任务可建子任务（深度上限可配 1..3，默认 1 层，子任务不能再带子任务），执行父任务会并发执行其子任务树，子任务可单独覆盖权限与模型；另注册 task_board_* agent 工具（list/get/create/update/set_parent/run/manage/schedule + github_list/github_get/github_refresh/github_create_pr/github_link_pr），任何会话都可直接读写看板、子任务与定时计划，但运行任务会真实执行并消耗额度，高于会话默认权限的绑定仍必须由用户在 GUI 人工确认（工具刻意不提供确认能力）；支持 Host 本地时区的 5 段 cron，错过的触发点不补跑；可选且默认关闭的空闲系统睡眠保护允许屏幕熄灭，但不承诺拦截合盖、手动睡眠、休眠、关机或唤醒已睡眠机器。执行消耗 API 额度。用户提到「任务看板 / 看板 / 定时任务」时即指本插件，请据此协作。若你同时用 todo_write 维护会话顶部的可见计划列表，最终回复前必须再次调用 todo_write 收尾：没有剩余工作时不要保留 in_progress，已完成的最后一步要标为 completed。'
+export const TASK_BOARD_GUIDANCE = '本机已安装 dsh-task-board 插件（DSH Web GUI 的任务看板）：侧边栏「任务看板」入口；在 dsh-web 插件全家桶仓库（packages/dsh-task-board）统一维护，经聚合包 web-ui-all 一键安装。能力：多列看板管理任务；Host 权威账本；关闭浏览器后仍由 Host 执行和结算；任务可钉住工作区、agent 预设和权限；任务可建子任务（深度上限可配 1..3，默认 1 层，子任务不能再带子任务），执行父任务会并发执行其子任务树，子任务可单独覆盖权限与模型；另注册 task_board_* agent 工具（list/get/create/update/set_parent/run/manage/schedule），任何会话都可直接读写看板、子任务与定时计划，但运行任务会真实执行并消耗额度，高于会话默认权限的绑定仍必须由用户在 GUI 人工确认（工具刻意不提供确认能力）；支持 Host 本地时区的 5 段 cron，错过的触发点不补跑；可选且默认关闭的空闲系统睡眠保护允许屏幕熄灭，但不承诺拦截合盖、手动睡眠、休眠、关机或唤醒已睡眠机器。执行消耗 API 额度。用户提到「任务看板 / 看板 / 定时任务」时即指本插件，请据此协作。若你同时用 todo_write 维护会话顶部的可见计划列表，最终回复前必须再次调用 todo_write 收尾：没有剩余工作时不要保留 in_progress，已完成的最后一步要标为 completed。'
 
 /**
  * Plugin config, validated by the same-named schemastery schema.
@@ -92,10 +94,31 @@ export interface Config {
    * only team-mode runs use it.
    */
   teamProvider?: string
-  /** Environment variable holding GitHub API token; never exposed to browser or agent. */
-  githubTokenEnv?: string
-  /** Repositories configured for GitHub issue synchronization. */
-  githubRepositories?: GitHubRepoConfig[]
+  /**
+   * Goal acceptance for executions this board starts (default ON). When on,
+   * update_goal(action: complete) inside a task execution is refused until an
+   * acceptance pass is recorded for that execution: the three coding criteria,
+   * a 0.65 threshold, two rounds per criterion with the A/B slots swapped, and
+   * at most two acceptances per execution — the first failure returns its
+   * findings to the fixing agent, the second ends the cycle. The switch only
+   * affects goal-form executions of the board; plain chat and a task pinned to
+   * goalRun: false are untouched. When a separate third-party verifier also
+   * runs its own automatic acceptance, both judges score independently: this
+   * one gates completion, the other only steers, and no public interface lets
+   * the two share a verdict.
+   */
+  goalVerification?: Volatile<boolean>
+  /**
+   * Judge model for goal acceptance as provider/model. Blank inherits the HOST's
+   * own model catalog default — never the card's pinned execution model.
+   */
+  goalVerificationModel?: Volatile<string>
+  /**
+   * Reasoning effort for the judge. Blank inherits the host default level; an
+   * effort the resolved model does not declare is dropped instead of being
+   * sent, and the fallback to the model's own default is reported.
+   */
+  goalVerificationReasoningEffort?: Volatile<string>
 }
 
 /**
@@ -131,32 +154,13 @@ export interface ConfigInput {
   maxSubtaskDepth?: number
   /** Continuable-subagent provider the Agent Teams service composes a teammate from. */
   teamProvider?: string
-  /** Environment variable holding the GitHub API token. */
-  githubTokenEnv?: string
-  /** Repositories configured for GitHub issue synchronization. */
-  githubRepositories?: GitHubRepoConfig[]
+  /** Goal acceptance switch. */
+  goalVerification?: boolean
+  /** Judge model route for goal acceptance; blank inherits the host default. */
+  goalVerificationModel?: string
+  /** Judge reasoning effort; blank inherits the host default. */
+  goalVerificationReasoningEffort?: string
 }
-
-/** One configured GitHub repository, as the profile patch declares it. */
-const GitHubRepoConfigSchema = z.object({
-  owner: z.string(),
-  repository: z.string(),
-  inclusionLabel: z.string().default('dsh'),
-  managedLabelPrefix: z.string().default('dsh:'),
-  stateLabels: z.object({
-    backlog: z.string().default('dsh:state:backlog'),
-    todo: z.string().default('dsh:state:todo'),
-    running: z.string().default('dsh:state:running'),
-    done: z.string().default('dsh:state:done'),
-    failed: z.string().default('dsh:state:failed'),
-  }),
-  prPhaseLabel: z.string().default('dsh:phase:pr'),
-  pollingIntervalMs: z.number().default(300_000),
-  prCreationEnabled: z.boolean().default(false),
-  draftPrPolicy: z.union(['draft', 'ready'] as const).default('draft'),
-  closeIssueOnMerge: z.boolean().default(true),
-  baseBranch: z.string().default('main'),
-})
 
 export const Config: z<ConfigInput, Config> = z.object({
   announceToAgent: z.boolean().default(false).volatile(),
@@ -167,9 +171,13 @@ export const Config: z<ConfigInput, Config> = z.object({
   sessionDefaultPermission: z.union(TASK_PERMISSIONS),
   maxSubtaskDepth: z.number().min(SUBTASK_DEPTH_MIN).max(SUBTASK_DEPTH_MAX).default(DEFAULT_SUBTASK_DEPTH).volatile(),
   teamProvider: z.string().min(1).default(DEFAULT_TEAM_PROVIDER),
-  githubTokenEnv: z.string().default('GITHUB_TOKEN'),
-  githubRepositories: z.array(GitHubRepoConfigSchema).default([]),
+  goalVerification: z.boolean().default(true).volatile(),
+  goalVerificationModel: z.string().default('').volatile(),
+  goalVerificationReasoningEffort: z.string().default('').volatile(),
 })
+
+/** Schema default for the goal-acceptance switch, re-read for hand-built contexts. */
+export const DEFAULT_GOAL_VERIFICATION = true
 
 declare module '@deepseek-ai/cordis' {
   interface Events {
@@ -415,15 +423,28 @@ function applyImpl(ctx: Context, config?: Config): void {
   const sessionDefaultPermission = (): TaskPermission =>
     config?.sessionDefaultPermission ?? resolveHostDefaultPermission(ctx) ?? DEFAULT_SESSION_PERMISSION
 
+  /** Live acceptance settings the contract of each new execution freezes. */
+  const verificationSettings = (): VerificationSettings => ({
+    enabled: readConfigField(config?.goalVerification, DEFAULT_GOAL_VERIFICATION),
+    model: readConfigField(config?.goalVerificationModel, ''),
+    reasoningEffort: readConfigField(config?.goalVerificationReasoningEffort, ''),
+  })
+  // The catalog reader needs the service, and the service needs the reader;
+  // the reader only runs after start(), so a late holder is enough.
+  let hostForCatalog: TaskBoardHostService | undefined
+  const verificationCatalog = async (principal?: TaskBoardPrincipal): Promise<ModelCatalogView | undefined> => {
+    const runner = hostForCatalog?.runner
+    return runner === undefined ? undefined : normalizeCatalog(await runner.modelCatalog(principal))
+  }
   const host = new TaskBoardHostService(ctx.typertGateway, {
     accounts,
     workspaceRegistry: ctx.workspaceRegistry,
     sessionDefaultPermission,
     maxSubtaskDepth: maxSubtaskDepth(),
+    verificationSettings,
+    verificationCatalog,
     timers: resolveHostTimers(ctx),
     team: buildTeamDispatcher(ctx, config?.teamProvider ?? DEFAULT_TEAM_PROVIDER),
-    githubRepositories: config?.githubRepositories,
-    githubClient: new GitHubApiClient({ tokenEnv: config?.githubTokenEnv }),
     commandDispatcher: {
       async execute(sessionId, line, signal) {
         const agent = ctx.agents.get(sessionId)
@@ -432,17 +453,32 @@ function applyImpl(ctx: Context, config?: Config): void {
       },
     },
   })
+  hostForCatalog = host
   // Configuration before start(): a disabled row must not take the first
   // scheduler tick, which would roll schedules the board is not running.
   host.setConfiguration(enabled(), preventIdleSleep())
   host.start()
 
+  // External providers. The board publishes its registration service so any
+  // provider package can resolve it and admit itself; the board itself knows
+  // no provider vocabulary. A capture-only test context implements no service
+  // registry and the board still serves its own surfaces.
+  if (typeof (ctx as { provide?: unknown }).provide === 'function') {
+    ctx.provide(TASK_BOARD_SERVICE_NAME, {
+      registerExtension: (extension: TaskBoardExtension) => host.registerExtension(extension),
+      isExtensionEnabled: (extensionId: string) => host.extensions.isActive(extensionId),
+    })
+  }
+
   // Agent tools: the same Host ledger the browser drives, so any session can
   // list, create, link, run and settle board work. Registration follows the
   // master switch (a disabled board answers no tool call), and the mount
-  // effect below owns the disposers.
+  // effect below owns the disposers. Provider tools register through the
+  // extension registry, which follows the same gate and rebinds when the tool
+  // registry appears late.
   let disposeTools: (() => void) | undefined
   const setToolsEnabled = (active: boolean): void => {
+    host.extensions.setToolRegistry(() => resolveToolRegistry(ctx))
     if (!active) {
       disposeTools?.()
       disposeTools = undefined
@@ -457,7 +493,6 @@ function applyImpl(ctx: Context, config?: Config): void {
       accounts.assert(principal)
       return {
         snapshot: () => { accounts.assert(principal); return host.snapshot() },
-        get github() { accounts.assert(principal); return host.github },
         apply: (requestId, action, initiator) => host.apply(requestId, action, initiator, principal),
       }
     }).map(tool => registry.register(tool))
@@ -473,6 +508,9 @@ function applyImpl(ctx: Context, config?: Config): void {
   if (typeof scopedInject === 'function') {
     scopedInject.call(ctx, ['tools'], () => {
       setToolsEnabled(enabled())
+      // The extension registry follows the same rebinding: a registry that
+      // appears (or is replaced) after a provider started adopts its tools.
+      host.extensions.setToolRegistry(() => resolveToolRegistry(ctx))
       // Cordis unloads and re-runs this callback when the injected service's
       // provider fiber changes, and the old registry dies with its provider.
       // Releasing the guard here is what lets the callback register into the
@@ -487,6 +525,45 @@ function applyImpl(ctx: Context, config?: Config): void {
   ctx.effect(() => {
     const disposers: Array<() => void> = []
     try {
+      // The goal acceptance gate: the OFFICIAL tool pre-execution lifecycle,
+      // installed before the tool body runs, so a completion claim cannot take
+      // effect without a matching acceptance pass record.
+      const gate = createGoalVerificationGate({
+        ledger: host.ledger,
+        llm: () => resolveLlmRuntime(ctx),
+        goals: () => {
+          try {
+            return ctx.get('goals') as GoalFace | undefined
+          } catch {
+            return undefined
+          }
+        },
+        // The host's own observation of what a turn changed on disk, when this
+        // deployment records it; the acceptance degrades to the trajectory alone
+        // when it does not.
+        workspaceChanges: () => probeWorkspaceChanges(ctx),
+        logger: {
+          warn: (message: string, ...rest: unknown[]) => {
+            const logger = (ctx as { logger?: { warn?: (...args: unknown[]) => void } }).logger
+            if (typeof logger?.warn === 'function') logger.warn(message, ...rest)
+            else console.warn(message, ...rest)
+          },
+        },
+      })
+      // A capture-only context may implement no listener registry (it returns
+      // no disposer), so the handle is pushed only when it really is one.
+      const offGate = ctx.on('tools/pre-execute', async (exec, next) => {
+        const sessionId = exec.agent?.session.id
+        const bound = sessionId === undefined ? undefined : host.ledger.runtimeView().openExecutions.find(run => run.sessionId === sessionId)
+        if (bound !== undefined) accounts.assert(bound.principal)
+        const decision = await gate({ name: exec.name, arguments: exec.arguments, agent: exec.agent, signal: exec.signal })
+        return decision ?? next()
+      })
+      if (typeof offGate === 'function') disposers.push(offGate)
+      else if (typeof (offGate as { dispose?: unknown } | undefined)?.dispose === 'function') {
+        const handle = offGate as { dispose(): void }
+        disposers.push(() => { handle.dispose() })
+      }
       const routes = makeTaskBoardRoutes(
         host,
         {

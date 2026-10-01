@@ -1,8 +1,21 @@
-# @linxin666/dsh-web-all
+# dsh-web-all · Official All-in-One Plugin Bundle for DeepSeek Harness (DSH) Web GUI
 
 English | [中文](README.zh.md)
 
-The one-click aggregate package for the whole dsh web UI family: installing it brings every functional plugin of the family (task board / Git graph / pet / mobile remote / SSH / model capabilities / session archive / skins / settings / community plugins, with `aggregate.yml` in this package as the complete list). The compat bridge layer is folded into this package (`src/client`), so no separate compat npm package is needed.
+<p align="center">
+  <img src="https://img.shields.io/npm/v/@linxin666/dsh-web-all?style=flat-square" alt="Version">
+  &nbsp;
+  <img src="https://img.shields.io/npm/dm/@linxin666/dsh-web-all?style=flat-square" alt="Downloads">
+  &nbsp;
+  <img src="https://img.shields.io/badge/DSH-%3E%3D0.2.0--rc.2-4c6ef5?style=flat-square&amp;labelColor=454a54" alt="DSH">
+  &nbsp;
+  <img src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" alt="License">
+</p>
+
+<p align="center">
+  <strong>All-in-One Plugin Bundle for DeepSeek Harness (DSH) Web GUI & Desktop Client</strong><br>
+  <em>Task Board · Mobile Remote · SSH Terminal · Git Graph & Worktree · Session Archive · Usage Stats · Themes</em>
+</p>
 
 This fork installs right-panel plugins separately. `dsh-better-sidebar` is neither a dependency nor a mounted row in the aggregate; install a version compatible with the host through `dsh plugin --profile web add dsh-better-sidebar@latest`. `@mlgbnb/dsh-archive-manager` remains excluded: its upstream build (1.0.7) imports the removed `@deepseek-ai/dsh-client-runtime` face and would abort `dsh web` boot.
 

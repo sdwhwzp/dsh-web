@@ -1,0 +1,40 @@
+/**
+ * Local styles of the task-board settings card.
+ *
+ * The card's chrome belongs to the shared family slice
+ * (`settings-card.module.css`, generated); this file owns only the nested
+ * disclosure list and the acceptance block's quiet notes, on theme tokens
+ * instead of inline literals.
+ */
+
+.note {
+  margin: 4px 0;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.error {
+  margin: 4px 0;
+  font-size: 12px;
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.resolvedList {
+  margin: 4px 0 8px;
+  padding-left: 16px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* The nested disclosure cards of this card: the board and its runtime
+   behavior, goal acceptance, and the sections a provider contributes (the
+   GitHub Issues extension contributes one). The gap keeps the stacked card
+   borders apart; an empty list draws nothing. */
+.nestedCards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}

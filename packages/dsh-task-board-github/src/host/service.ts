@@ -1,0 +1,796 @@
+/**
+ * GitHub synchronization engine for the task board's GitHub extension.
+ *
+ * The engine never touches the Host ledger: it reads and writes every card
+ * through the extension capability face the board hands it, so the board stays
+ * the single authority and this provider owns only its own payload, its
+ * identity index, and its outbound HTTP.
+ *
+ * The identity index is the provider's own structure: it is built from the
+ * board's cards at start(), kept current as cards are materialized, and pruned
+ * when the board reports a deletion. A lookup that misses rebuilds the index
+ * from the board rather than trusting the cache blindly, so a card that
+ * arrived out of band (a legacy ledger import, for instance) is still found.
+ *
+ * @module dsh-task-board-github/host/service
+ */
+import type { HostTimerFace } from '../core/timers.ts'
+import type { ExecutionRecord, TaskRecord, TaskStatus } from '../core/task-record.ts'
+import type { TaskBoardExtensionHost } from '../core/contract.ts'
+import {
+  ME_ASSIGNEE,
+  normalizeGitHubMetadata,
+  readTaskGitHubMetadata,
+  type GitHubPullRequestMetadata,
+  type GitHubRepoConfig,
+  type GitHubTaskMetadata,
+  type ResolvedGitHubRepoConfig,
+  resolveRepoConfig,
+} from '../core/types.ts'
+import {
+  computeLabelWriteBack,
+  extractLabelNames,
+  isIssueIncluded,
+  materializeTaskFromIssue,
+  reconcileIssueWithTask,
+} from '../core/projection.ts'
+import { GitHubApiClient } from './client.ts'
+
+export interface GitHubSyncServiceOptions {
+  /** The capability face the board hands the extension while it is enabled. */
+  host: TaskBoardExtensionHost
+  client?: GitHubApiClient
+  repositories?: GitHubRepoConfig[]
+  timers?: HostTimerFace
+  now?: () => number
+  /** Recheck access before remote requests and local writes, including after an await. */
+  assertAccess?: () => void
+}
+
+const DEFAULT_TIMERS: HostTimerFace = {
+  timeout(callback: () => void, delay: number): () => void {
+    const handle = setTimeout(callback, delay)
+    return () => { clearTimeout(handle) }
+  },
+  interval(callback: () => void, delay: number): () => void {
+    const handle = setInterval(callback, delay)
+    return () => { clearInterval(handle) }
+  },
+}
+
+/** Stable key of one remote issue identity. */
+function identityKey(owner: string, repository: string, issueNumber: number): string {
+  return `${owner.toLowerCase()}/${repository.toLowerCase()}#${String(issueNumber)}`
+}
+
+export class GitHubSyncService {
+  readonly host: TaskBoardExtensionHost
+  readonly client: GitHubApiClient
+  readonly repositories: ResolvedGitHubRepoConfig[]
+  private readonly timers: HostTimerFace
+  private readonly now: () => number
+  private pollTimer: (() => void) | undefined
+  private stopped = false
+  private syncing = false
+  private readonly assertAccess: (() => void) | undefined
+  /** Immutable remote identity -> local card id, owned by this provider. */
+  private readonly identityIndex = new Map<string, string>()
+  /** Login this credential authenticates as, resolved once for an `@me` inclusion rule. */
+  private authenticatedLogin: string | undefined
+
+  constructor(options: GitHubSyncServiceOptions) {
+    this.host = options.host
+    this.assertAccess = options.assertAccess
+    this.client = options.client ?? new GitHubApiClient()
+    this.repositories = (options.repositories ?? []).map(resolveRepoConfig)
+    this.timers = options.timers ?? DEFAULT_TIMERS
+    this.now = options.now ?? Date.now
+  }
+
+  /**
+   * Resolve one repository's inclusion assignee to a concrete login.
+   *
+   * `@me` asks GitHub who this credential is; the answer is cached for the
+   * lifetime of the service, which the host remounts when the credential
+   * changes, so a rotated token is never answered from a stale login.
+   * @param config - the repository configuration.
+   * @returns the configuration with a concrete assignee (or none).
+   */
+  private async effectiveConfig(config: ResolvedGitHubRepoConfig): Promise<ResolvedGitHubRepoConfig> {
+    if (config.assignee !== ME_ASSIGNEE) return config
+    let login = this.authenticatedLogin
+    if (login === undefined) {
+      this.assertAccess?.()
+      const user = await this.client.getAuthenticatedUser()
+      login = user.login.trim().toLowerCase()
+      this.authenticatedLogin = login
+    }
+    return { ...config, assignee: login }
+  }
+
+  /** Find configured repository matching owner and repo name (case-insensitive). */
+  findRepoConfig(owner: string, repository: string): ResolvedGitHubRepoConfig | undefined {
+    const o = owner.toLowerCase()
+    const r = repository.toLowerCase()
+    return this.repositories.find(cfg => cfg.owner.toLowerCase() === o && cfg.repository.toLowerCase() === r)
+  }
+
+  /** Start background polling across configured repositories. */
+  start(): void {
+    if (this.stopped || this.pollTimer !== undefined) return
+    this.reindex()
+    const intervals = this.repositories
+      .map(r => r.pollingIntervalMs)
+      .filter(ms => ms > 0)
+    if (intervals.length === 0) return
+
+    const minInterval = Math.min(...intervals)
+    this.pollTimer = this.timers.interval(() => {
+      void this.syncAll().catch(() => {})
+    }, minInterval)
+
+    // Trigger initial background sync
+    void this.syncAll().catch(() => {})
+  }
+
+  /** Stop background polling timer. */
+  stop(): void {
+    if (this.pollTimer !== undefined) {
+      this.pollTimer()
+      this.pollTimer = undefined
+    }
+  }
+
+  dispose(): void {
+    this.stopped = true
+    this.stop()
+    this.identityIndex.clear()
+  }
+
+  /**
+   * Rebuild the identity index from the cards the board holds for this
+   * extension. Called when the provider starts and whenever a lookup misses.
+   */
+  reindex(): void {
+    this.identityIndex.clear()
+    for (const { task, payload } of this.host.tasks.linked()) {
+      const metadata = normalizeGitHubMetadata(payload)
+      if (metadata === undefined) continue
+      this.identityIndex.set(identityKey(metadata.owner, metadata.repository, metadata.issueNumber), task.id)
+    }
+  }
+
+  /** Record one card's identity in the index. */
+  private remember(taskId: string, metadata: GitHubTaskMetadata | undefined): void {
+    if (metadata === undefined) return
+    this.identityIndex.set(identityKey(metadata.owner, metadata.repository, metadata.issueNumber), taskId)
+  }
+
+  /**
+   * Drop one deleted card from the index. The board's own events drive this, so
+   * a deleted card is never resurrected by a stale identity.
+   * @param taskId - the card the board removed.
+   */
+  handleTaskDeleted(taskId: string): void {
+    for (const [key, value] of [...this.identityIndex]) {
+      if (value === taskId) this.identityIndex.delete(key)
+    }
+  }
+
+  /** GitHub metadata on one task, through the provider's own validator. */
+  private metadataOf(task: TaskRecord | undefined): GitHubTaskMetadata | undefined {
+    return readTaskGitHubMetadata(task)
+  }
+
+  /** Find a local task by the provider's immutable issue identity. */
+  private findByGitHubIdentity(owner: string, repository: string, issueNumber: number): TaskRecord | undefined {
+    const key = identityKey(owner, repository, issueNumber)
+    const known = this.identityIndex.get(key)
+    if (known !== undefined) {
+      const task = this.host.tasks.get(known)
+      if (task !== undefined) return task
+      this.identityIndex.delete(key)
+    }
+    // The index is a cache over the board's own store; a miss rebuilds it once
+    // rather than losing an identity the board still holds.
+    this.reindex()
+    const found = this.identityIndex.get(key)
+    return found === undefined ? undefined : this.host.tasks.get(found)
+  }
+
+  /** The raw payload a reconciled record carries, undefineds included. */
+  private payloadOf(next: TaskRecord): Record<string, unknown> | undefined {
+    const value = next.integrations?.github
+    return typeof value === 'object' && value !== null ? value as Record<string, unknown> : undefined
+  }
+
+  /**
+   * Project one reconciled task onto the board: materialize a new card, or patch
+   * an existing card's content (through the board's own content gate) and merge
+   * the provider payload back.
+   */
+  private applyRecord(next: TaskRecord, previous: TaskRecord | undefined): void {
+    this.assertAccess?.()
+    // The raw payload is what carries the explicit undefineds a merge needs to
+    // clear a field (deactivated, lastSyncError); a normalized copy would drop
+    // the key altogether and leave the stale value in place.
+    const payload = this.payloadOf(next)
+    const metadata = readTaskGitHubMetadata(next)
+    if (previous === undefined) {
+      const created = this.host.tasks.create(
+        {
+          title: next.title,
+          description: next.description,
+          prompt: next.prompt,
+          status: next.status,
+          ...(next.parentId === undefined ? {} : { parentId: next.parentId }),
+        },
+        {
+          ...(payload === undefined ? {} : { payload }),
+          ...(next.hidden === true ? { hidden: true } : {}),
+        },
+      )
+      this.remember(created.id, metadata)
+      return
+    }
+    const contentChanged = next.title !== previous.title
+      || next.description !== previous.description
+      || next.prompt !== previous.prompt
+    if (contentChanged) {
+      try {
+        // The board's own content gate is the authority: a card that has
+        // started executing (or was archived) keeps its recorded content, and
+        // the refusal is exactly the immutability contract, not an error.
+        this.host.tasks.patchContent(next.id, {
+          title: next.title,
+          description: next.description,
+          prompt: next.prompt,
+        })
+      } catch {
+        // Frozen card: keep the local content.
+      }
+    }
+    if (payload !== undefined) this.host.integration.write(next.id, payload)
+    this.remember(next.id, metadata)
+  }
+
+  /** Merge a provider payload patch into one task's GitHub entry. */
+  private writePayload(taskId: string, patch: Partial<GitHubTaskMetadata>): void {
+    this.assertAccess?.()
+    const clean: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(patch)) clean[key] = value
+    try {
+      this.host.integration.write(taskId, clean)
+    } catch {
+      // A disabled provider or a refused payload must never break a sync.
+    }
+  }
+
+  /** Synchronize all configured repositories. */
+  async syncAll(): Promise<{ synced: number; errors: string[] }> {
+    if (this.stopped || this.syncing) return { synced: 0, errors: [] }
+    this.syncing = true
+    let totalSynced = 0
+    const errors: string[] = []
+
+    try {
+      for (const repo of this.repositories) {
+        try {
+          const result = await this.syncRepository(repo.owner, repo.repository)
+          totalSynced += result.synced
+          errors.push(...result.errors)
+        } catch (error) {
+          errors.push(error instanceof Error ? error.message : String(error))
+        }
+      }
+    } finally {
+      this.syncing = false
+    }
+
+    return { synced: totalSynced, errors }
+  }
+
+  /** Synchronize a single repository by owner and name. */
+  async syncRepository(owner: string, repository: string): Promise<{ synced: number; errors: string[] }> {
+    const config = this.findRepoConfig(owner, repository)
+    if (config === undefined) {
+      return { synced: 0, errors: [`repository ${owner}/${repository} is not configured`] }
+    }
+    if (!this.client.hasCredential()) {
+      return { synced: 0, errors: ['no GitHub API credential available'] }
+    }
+
+    const now = this.now()
+    const errors: string[] = []
+    let synced = 0
+    // An `@me` inclusion rule is resolved once, before the loop, so every
+    // decision in this pass compares the same login.
+    const effective = await this.effectiveConfig(config)
+
+    try {
+      // List issues from GitHub (includes open and closed)
+      this.assertAccess?.()
+      const issues = await this.client.listIssues(effective.owner, effective.repository)
+      const activeIssueNumbers = new Set<number>()
+
+      for (const issue of issues) {
+        const hasInclusion = isIssueIncluded(issue, effective)
+        const existing = this.findByGitHubIdentity(effective.owner, effective.repository, issue.number)
+
+        if (hasInclusion) {
+          activeIssueNumbers.add(issue.number)
+          if (existing !== undefined) {
+            let updated = reconcileIssueWithTask(existing, issue, now, effective)
+            // If task has a linked PR, check PR status as well
+            if (this.metadataOf(updated)?.pullRequest !== undefined) {
+              updated = await this.checkPullRequestStatus(updated, effective)
+            }
+            this.applyRecord(updated, existing)
+            synced += 1
+          } else {
+            // Materialize a new task
+            const newTask = materializeTaskFromIssue(issue, crypto.randomUUID(), now, effective)
+            this.applyRecord(newTask, undefined)
+            synced += 1
+          }
+        } else if (existing !== undefined) {
+          // Neither inclusion channel holds any more; deactivate without
+          // deleting history.
+          let updated = reconcileIssueWithTask(existing, issue, now, effective)
+          if (this.metadataOf(updated)?.pullRequest !== undefined) {
+            updated = await this.checkPullRequestStatus(updated, effective)
+          }
+          this.applyRecord(updated, existing)
+          synced += 1
+        }
+      }
+
+      // Check any local tasks for this repo whose issue was not returned or is absent
+      for (const task of this.host.tasks.list()) {
+        const gh = this.metadataOf(task)
+        if (
+          gh !== undefined
+          && gh.owner.toLowerCase() === config.owner.toLowerCase()
+          && gh.repository.toLowerCase() === config.repository.toLowerCase()
+          && !activeIssueNumbers.has(gh.issueNumber)
+          && gh.deactivated !== true
+        ) {
+          // Verify with single issue fetch
+          try {
+            this.assertAccess?.()
+            const single = await this.client.getIssue(effective.owner, effective.repository, gh.issueNumber)
+            if (!isIssueIncluded(single, effective)) {
+              this.applyRecord(reconcileIssueWithTask(task, single, now, effective), task)
+            }
+          } catch (error) {
+            // A failed single-issue read proves nothing about the inclusion
+            // label: the issue may simply not be in the listing or the network
+            // may be down. Deactivating here would hide a live card on a
+            // transient outage, so the failure is recorded instead and the
+            // next sync re-evaluates.
+            const message = error instanceof Error ? error.message : String(error)
+            this.writePayload(task.id, { lastSyncError: message })
+          }
+        }
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error)
+      errors.push(msg)
+      // Record sync error on all tasks of this repo
+      for (const task of this.host.tasks.list()) {
+        const gh = this.metadataOf(task)
+        if (
+          gh !== undefined
+          && gh.owner.toLowerCase() === config.owner.toLowerCase()
+          && gh.repository.toLowerCase() === config.repository.toLowerCase()
+        ) {
+          this.writePayload(task.id, { lastSyncError: msg })
+        }
+      }
+    }
+
+    return { synced, errors }
+  }
+
+  /** Synchronize one specific task by task ID. */
+  async syncTask(taskId: string): Promise<{ ok: boolean; error?: string; task?: TaskRecord }> {
+    const task = this.host.tasks.get(taskId)
+    const metadata = this.metadataOf(task)
+    if (task === undefined || metadata === undefined) {
+      return { ok: false, error: 'task is not linked to GitHub' }
+    }
+    const config = this.findRepoConfig(metadata.owner, metadata.repository)
+    if (config === undefined) {
+      return { ok: false, error: `repository ${metadata.owner}/${metadata.repository} is not configured` }
+    }
+    if (!this.client.hasCredential()) {
+      return { ok: false, error: 'no GitHub API credential available' }
+    }
+
+    const now = this.now()
+    const effective = await this.effectiveConfig(config)
+    try {
+      this.assertAccess?.()
+      const issue = await this.client.getIssue(effective.owner, effective.repository, metadata.issueNumber)
+      let updated = reconcileIssueWithTask(task, issue, now, effective)
+      if (this.metadataOf(updated)?.pullRequest !== undefined) {
+        updated = await this.checkPullRequestStatus(updated, effective)
+      }
+      this.applyRecord(updated, task)
+      return { ok: true, task: this.host.tasks.get(taskId) }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      this.writePayload(task.id, { lastSyncError: message })
+      return { ok: false, error: message }
+    }
+  }
+
+  /** Write back lifecycle labels; remote failures are recorded, while revoked access rejects the operation. */
+  async writeBackTaskStatus(taskId: string, targetStatus: TaskStatus): Promise<void> {
+    const task = this.host.tasks.get(taskId)
+    const gh = this.metadataOf(task)
+    if (task === undefined || gh === undefined) return
+    const config = this.findRepoConfig(gh.owner, gh.repository)
+    if (config === undefined || !this.client.hasCredential()) return
+
+    const now = this.now()
+    const prActive = gh.pullRequest !== undefined && gh.pullRequest.state === 'open'
+    const { labelsToAdd, labelsToRemove } = computeLabelWriteBack(gh.remoteLabels, targetStatus, prActive, config)
+
+    if (labelsToAdd.length === 0 && labelsToRemove.length === 0) return
+
+    try {
+      if (labelsToAdd.length > 0) {
+        this.assertAccess?.()
+        await this.client.addIssueLabels(config.owner, config.repository, gh.issueNumber, labelsToAdd)
+      }
+      for (const remove of labelsToRemove) {
+        this.assertAccess?.()
+        await this.client.removeIssueLabel(config.owner, config.repository, gh.issueNumber, remove)
+      }
+      const nextLabels = [
+        ...gh.remoteLabels.filter((l: string) => !labelsToRemove.includes(l)),
+        ...labelsToAdd.filter((l: string) => !gh.remoteLabels.includes(l)),
+      ]
+      this.writePayload(task.id, {
+        remoteLabels: nextLabels,
+        lastSyncedAt: now,
+        lastSyncError: undefined,
+      })
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error)
+      this.writePayload(task.id, { lastSyncError: msg })
+    }
+  }
+
+  /**
+   * Handle task execution settlement.
+   * Auto PR creation triggers if enabled on repo and execution succeeded.
+   */
+  async handleExecutionSettled(taskId: string, execution: ExecutionRecord): Promise<void> {
+    const task = this.host.tasks.get(taskId)
+    const gh = this.metadataOf(task)
+    if (task === undefined || gh === undefined) return
+    const config = this.findRepoConfig(gh.owner, gh.repository)
+    if (config === undefined) return
+
+    // Write back status (e.g. done or failed)
+    await this.writeBackTaskStatus(taskId, task.status)
+
+    // Auto PR creation check
+    if (execution.result === 'succeeded' && config.prCreationEnabled && gh.pullRequest === undefined) {
+      // Look for candidate remote branch
+      const candidates = [
+        `issue-${String(gh.issueNumber)}`,
+        `dsh/issue-${String(gh.issueNumber)}`,
+        `task-${task.id.slice(0, 8)}`,
+      ]
+      let matchedBranch: string | undefined
+      for (const candidate of candidates) {
+        try {
+          this.assertAccess?.()
+          const branch = await this.client.getBranch(config.owner, config.repository, candidate)
+          if (branch !== null) {
+            matchedBranch = candidate
+            break
+          }
+        } catch {
+          // ignore probe error
+        }
+      }
+
+      if (matchedBranch !== undefined) {
+        try {
+          await this.createPullRequest(taskId, { headBranch: matchedBranch })
+        } catch (error) {
+          // PR creation failure must NEVER fail the task execution
+          const message = error instanceof Error ? error.message : String(error)
+          this.writePayload(taskId, {
+            lastSyncError: `Auto PR creation failed: ${message}`,
+          })
+        }
+      } else {
+        this.writePayload(taskId, {
+          lastSyncError: `Auto PR creation skipped: remote branch not found (tried: ${candidates.join(', ')})`,
+        })
+      }
+    }
+  }
+
+  /**
+   * Create a GitHub pull request for a task.
+   * Verifies that the head branch exists on remote before creating the PR.
+   */
+  async createPullRequest(
+    taskId: string,
+    input: { headBranch: string; baseBranch?: string; title?: string; body?: string; draft?: boolean },
+  ): Promise<GitHubPullRequestMetadata> {
+    const task = this.host.tasks.get(taskId)
+    const gh = this.metadataOf(task)
+    if (task === undefined || gh === undefined) {
+      throw new Error('task is not linked to a GitHub issue')
+    }
+    const config = this.findRepoConfig(gh.owner, gh.repository)
+    if (config === undefined) {
+      throw new Error(`repository ${gh.owner}/${gh.repository} is not configured`)
+    }
+    if (!this.client.hasCredential()) {
+      throw new Error('no GitHub API credential available')
+    }
+
+    const headBranch = input.headBranch.trim()
+    if (headBranch === '') throw new Error('headBranch is required')
+    const baseBranch = (input.baseBranch ?? config.baseBranch).trim()
+
+    // Verify head branch exists on remote
+    this.assertAccess?.()
+    const branch = await this.client.getBranch(config.owner, config.repository, headBranch)
+    if (branch === null) {
+      throw new Error(`branch "${headBranch}" does not exist on remote`)
+    }
+
+    const title = (input.title ?? task.title).trim()
+    const fixesClause = `Fixes #${String(gh.issueNumber)}`
+    const body = input.body !== undefined
+      ? input.body
+      : `${fixesClause}\n\n${task.description}`.trim()
+
+    const draft = input.draft ?? (config.draftPrPolicy === 'draft')
+
+    this.assertAccess?.()
+    const prPayload = await this.client.createPullRequest(config.owner, config.repository, {
+      title,
+      head: headBranch,
+      base: baseBranch,
+      body,
+      draft,
+    })
+
+    const now = this.now()
+    const pullRequest: GitHubPullRequestMetadata = {
+      number: prPayload.number,
+      url: prPayload.html_url,
+      state: prPayload.state === 'closed' ? (prPayload.merged ? 'merged' : 'closed') : 'open',
+      draft: prPayload.draft === true ? true : undefined,
+      headBranch,
+      baseBranch,
+      mergedAt: prPayload.merged_at ? Date.parse(prPayload.merged_at) : undefined,
+    }
+
+    // Add PR phase label
+    try {
+      this.assertAccess?.()
+      await this.client.addIssueLabels(config.owner, config.repository, gh.issueNumber, [config.prPhaseLabel])
+    } catch {
+      // non-fatal
+    }
+
+    const nextLabels = gh.remoteLabels.includes(config.prPhaseLabel)
+      ? gh.remoteLabels
+      : [...gh.remoteLabels, config.prPhaseLabel]
+
+    this.writePayload(task.id, {
+      pullRequest,
+      remoteLabels: nextLabels,
+      lastSyncedAt: now,
+      lastSyncError: undefined,
+    })
+
+    return pullRequest
+  }
+
+  /** Link an existing GitHub pull request to a task. */
+  async linkPullRequest(taskId: string, pullRequestNumber: number): Promise<GitHubPullRequestMetadata> {
+    const task = this.host.tasks.get(taskId)
+    const gh = this.metadataOf(task)
+    if (task === undefined || gh === undefined) {
+      throw new Error('task is not linked to a GitHub issue')
+    }
+    const config = this.findRepoConfig(gh.owner, gh.repository)
+    if (config === undefined) {
+      throw new Error(`repository ${gh.owner}/${gh.repository} is not configured`)
+    }
+    if (!this.client.hasCredential()) {
+      throw new Error('no GitHub API credential available')
+    }
+
+    this.assertAccess?.()
+    const prPayload = await this.client.getPullRequest(config.owner, config.repository, pullRequestNumber)
+    const now = this.now()
+
+    const pullRequest: GitHubPullRequestMetadata = {
+      number: prPayload.number,
+      url: prPayload.html_url,
+      state: prPayload.state === 'closed' ? (prPayload.merged ? 'merged' : 'closed') : 'open',
+      draft: prPayload.draft === true ? true : undefined,
+      headBranch: prPayload.head?.ref,
+      baseBranch: prPayload.base?.ref,
+      mergedAt: prPayload.merged_at ? Date.parse(prPayload.merged_at) : undefined,
+    }
+
+    // Add PR phase label
+    try {
+      this.assertAccess?.()
+      await this.client.addIssueLabels(config.owner, config.repository, gh.issueNumber, [config.prPhaseLabel])
+    } catch {
+      // non-fatal
+    }
+
+    const nextLabels = gh.remoteLabels.includes(config.prPhaseLabel)
+      ? gh.remoteLabels
+      : [...gh.remoteLabels, config.prPhaseLabel]
+
+    this.writePayload(task.id, {
+      pullRequest,
+      remoteLabels: nextLabels,
+      lastSyncedAt: now,
+      lastSyncError: undefined,
+    })
+
+    return pullRequest
+  }
+
+  /**
+   * Check PR status for a task, handling merge detection and issue closure.
+   */
+  private async checkPullRequestStatus(
+    task: TaskRecord,
+    config: ResolvedGitHubRepoConfig,
+  ): Promise<TaskRecord> {
+    const gh = this.metadataOf(task)
+    if (gh?.pullRequest === undefined) return task
+    const currentPr = gh.pullRequest
+    if (currentPr.state === 'merged') return task
+
+    try {
+      this.assertAccess?.()
+      const pr = await this.client.getPullRequest(config.owner, config.repository, currentPr.number)
+      const now = this.now()
+      const isMerged = pr.merged === true
+      const isClosed = pr.state === 'closed'
+
+      if (isMerged) {
+        const mergedAt = pr.merged_at ? Date.parse(pr.merged_at) : now
+        const updatedPr: GitHubPullRequestMetadata = {
+          ...currentPr,
+          state: 'merged',
+          mergedAt: Number.isFinite(mergedAt) ? mergedAt : now,
+        }
+
+        // Remove PR phase label and add/keep done state label
+        const labelsToRemove = [config.prPhaseLabel]
+        const labelsToAdd = [config.stateLabels.done]
+        try {
+          this.assertAccess?.()
+          await this.client.removeIssueLabel(config.owner, config.repository, gh.issueNumber, config.prPhaseLabel)
+          this.assertAccess?.()
+          await this.client.addIssueLabels(config.owner, config.repository, gh.issueNumber, labelsToAdd)
+        } catch {
+          // non-fatal
+        }
+
+        let nextRemoteState = gh.remoteState
+        if (config.closeIssueOnMerge && gh.remoteState !== 'closed') {
+          try {
+            this.assertAccess?.()
+            await this.client.updateIssue(config.owner, config.repository, gh.issueNumber, { state: 'closed' })
+            nextRemoteState = 'closed'
+          } catch {
+            // non-fatal
+          }
+        }
+
+        const nextLabels = [
+          ...gh.remoteLabels.filter((l: string) => !labelsToRemove.includes(l)),
+          ...labelsToAdd.filter((l: string) => !gh.remoteLabels.includes(l)),
+        ]
+
+        return {
+          ...task,
+          integrations: {
+            ...task.integrations,
+            github: {
+              ...gh,
+              remoteState: nextRemoteState,
+              remoteLabels: nextLabels,
+              pullRequest: updatedPr,
+              lastSyncedAt: now,
+              lastSyncError: undefined,
+            },
+          },
+        }
+      } else if (isClosed) {
+        // Closed without merge: update PR state, remove PR phase label, DO NOT close issue
+        const updatedPr: GitHubPullRequestMetadata = { ...currentPr, state: 'closed' }
+        try {
+          this.assertAccess?.()
+          await this.client.removeIssueLabel(config.owner, config.repository, gh.issueNumber, config.prPhaseLabel)
+        } catch {
+          // non-fatal
+        }
+        const nextLabels = gh.remoteLabels.filter((l: string) => l !== config.prPhaseLabel)
+        return {
+          ...task,
+          integrations: {
+            ...task.integrations,
+            github: {
+              ...gh,
+              remoteLabels: nextLabels,
+              pullRequest: updatedPr,
+              lastSyncedAt: now,
+              lastSyncError: undefined,
+            },
+          },
+        }
+      }
+    } catch {
+      // non-fatal on PR check
+    }
+
+    return task
+  }
+
+  /** List all tasks carrying GitHub integration metadata. */
+  listTasks(filter: { owner?: string; repository?: string; state?: 'open' | 'closed' | 'all'; hasPr?: boolean } = {}): TaskRecord[] {
+    return (this.host.tasks.list() as TaskRecord[]).filter((task: TaskRecord) => {
+      const gh = this.metadataOf(task)
+      if (gh === undefined) return false
+      if (filter.owner !== undefined && gh.owner.toLowerCase() !== filter.owner.toLowerCase()) return false
+      if (filter.repository !== undefined && gh.repository.toLowerCase() !== filter.repository.toLowerCase()) return false
+      if (filter.state !== undefined && filter.state !== 'all') {
+        if (gh.remoteState !== filter.state) return false
+      }
+      if (filter.hasPr !== undefined) {
+        const has = gh.pullRequest !== undefined
+        if (filter.hasPr !== has) return false
+      }
+      return true
+    })
+  }
+
+  /** Summary of configured repositories and credential state for snapshot. */
+  snapshotSummary(): {
+    enabled: boolean
+    repositories: Array<{
+      owner: string
+      repository: string
+      inclusionLabel: string
+      prCreationEnabled: boolean
+      hasCredential: boolean
+    }>
+    hasCredential: boolean
+  } {
+    const hasCred = this.client.hasCredential()
+    return {
+      enabled: this.repositories.length > 0,
+      hasCredential: hasCred,
+      repositories: this.repositories.map(r => ({
+        owner: r.owner,
+        repository: r.repository,
+        inclusionLabel: r.inclusionLabel,
+        prCreationEnabled: r.prCreationEnabled,
+        hasCredential: hasCred,
+      })),
+    }
+  }
+}

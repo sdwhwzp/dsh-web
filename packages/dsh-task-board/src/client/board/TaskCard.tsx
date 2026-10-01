@@ -11,6 +11,9 @@ import { memo } from 'react'
 import type { TaskRecord } from '../../core/tasks.ts'
 import { executionLabel, hasOpenExecution, tagTone } from '../../core/tasks.ts'
 import { t } from '../locales.ts'
+import { useTaskBoardSeats } from '../seats.tsx'
+import { IconClock, IconSession } from './icons.tsx'
+import { verificationRunningKey } from './status-key.ts'
 import css from '../board.module.css'
 
 /**
@@ -82,6 +85,7 @@ function TaskCardInner({
   /** Direct subtasks that failed, for the roll-up badge. */
   subtasksFailed?: number
 }) {
+  const { cardDecoration } = useTaskBoardSeats()
   const latest = task.executions[task.executions.length - 1]
   const runs = task.executions.length
   const archived = task.archivedAt !== undefined
@@ -89,6 +93,8 @@ function TaskCardInner({
   // by hand stays draggable, and an executing card never is.
   const busy = hasOpenExecution(task)
   const isDraggable = !archived && !busy && !pending
+  // Forced acceptance owns the running label.
+  const runningKey = verificationRunningKey(latest?.verification)
 
   return (
     <button
@@ -158,6 +164,7 @@ function TaskCardInner({
               ? `${t('card.scheduled')} · ${formatHostTimestamp(task.schedule.nextRunAt, timeZone)}`
               : t('card.scheduled')}
           >
+            <IconClock size={12} />
             {t('card.scheduled')}
           </span>
         )}
@@ -167,14 +174,19 @@ function TaskCardInner({
           </span>
         )}
         {latest?.sessionId !== undefined && (
-          <span className={css.cardSession} title={latest.sessionId}>⌁</span>
+          <span className={css.cardSession} title={latest.sessionId}>
+            <IconSession size={12} />
+          </span>
         )}
         {!archived && (busy || pending) && <span className={css.cardSpinner} aria-hidden="true" />}
       </span>
+      {cardDecoration({ task })}
       {!archived && pending && <span className={css.cardRunningLabel}>{t('board.pending')}…</span>}
       {!archived && latest !== undefined && executionLabel(latest) === 'running' && (
         <span className={css.cardRunningLabel}>
-          {latest.ownResult === undefined ? t('detail.result.running') : t('detail.subtasks.waiting')}…
+          {runningKey !== undefined
+            ? t(runningKey)
+            : latest.ownResult === undefined ? t('detail.result.running') : t('detail.subtasks.waiting')}…
         </span>
       )}
     </button>

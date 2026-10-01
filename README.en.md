@@ -255,6 +255,7 @@ Install individual components independently if you prefer not to use the complet
 
 ```sh
 dsh plugin --profile web add @linxin666/dsh-client-ui-task-board@latest              # Task Board
+dsh plugin --profile web add @linxin666/dsh-client-ui-task-board-github@latest      # Task board GitHub Issues sync extension
 dsh plugin --profile web add @linxin666/dsh-ssh@latest                             # SSH Remote Ops
 dsh plugin --profile web add @linxin666/dsh-usage@latest                           # Usage Statistics
 dsh plugin --profile web add @linxin666/dsh-client-ui-model-capabilities@latest    # Model Capabilities
@@ -271,6 +272,7 @@ All plugins are published under the `@linxin666/dsh-*` npm scope:
 | --- | --- |
 | [@linxin666/dsh-web-all](https://www.npmjs.com/package/@linxin666/dsh-web-all) | Aggregate bundle: complete suite of feature plugins and skin center |
 | [@linxin666/dsh-client-ui-task-board](https://www.npmjs.com/package/@linxin666/dsh-client-ui-task-board) | Task board: multi-column tracking and cron scheduling |
+| [@linxin666/dsh-client-ui-task-board-github](https://www.npmjs.com/package/@linxin666/dsh-client-ui-task-board-github) | Task board extension: GitHub Issues sync, on by default and switchable off in settings |
 | [@linxin666/dsh-remote-web-ui](https://www.npmjs.com/package/@linxin666/dsh-remote-web-ui) | Mobile remote control: QR pairing, cross-device sync, and touch gestures |
 | [@linxin666/dsh-ssh](https://www.npmjs.com/package/@linxin666/dsh-ssh) | SSH operations: web terminal, SFTP transfers, tunnels, and cluster commands |
 | [@linxin666/dsh-usage](https://www.npmjs.com/package/@linxin666/dsh-usage) | Usage statistics: token consumption, balances, plan tracking, and Token Bank |
@@ -383,6 +385,8 @@ Mobile access is secured by one-time pairing tokens. If your mobile device and t
 
 <details>
 <summary><strong>Will scheduled tasks continue to execute after closing the browser or when the computer enters sleep mode?</strong></summary>
+
+Task acceptance is on by default for goal-form tasks: before the agent may mark a goal complete, the board calls the judge model itself (inheriting the host model by default, or a model and reasoning level chosen under Settings, Web plugins, Task board, Task acceptance). It uses the three coding criteria, a 0.65 threshold, and two rounds per criterion with the A/B slots swapped; one execution may accept at most twice, so a first failure sends its scores and findings back to the fixing agent and a second failure fails that execution. The acceptance configuration is frozen when each execution starts, so a later settings change only affects new runs; plain chat and tasks that opt out of goal mode are untouched. Every acceptance really spends the judge model's quota.
 
 Task scheduling runs directly within the `dsh web` host daemon on the server machine, so closing browser tabs will not interrupt pending or running tasks. However, if the machine enters deep sleep or is powered down, the host process pauses and missed scheduled triggers will follow the skip policy rather than backfilling. To ensure unattended 24/7 background execution, enable the optional "Power Management" setting in the Task Board configuration to keep the system awake while allowing screens to power off.
 

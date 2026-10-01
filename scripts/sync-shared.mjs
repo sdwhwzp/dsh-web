@@ -27,7 +27,7 @@ export const REPO_ROOT = resolve(SCRIPT_DIR, '..')
  * live exactly once under shared/; consumers import the committed copy.
  */
 // Consumers of the settings card trio: one list, three derivations below.
-const SETTINGS_CONSUMERS = ['dsh-task-board', 'dsh-remote-web-ui', 'dsh-market', 'dsh-liangshen']
+const SETTINGS_CONSUMERS = ['dsh-task-board', 'dsh-task-board-github', 'dsh-remote-web-ui', 'dsh-market', 'dsh-liangshen']
 const SETTINGS_CARD_CONSUMERS = [...SETTINGS_CONSUMERS]
 // Consumers of the entry-bound form fallback: every package whose card binds a
 // family settings namespace through the shared forms service. It is a superset
@@ -118,6 +118,7 @@ const MANIFEST = [
       'packages/dsh-remote-web-ui/src/mount-once.ts',
       'packages/dsh-liangshen/src/mount-once.ts',
       'packages/dsh-task-board/src/mount-once.ts',
+      'packages/dsh-task-board-github/src/mount-once.ts',
       'packages/dsh-git-graph/src/mount-once.ts',
       'packages/dsh-plugin-manager/src/mount-once.ts',
       'packages/dsh-web-settings/src/mount-once.ts',
@@ -174,7 +175,7 @@ const MANIFEST = [
   {
     file: 'loopback.ts',
     source: 'shared/host/loopback.ts',
-    targets: ['packages/dsh-ssh/src/loopback.ts', 'packages/dsh-git-graph/src/host/loopback.ts', 'packages/dsh-remote-web-ui/src/loopback.ts', 'packages/dsh-task-board/src/loopback.ts', 'packages/dsh-skill-explorer/src/loopback.ts', 'packages/dsh-plugin-manager/src/host/loopback.ts', 'packages/dsh-market/src/loopback.ts', 'packages/dsh-usage/src/host/loopback.ts', 'packages/dsh-session-archive/src/host/loopback.ts', 'packages/dsh-update/src/loopback.ts'],
+    targets: ['packages/dsh-ssh/src/loopback.ts', 'packages/dsh-git-graph/src/host/loopback.ts', 'packages/dsh-remote-web-ui/src/loopback.ts', 'packages/dsh-task-board/src/loopback.ts', 'packages/dsh-task-board-github/src/loopback.ts', 'packages/dsh-skill-explorer/src/loopback.ts', 'packages/dsh-plugin-manager/src/host/loopback.ts', 'packages/dsh-market/src/loopback.ts', 'packages/dsh-usage/src/host/loopback.ts', 'packages/dsh-session-archive/src/host/loopback.ts', 'packages/dsh-update/src/loopback.ts'],
   },
   {
     file: 'http.ts',
@@ -188,6 +189,7 @@ const MANIFEST = [
       'packages/dsh-plugin-manager/src/host/http.ts',
       'packages/dsh-remote-web-ui/src/http.ts',
       'packages/dsh-task-board/src/http.ts',
+      'packages/dsh-task-board-github/src/host/http.ts',
       'packages/dsh-usage/src/host/http.ts',
       'packages/dsh-session-archive/src/host/http.ts',
       'packages/dsh-update/src/http.ts',
@@ -204,6 +206,7 @@ const MANIFEST = [
       'packages/dsh-remote-web-ui/vitest.setup.ts',
       'packages/dsh-git-graph/vitest.setup.ts',
       'packages/dsh-task-board/vitest.setup.ts',
+      'packages/dsh-task-board-github/vitest.setup.ts',
       'packages/dsh-update/vitest.setup.ts',
     ],
   },
