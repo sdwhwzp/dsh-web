@@ -44,6 +44,8 @@ market/dist/assets/skins/pixel-anime/patches.css whitespace=-blank-at-eof
 market/dist/assets/skins/last-exile/hooks.mjs whitespace=-blank-at-eol
 market/dist/assets/skins/porco-rosso/hooks.mjs whitespace=-blank-at-eol
 market/dist/assets/skins/white-snake/hooks.mjs whitespace=-blank-at-eol
+market/dist/assets/skins/meridian/skin.css whitespace=-blank-at-eol
+market/dist/tryon-assets/skins/meridian/skin.css whitespace=-blank-at-eol
 
 # Unified patches encode an empty context line as one space.
 private-satellite-patches/*.patch whitespace=-blank-at-eol
