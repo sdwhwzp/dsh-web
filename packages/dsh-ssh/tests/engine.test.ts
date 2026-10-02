@@ -14,7 +14,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { SshEngine } from '../src/engine.ts'
 import { HostStore } from '../src/store.ts'
 import type { HostPayload } from '../src/protocol.ts'
-import { TEST_PASSWORD, TEST_USER, TestSshServer } from './helpers/ssh-server.ts'
+import { TEST_PASSWORD, TEST_USER, TestSshServer, onCommandStarted } from './helpers/ssh-server.ts'
 import { TestSshd } from './helpers/sshd.ts'
 
 let server: TestSshServer
@@ -179,6 +179,50 @@ describe('exec', () => {
     expect(Date.now() - started).toBeLessThan(5_000)
   })
 
+
+  it('operator who aborts a running command sees it cancelled, not replayed', async () => {
+    // Given a command the shim never answers, with the caller armed to cancel it
+    addHost('exec-abort')
+    const controller = new AbortController()
+    onCommandStarted((command) => {
+      // When the remote channel is open, cancel the call the way a tool call is cancelled
+      if (command === 'hang') controller.abort()
+    })
+    try {
+      const started = Date.now()
+      const result = await engine.exec('exec-abort', 'hang', 30_000, controller.signal)
+
+      // Then it settles as a cancellation, not as a timeout or a broken connection
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('cancelled by the caller')
+      expect(result.timedOut).toBe(false)
+      // And it settles on the abort rather than the 30s budget or a retry cycle
+      expect(Date.now() - started).toBeLessThan(10_000)
+    } finally {
+      onCommandStarted(undefined)
+    }
+  })
+
+  it('operator passing an already-aborted signal sees no command run at all', async () => {
+    // Given a signal that was cancelled before the call
+    addHost('exec-preabort')
+    const controller = new AbortController()
+    controller.abort()
+    const seen: string[] = []
+    onCommandStarted((command) => { seen.push(command) })
+    try {
+      // When the call runs against that signal
+      const result = await engine.exec('exec-preabort', 'hang', 30_000, controller.signal)
+
+      // Then it reports a cancellation
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('cancelled by the caller')
+      expect(seen).toEqual([])
+    } finally {
+      onCommandStarted(undefined)
+    }
+  })
+
   it('fails cleanly for unknown aliases', async () => {
     await expect(engine.exec('nope', 'true')).rejects.toThrow(/not found/)
   })
@@ -274,6 +318,25 @@ describe('key auth', () => {
 })
 
 describe('cluster', () => {
+  it('operator cancelling a cluster stops dispatching commands to queued hosts', async () => {
+    // Given two hosts sharing one worker and a cancellation on the first command.
+    const aliases = ['cluster-cancel-a', 'cluster-cancel-b']
+    for (const alias of aliases) addHost(alias)
+    const controller = new AbortController()
+    const seen: string[] = []
+    onCommandStarted(command => { seen.push(command); controller.abort() })
+    try {
+      // When the first remote command starts, cancel the entire cluster.
+      const results = await engine.cluster({ command: 'hang', aliases, maxWorkers: 1, signal: controller.signal })
+      // Then the queued host never receives a command and both outcomes are unsuccessful.
+      expect(seen).toEqual(['hang'])
+      expect(results).toHaveLength(2)
+      expect(results.every(result => !result.ok)).toBe(true)
+    } finally {
+      onCommandStarted(undefined)
+    }
+  })
+
   it('runs one command on every matched host concurrently', async () => {
     addHost('cluster-a')
     addHost('cluster-b')

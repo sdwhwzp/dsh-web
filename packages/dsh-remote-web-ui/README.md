@@ -74,7 +74,7 @@ Restart the profile (`dsh web`). The plugin's `cordis.patch.yml` inserts the sin
 
 ## Use
 
-1. Open the settings card (设置 → Web 插件 → 远程访问设置) and flip **局域网访问** on if the server binds loopback; the card shows the live bind, the firewall state, and the reachable LAN URLs. The bind change takes effect from the next `dsh web` start.
+1. Open the settings card (设置 → Web 插件 → 远程访问) and flip **局域网访问** on if the server binds loopback; the card shows the live bind, the firewall state, and the reachable LAN URLs. The bind change takes effect from the next `dsh web` start.
 2. Start `dsh web`, then issue a fresh link on the primary computer with `curl -sS -X POST http://127.0.0.1:3080/api/pair/issue -H 'content-type: application/json' -d '{}'`; copy the `url` field from the response.
 3. Open the link on the phone: the device pairs and boots the **official Web GUI** through the cookieless `/pair-accept` → `/pair-app` chain. On a phone, the portrait adaptation layer is already active — same layout as the desktop, same live state. On https origins, later reopens from history or a bookmark return to the paired app through the service worker.
 4. **To pair a PC instead**: copy the same link and open it in a browser on the other computer. After the same round trip the full Web GUI runs there over the gated `/remote` channel; unpaired PCs see the guided blocking page and no data. Issue a fresh link whenever you need to rotate the active token.

@@ -96,7 +96,7 @@ pnpm --filter @linxin666/dsh-ssh build   # tsc types + tsdown dual-half artifact
 
 - The remote target path of an upload must be an absolute path (relative paths are rejected).
 - Download does not support a whole directory yet (download files individually); upload supports recursive directories (walks the local directory and transfers file by file).
-- exec auto-reconnect on disconnect (up to 3 times) may re-execute non-idempotent commands — watch out for side effects on long commands.
+- exec auto-reconnect on disconnect (up to 3 times) may re-execute non-idempotent commands — watch out for side effects on long commands. Caller cancellation closes an active command channel, prevents retries and keeps queued commands from starting; a signal cancelled before dispatch never sends the command.
 - A ProxyJump hop is either a host alias configured in this plugin or an OpenSSH `[user@]host[:port]` address; an address hop has no stored credentials, so it reuses the target host's authentication (configure a host entry when the hop needs its own).
 - `proxyCommand` and `proxyJump` cannot be combined on one host (OpenSSH resolves them by "whichever appears first in the config"; a stored entry has no order, so the plugin rejects the pair), and only the first hop of a chain may declare a ProxyCommand.
 - A ProxyCommand is executed through the user's shell, so it inherits the DSH process's `PATH` and environment. On Windows the shell is killed without its process group, so a client it spawned may outlive the transport.

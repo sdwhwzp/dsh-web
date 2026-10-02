@@ -961,6 +961,64 @@ window.SKIN_MANIFEST = {
       }
     },
     {
+      "id": "xinghai-heart",
+      "name": "星海之心",
+      "nameEn": "Heart of the Starry Sea",
+      "author": "stushansusu",
+      "tagline": "深海星图 · 星蓝 × 暖金 · 点状密星场 · 低饱和电影光",
+      "description": "星海之心：背景是用户 2026-10-01 交付的视频 —— 一片深蓝的星海从纯黑里一点一点亮起来，满场段是密集的点状星（p99.5 以上的亮点 400-580 个、中位尺寸只有 2px）加一处亮核。配色全部从画面逐帧实测量出来 —— 面板取「夜」#04163A 那一带的深处 #081A3C，正文取最亮 1% #9ACAE6 提亮后的 #E9F2FB，牌子取星蓝 #2960A9 与亮星 #60A0D2 之间的 #4FA6E8。全片 hue 有 76.9% 落在 210-240、R−B ≈ −46，**暖色像素占 0.000%**，所以强调色 暖金 #F2C46A 只能来自界面 —— 它只给「活着」的地方：当前行、聚焦中的输入卡、链接、悬停的图标、新会话的四角括号。语言是「深海的星图：冷的是海，暖的是心」：面全是薄玻璃（背后永远是正在发亮的星海），骨架是 1px 星蓝细线，全屏唯一的实心是新会话那颗星蓝到暖金的按钮。**暗色专用**，左上角品牌行换成「星海之心」。",
+      "accent": "#4FA6E8",
+      "preview": {
+        "light": "assets/skins/xinghai-heart/preview/light.jpg",
+        "dark": "assets/skins/xinghai-heart/preview/dark.jpg"
+      },
+      "contributes": {
+        "stylesheet": "skin.css",
+        "patches": "patches.css",
+        "backgroundMedia": {
+          "light": {
+            "type": "video",
+            "src": "assets/skins/xinghai-heart/assets/xinghai-heart-loop.mp4",
+            "scrim": "linear-gradient(180deg, rgba(3,8,26,0) 0%, rgba(3,8,26,0) 54%, rgba(3,8,26,0.12) 72%, rgba(3,8,26,0.30) 88%, rgba(3,8,26,0.38) 100%), linear-gradient(90deg, rgba(3,8,26,0.01) 0%, rgba(3,8,26,0.06) 16%, rgba(3,8,26,0.20) 30%, rgba(3,8,26,0.24) 100%)"
+          },
+          "dark": {
+            "type": "video",
+            "src": "assets/skins/xinghai-heart/assets/xinghai-heart-loop.mp4",
+            "scrim": "linear-gradient(180deg, rgba(3,8,26,0) 0%, rgba(3,8,26,0) 54%, rgba(3,8,26,0.12) 72%, rgba(3,8,26,0.30) 88%, rgba(3,8,26,0.38) 100%), linear-gradient(90deg, rgba(3,8,26,0.01) 0%, rgba(3,8,26,0.06) 16%, rgba(3,8,26,0.20) 30%, rgba(3,8,26,0.24) 100%)"
+          }
+        }
+      }
+    },
+    {
+      "id": "crt-phosphor",
+      "name": "磷光 CRT",
+      "nameEn": "Phosphor CRT",
+      "author": "lemonhall",
+      "tagline": "P1 磷光绿 · 扫描线与余晖辉光 · 全界面等宽字体 · 电子管暗角",
+      "description": "把整个 DSH Web GUI 伪装成一台老式 CRT 磷光显示器：全界面换成等宽字体与 P1 绿字黑底，叠加扫描线、屏幕暗角、字面余晖辉光与轻微闪烁，标题带色差边缘；背景是同一座夜之城，经本地处理转成磷光绿双色调并烘焙了 halation 光晕与扫描线。",
+      "accent": "#3dff9e",
+      "preview": {
+        "light": "assets/skins/crt-phosphor/preview/light.jpg",
+        "dark": "assets/skins/crt-phosphor/preview/dark.jpg"
+      },
+      "contributes": {
+        "stylesheet": "skin.css",
+        "patches": "patches.css",
+        "backgroundMedia": {
+          "light": {
+            "type": "image",
+            "src": "assets/skins/crt-phosphor/assets/scene-light.webp",
+            "scrim": "linear-gradient(rgba(0, 22, 12, 0.10) 0%, rgba(0, 18, 10, 0.16) 60%, rgba(0, 14, 8, 0.24) 100%)"
+          },
+          "dark": {
+            "type": "image",
+            "src": "assets/skins/crt-phosphor/assets/scene-dark.webp",
+            "scrim": "linear-gradient(rgba(0, 10, 5, 0.26) 0%, rgba(0, 8, 4, 0.34) 60%, rgba(0, 6, 3, 0.44) 100%)"
+          }
+        }
+      }
+    },
+    {
       "id": "furina",
       "name": "芙宁娜",
       "nameEn": "Furina",
@@ -1126,32 +1184,20 @@ window.SKIN_MANIFEST = {
       }
     },
     {
-      "id": "meridian",
-      "name": "子午线",
-      "nameEn": "DeepSeek-Meridian",
-      "author": "LOrz-3",
-      "tagline": "DeepSeek 男性形象 · 服饰与配色可切换",
-      "description": "DeepSeek 男性形象皮肤，可切换不同风格服饰（骑士／西装／盛夏／甜点师／主治），可切换为 Claude 与 GPT 配色。安装一次即可在侧栏左下切换，选择记忆在本机。",
-      "accent": "#2b4bd8",
+      "id": "black-gold-vip",
+      "name": "黑金 VIP",
+      "nameEn": "Black Gold VIP",
+      "author": "silicon-sbt",
+      "tagline": "黑金会员卡品牌的左上角 · 金属金字标 · 金属金大鲸鱼",
+      "description": "只给品牌标识上色：左上角品牌区做成会员卡（渐变金属边框、卡面打光、缓慢掠光），品牌字标与开始会话页大鲸鱼用五档金属金（Chroma.js 的 lch 插值生成），HARNESS 徽标改为绶带。双主题自适应——浅色用暖金卡（象牙底 + 深金标 + 黑底金字绶带），深色用黑金卡（近黑底 + 亮金标 + 金底黑字绶带）。不声明任何 --dsw-* token、不改布局结构、不替换组件，悬停摆尾动画保留。纯 CSS：金属渐变由 data-URI SVG 蒙版 + CSS 渐变实现（未用 hooks，用户皮肤的 hooks 需审核故不可用）。",
+      "accent": "#c9a227",
       "preview": {
-        "light": "assets/skins/meridian/preview/light.jpg",
-        "dark": "assets/skins/meridian/preview/dark.jpg"
+        "light": "assets/skins/black-gold-vip/preview/light.png",
+        "dark": "assets/skins/black-gold-vip/preview/dark.png"
       },
       "contributes": {
         "stylesheet": "skin.css",
-        "patches": "patches.css",
-        "backgroundMedia": {
-          "light": {
-            "type": "image",
-            "src": "assets/skins/meridian/assets/background-knight-light.jpg",
-            "scrim": "linear-gradient(rgba(244, 246, 251, 0.16), rgba(244, 246, 251, 0.30))"
-          },
-          "dark": {
-            "type": "image",
-            "src": "assets/skins/meridian/assets/background-knight-dark.jpg",
-            "scrim": "linear-gradient(rgba(10, 18, 48, 0.28), rgba(10, 18, 48, 0.45))"
-          }
-        }
+        "patches": "patches.css"
       }
     },
     {

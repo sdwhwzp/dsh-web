@@ -402,7 +402,7 @@ export function sweepPool(engine: PoolEngine): void {
  * Run `fn` with a live client for `alias`, reconnecting (up to the
  * attempt budget) when the connection broke mid-flight.
  */
-export async function withClient<T>(engine: PoolEngine, alias: string, fn: (client: Client) => Promise<T>, attempts = 3): Promise<T> {
+export async function withClient<T>(engine: PoolEngine, alias: string, fn: (client: Client) => Promise<T>, attempts = 3, signal?: AbortSignal): Promise<T> {
   let lastError: unknown
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     let record = engine.pool.get(alias)
@@ -418,6 +418,9 @@ export async function withClient<T>(engine: PoolEngine, alias: string, fn: (clie
       return result
     } catch (error) {
       lastError = error
+      // A cancelled call is never replayed: the caller asked for it to stop,
+      // and a retry would re-run a command that may not be idempotent.
+      if (signal?.aborted === true) throw error
       // Retry only when the connection actually broke mid-flight: drop the
       // corpse and let the next attempt reconnect (a reconnect may replay a
       // non-idempotent command — the documented trade-off). A failure on a
@@ -432,16 +435,46 @@ export async function withClient<T>(engine: PoolEngine, alias: string, fn: (clie
 }
 
 /** Run one command on `alias` (reusing the pooled connection). */
-export async function execCommand(engine: PoolEngine, alias: string, command: string, timeoutMs?: number): Promise<ExecResult> {
+export async function execCommand(engine: PoolEngine, alias: string, command: string, timeoutMs?: number, signal?: AbortSignal): Promise<ExecResult> {
   const started = Date.now()
   const budget = timeoutMs !== undefined && timeoutMs > 0 ? timeoutMs : engine.opts.defaultExecTimeoutMs
+  const cancelledResult = (stdout = '', stderr = ''): ExecResult => ({
+    success: false,
+    exitCode: null,
+    timedOut: false,
+    stdout,
+    stderr,
+    durationMs: Date.now() - started,
+    error: 'command cancelled by the caller',
+  })
+  if (signal?.aborted === true) return cancelledResult()
   return withClient(engine, alias, async (client) => {
+    // Cancellation during connection setup must not dispatch the command.
+    if (signal?.aborted === true) return cancelledResult()
     return await new Promise<ExecResult>((resolve, reject) => {
+      // Caller cancellation is cooperative and quiescent: aborting closes the
+      // remote channel and settles this call like a timeout does, so the
+      // command stops without the pool replaying it. The channel is captured
+      // in a mutable slot because abort may fire before client.exec calls back.
+      let aborted = signal !== undefined && signal.aborted
+      let kill = (): void => { /* channel not open yet */ }
+      const onAbort = (): void => {
+        aborted = true
+        kill()
+      }
+      if (signal !== undefined && !signal.aborted) signal.addEventListener('abort', onAbort, { once: true })
       client.exec(command, (error, stream) => {
         if (error !== undefined) {
+          signal?.removeEventListener('abort', onAbort)
           reject(error)
           return
         }
+        kill = (): void => {
+          try { stream.signal('KILL') } catch { /* channel gone */ }
+          try { stream.close() } catch { /* channel gone */ }
+        }
+        // The abort may already have arrived while this channel opened.
+        if (aborted) kill()
         const stdout = { text: '', truncated: false }
         const stderr = { text: '', truncated: false }
         let timedOut = false
@@ -450,6 +483,7 @@ export async function execCommand(engine: PoolEngine, alias: string, command: st
           if (settled) return
           settled = true
           clearTimeout(timer)
+          signal?.removeEventListener('abort', onAbort)
           resolve({
             success: false,
             exitCode: null,
@@ -474,6 +508,14 @@ export async function execCommand(engine: PoolEngine, alias: string, command: st
           if (settled) return
           settled = true
           clearTimeout(timer)
+          signal?.removeEventListener('abort', onAbort)
+          // A caller cancellation settles as cancelled, never as a broken
+          // connection: the latter would send withClient into a retry that
+          // re-runs a command the caller asked to stop.
+          if (aborted) {
+            resolve(cancelledResult(stdout.text, stderr.text))
+            return
+          }
           if (typeof code !== 'number' && !timedOut) {
             // The channel closed without an exit status: the connection
             // dropped mid-flight. Reject so withClient can reconnect and
@@ -494,9 +536,14 @@ export async function execCommand(engine: PoolEngine, alias: string, command: st
           if (settled) return
           settled = true
           clearTimeout(timer)
+          signal?.removeEventListener('abort', onAbort)
+          if (aborted) {
+            resolve(cancelledResult(stdout.text, stderr.text))
+            return
+          }
           reject(streamError)
         })
       })
     })
-  })
+  }, 3, signal)
 }

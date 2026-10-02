@@ -72,6 +72,28 @@ function agentDouble(id: string, events: readonly unknown[]): unknown {
   return { id, session: { snapshotEvents: () => events } }
 }
 
+/**
+ * Wrap one chunk-yielding function in the runtime shape the board dispatches
+ * through.
+ *
+ * Production reaches the adapter through the registration-bound
+ * `prepareCall(...).stream(...)` handle (see `src/host/llm-dispatch.ts`), so
+ * the double offers the same two entry points: a judge test that only stubbed
+ * the public `stream` would pass even when the board regressed onto the
+ * mutable public method.
+ */
+function judgeRuntime(
+  stream: (request: { messages: readonly { content: readonly { text?: string }[] }[] }) => AsyncIterable<unknown>,
+) {
+  return {
+    prepareCall: (config: Record<string, unknown>) => Promise.resolve({
+      config,
+      stream: (request: { messages: readonly { content: readonly { text?: string }[] }[] }) => stream(request),
+    }),
+    stream,
+  }
+}
+
 /** A model runtime double that answers every judge prompt with the given work grade. */
 function judgeLlm(options: {
   finish?: { kind: 'stop' | 'max-tokens' | 'error' | 'aborted'; failure?: { message: string } }
@@ -82,31 +104,28 @@ function judgeLlm(options: {
   onCall?: (prompt: string) => void
 }) {
   let call = 0
-  return {
-    callCount: () => call,
-    stream: (request: { messages: readonly { content: readonly { text?: string }[] }[] }) => {
-      const prompt = request.messages[0]?.content[0]?.text ?? ''
-      const index = call++
-      options.onCall?.(prompt)
-      const failure = options.fail?.(prompt, index)
-      return (async function * () {
-        if (failure !== undefined) throw failure
-        const text = options.raw ?? (() => {
-          // The work sits in slot A on even rounds and in slot B on odd ones,
-          // because the gate swaps the two sides for its second round.
-          const aBlock = prompt.slice(prompt.indexOf('<<<TRAJECTORY_A'), prompt.indexOf('<<<END_TRAJECTORY_A'))
-          const workInA = !aBlock.includes(EMPTY_WORK_BASELINE)
-          const grade = options.rounds?.(index % 2) ?? options.grade ?? 'A'
-          return workInA
-            ? '<score_A> ' + grade + ' </score_A>\n<score_B> T </score_B>'
-            : '<score_A> T </score_A>\n<score_B> ' + grade + ' </score_B>'
-        })()
-        yield { type: 'text-delta', index: 0, text }
-        yield { type: 'usage', usage: { inputTokens: 10, outputTokens: 5, reasoningTokens: 1 } }
-        yield { type: 'finish', reason: options.finish ?? { kind: 'stop' } }
+  return { ...judgeRuntime((request: { messages: readonly { content: readonly { text?: string }[] }[] }) => {
+    const prompt = request.messages[0]?.content[0]?.text ?? ''
+    const index = call++
+    options.onCall?.(prompt)
+    const failure = options.fail?.(prompt, index)
+    return (async function * () {
+      if (failure !== undefined) throw failure
+      const text = options.raw ?? (() => {
+        // The work sits in slot A on even rounds and in slot B on odd ones,
+        // because the gate swaps the two sides for its second round.
+        const aBlock = prompt.slice(prompt.indexOf('<<<TRAJECTORY_A'), prompt.indexOf('<<<END_TRAJECTORY_A'))
+        const workInA = !aBlock.includes(EMPTY_WORK_BASELINE)
+        const grade = options.rounds?.(index % 2) ?? options.grade ?? 'A'
+        return workInA
+          ? '<score_A> ' + grade + ' </score_A>\n<score_B> T </score_B>'
+          : '<score_A> T </score_A>\n<score_B> ' + grade + ' </score_B>'
       })()
-    },
-  }
+      yield { type: 'text-delta', index: 0, text }
+      yield { type: 'usage', usage: { inputTokens: 10, outputTokens: 5, reasoningTokens: 1 } }
+      yield { type: 'finish', reason: options.finish ?? { kind: 'stop' } }
+    })()
+  }), callCount: () => call }
 }
 
 /** A host change service double: the observation the judge is offered. */
@@ -218,21 +237,19 @@ describe('goal acceptance gate', () => {
     let quality = 0
     const gate = gateOver({
       ledger: fx.ledger,
-      llm: {
-        stream: (request: { messages: readonly { content: readonly { text?: string }[] }[] }) => {
-          const prompt = request.messages[0]?.content[0]?.text ?? ''
-          const aBlock = prompt.slice(prompt.indexOf('<<<TRAJECTORY_A'), prompt.indexOf('<<<END_TRAJECTORY_A'))
-          const workInA = !aBlock.includes(EMPTY_WORK_BASELINE)
-          const grade = quality === 0 ? 'T' : 'A'
-          const text = workInA
-            ? '<score_A> ' + grade + ' </score_A>\n<score_B> T </score_B>'
-            : '<score_A> T </score_A>\n<score_B> ' + grade + ' </score_B>'
-          return (async function * () {
-            yield { type: 'text-delta', index: 0, text }
-            yield { type: 'finish', reason: { kind: 'stop' } }
-          })()
-        },
-      },
+      llm: judgeRuntime((request: { messages: readonly { content: readonly { text?: string }[] }[] }) => {
+        const prompt = request.messages[0]?.content[0]?.text ?? ''
+        const aBlock = prompt.slice(prompt.indexOf('<<<TRAJECTORY_A'), prompt.indexOf('<<<END_TRAJECTORY_A'))
+        const workInA = !aBlock.includes(EMPTY_WORK_BASELINE)
+        const grade = quality === 0 ? 'T' : 'A'
+        const text = workInA
+          ? '<score_A> ' + grade + ' </score_A>\n<score_B> T </score_B>'
+          : '<score_A> T </score_A>\n<score_B> ' + grade + ' </score_B>'
+        return (async function * () {
+          yield { type: 'text-delta', index: 0, text }
+          yield { type: 'finish', reason: { kind: 'stop' } }
+        })()
+      }),
       goal: goalDouble('active'),
     })
     const agent = agentDouble(fx.sessionId, [event('tool/call', 1, NOW + 10, { turn: 1, step: 1, name: 'run_code', arguments: '{}' })])
@@ -285,24 +302,69 @@ describe('goal acceptance gate', () => {
     expect(qualityAttempts(verificationOf(fx.ledger))).toHaveLength(callsBeforeThird)
   })
 
+  it('user reading the final failure sees the baseline, every failing criterion and the judge findings, not only the total', async () => {
+    // Given: a judge that always fails the work AND reports a locatable finding
+    const fx = fixture()
+    const goal = goalDouble('active')
+    const gate = gateOver({
+      ledger: fx.ledger,
+      llm: judgeLlm({
+        raw: '<score_A> T </score_A>\n<score_B> T </score_B>\n<finding criterion="Error Signal Detection" evidence="TASK" action="rerun the failing command and read its stderr">the second tool result reports a failure the summary ignored</finding>',
+      }),
+      goal,
+    })
+    const agent = agentDouble(fx.sessionId, [event('tool/call', 1, NOW + 10, { turn: 1, step: 1, name: 'bash', arguments: '{}' })])
+
+    // When: the cycle is spent
+    await gate(completion(agent))
+    const second = await gate(completion(agent))
+
+    // Then: the final reason carries the improvement material — the baseline
+    // comparison, the failing criteria, and the judge's located finding — and
+    // the goal block the run ends with repeats them.
+    const reason = (second as { kind: 'deny', reason: string }).reason
+    expect(reason).toContain('空工作基线')
+    expect(reason).toContain('Error Signal Detection')
+    expect(reason).toContain('可定位问题')
+    expect(reason).toContain('the second tool result reports a failure the summary ignored')
+    expect(reason).toContain('rerun the failing command and read its stderr')
+    expect(goal.blocks[0]).toContain('the second tool result reports a failure the summary ignored')
+    const verification = verificationOf(fx.ledger)
+    expect(verification.failedReason).toContain('the second tool result reports a failure the summary ignored')
+  })
+
+  it('user whose judge reports no findings sees a failure reason that says where to look instead of staying silent', async () => {
+    // Given: a judge that fails the work without reporting any finding
+    const fx = fixture()
+    const gate = gateOver({ ledger: fx.ledger, llm: judgeLlm({ grade: 'T' }), goal: goalDouble('active') })
+    const agent = agentDouble(fx.sessionId, [event('tool/call', 1, NOW + 10, { turn: 1, step: 1, name: 'bash', arguments: '{}' })])
+
+    // When: the cycle is spent
+    await gate(completion(agent))
+    const second = await gate(completion(agent))
+
+    // Then: the reason still points the agent at the criteria and the evidence.
+    const reason = (second as { kind: 'deny', reason: string }).reason
+    expect(reason).toContain('本次验收没有记录可定位的问题')
+    expect(reason).toContain('未达标判据')
+  })
+
   it('user claiming completion twice at once sees one acceptance, not two', async () => {
     // Given: a slow judge and a session already bound to the execution
     const fx = fixture()
     let resolveCall: (() => void) | undefined
     const gate = gateOver({
       ledger: fx.ledger,
-      llm: {
-        stream: (request: { messages: readonly { content: readonly { text?: string }[] }[] }) => {
-          const prompt = request.messages[0]?.content[0]?.text ?? ''
-          const aBlock = prompt.slice(prompt.indexOf('<<<TRAJECTORY_A'), prompt.indexOf('<<<END_TRAJECTORY_A'))
-          const workInA = !aBlock.includes(EMPTY_WORK_BASELINE)
-          return (async function * () {
-            await new Promise<void>(resolve => { resolveCall = resolve })
-            yield { type: 'text-delta', index: 0, text: workInA ? '<score_A> A </score_A>\n<score_B> T </score_B>' : '<score_A> T </score_A>\n<score_B> A </score_B>' }
-            yield { type: 'finish', reason: { kind: 'stop' } }
-          })()
-        },
-      },
+      llm: judgeRuntime((request: { messages: readonly { content: readonly { text?: string }[] }[] }) => {
+        const prompt = request.messages[0]?.content[0]?.text ?? ''
+        const aBlock = prompt.slice(prompt.indexOf('<<<TRAJECTORY_A'), prompt.indexOf('<<<END_TRAJECTORY_A'))
+        const workInA = !aBlock.includes(EMPTY_WORK_BASELINE)
+        return (async function * () {
+          await new Promise<void>(resolve => { resolveCall = resolve })
+          yield { type: 'text-delta', index: 0, text: workInA ? '<score_A> A </score_A>\n<score_B> T </score_B>' : '<score_A> T </score_A>\n<score_B> A </score_B>' }
+          yield { type: 'finish', reason: { kind: 'stop' } }
+        })()
+      }),
       goal: goalDouble('active'),
     })
     const agent = agentDouble(fx.sessionId, [event('tool/call', 1, NOW + 10, { turn: 1, step: 1, name: 'bash', arguments: '{}' })])
@@ -438,6 +500,61 @@ describe('goal acceptance gate', () => {
     expect(exceptionAttempts(verification)).toHaveLength(MAX_EXCEPTION_ATTEMPTS)
     expect(qualityAttempts(verification)).toHaveLength(0)
     expect(verification.failedReason).toContain('验收异常达到上限')
+  })
+
+  it('user whose provider plugin replaced the public llm.stream still gets a real acceptance verdict', async () => {
+    // Given: a runtime whose public single-argument stream() was replaced by a
+    // third-party provider plugin with the llm/stream listener signature — the
+    // shape that produced "next(...) is not a function or its return value is
+    // not async iterable" and recorded every acceptance as an anomaly.
+    const fx = fixture()
+    const runtime = judgeLlm({ grade: 'A' })
+    const clobbered = {
+      ...runtime,
+      stream: (options: unknown, next?: unknown) => {
+        // Faithful to the broken plugin: invoked with the public single-argument
+        // call, next is undefined and delegating to it throws this TypeError.
+        const delegated = next as (() => AsyncIterable<unknown>) | undefined
+        if (typeof delegated !== 'function') {
+          throw new TypeError('next(...) is not a function or its return value is not async iterable')
+        }
+        return delegated()
+      },
+    }
+    const gate = gateOver({ ledger: fx.ledger, llm: clobbered, goal: goalDouble('active') })
+    const agent = agentDouble(fx.sessionId, [
+      event('tool/call', 1, NOW + 10, { turn: 1, step: 1, name: 'run_code', arguments: '{}' }),
+      event('tool/result', 2, NOW + 20, { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'ok' }] } }),
+    ])
+
+    // When: the agent claims completion
+    const decision = await gate(completion(agent))
+
+    // Then: the acceptance reaches the model through the registration-bound
+    // dispatch, the work is judged on its merits, and no anomaly is recorded.
+    expect(decision).toEqual({ kind: 'allow' })
+    const verification = verificationOf(fx.ledger)
+    expect(exceptionAttempts(verification)).toHaveLength(0)
+    expect(passedAttempt(verification)?.passed).toBe(true)
+  })
+
+  it('user whose runtime exposes no prepareCall still gets an acceptance through the public stream', async () => {
+    // Given: a runtime that only offers the historical public stream(options)
+    const fx = fixture()
+    const plain = judgeLlm({ grade: 'A' }) as { prepareCall?: unknown }
+    delete plain.prepareCall
+    const gate = gateOver({ ledger: fx.ledger, llm: plain, goal: goalDouble('active') })
+    const agent = agentDouble(fx.sessionId, [
+      event('tool/call', 1, NOW + 10, { turn: 1, step: 1, name: 'run_code', arguments: '{}' }),
+      event('tool/result', 2, NOW + 20, { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'ok' }] } }),
+    ])
+
+    // When: the agent claims completion
+    const decision = await gate(completion(agent))
+
+    // Then: the fallback keeps an older or proxied service working.
+    expect(decision).toEqual({ kind: 'allow' })
+    expect(passedAttempt(verificationOf(fx.ledger))?.passed).toBe(true)
   })
 
   it('user with a task that never became a goal run is not gated', async () => {

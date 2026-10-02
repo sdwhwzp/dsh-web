@@ -74,7 +74,7 @@ dsh plugin --profile web add link:$(pwd)/packages/dsh-remote-web-ui
 
 ## 使用
 
-1. 打开设置卡片（设置 → Web 插件 → 远程访问设置），若服务绑定回环则打开**局域网访问**；卡片展示运行中的绑定、防火墙状态与可达局域网地址。绑定变化自下一次 `dsh web` 启动生效。
+1. 打开设置卡片（设置 → Web 插件 → 远程访问），若服务绑定回环则打开**局域网访问**；卡片展示运行中的绑定、防火墙状态与可达局域网地址。绑定变化自下一次 `dsh web` 启动生效。
 2. 启动 `dsh web`，然后在主电脑运行 `curl -sS -X POST http://127.0.0.1:3080/api/pair/issue -H 'content-type: application/json' -d '{}'` 签发新链接，并复制响应中的 `url` 字段。
 3. 在手机打开该链接：设备完成配对，经不依赖 cookie 的 `/pair-accept` → `/pair-app` 链路进入**官方 Web GUI**。手机上竖屏适配层已生效——与桌面同布局、同实时状态。https 源上，此后的历史或书签重开经 service worker 返回已配对应用。
 4. **改为配对电脑**：复制同一链接，在另一台电脑的浏览器打开。相同往返后完整 Web GUI 在彼处经门控 `/remote` 通道运行；未配对电脑看到引导式拦截页，其后没有数据。需要轮换当前令牌时重新签发链接。

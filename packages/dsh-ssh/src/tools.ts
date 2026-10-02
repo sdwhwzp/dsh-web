@@ -98,8 +98,7 @@ function renderTunnel(tunnel: TunnelInfo): string {
 export function sshListTool(source: SshToolEngine) {
   return defineTool({
     name: 'ssh_list',
-    description: 'List configured SSH hosts (alias, host, user, auth, environment, tags, description). Use ssh_exec etc. with the alias. ' +
-      'Triggers: SSH, remote server, server IP/hostname, connect/login, check server/status, deploy, upload/download, jump host, tunnel, port forward.',
+    description: 'List configured SSH hosts (alias, host, user, auth, environment, tags, description). Use ssh_exec etc. with the alias.',
     parameters: {
       query: { type: 'string', description: 'Optional fuzzy match against alias, description, host, and tags.' },
     },
@@ -136,6 +135,8 @@ export function sshListTool(source: SshToolEngine) {
       },
       render: (_args, value: { hosts?: AgentHostRow[] }) => text(renderHosts(value.hosts ?? [])),
     },
+    // Reads the local host registry only: safe to overlap with sibling calls.
+    isConcurrencySafe: () => true,
     async execute(args, execution) {
       const engine = resolveEngine(source, execution)
       return { hosts: engine.list(args.query).map(toAgentHostRow) }
@@ -147,8 +148,7 @@ export function sshListTool(source: SshToolEngine) {
 export function sshExecTool(source: SshToolEngine) {
   return defineTool({
     name: 'ssh_exec',
-    description: 'Execute a shell command on a REMOTE SSH host by alias; the command runs on the remote host, never on this machine. For commands on this machine, use the local bash tool. Prefer combining independent read-only queries into one command. ' +
-      'Triggers: run command on server, deploy, check server/status, service control, view logs, any remote operation.',
+    description: 'Execute a shell command on a REMOTE SSH host by alias; the command runs on the remote host, never on this machine. For commands on this machine, use the local bash tool. Prefer combining independent read-only queries into one command.',
     parameters: {
       alias: { type: 'string', required: true, description: 'Host alias from ssh_list.' },
       command: { type: 'string', required: true, description: 'The shell command to run remotely.' },
@@ -173,7 +173,9 @@ export function sshExecTool(source: SshToolEngine) {
     async execute(args, execution) {
       const engine = resolveEngine(source, execution)
       try {
-        return await engine.exec(args.alias, args.command, args.timeoutMs)
+        // Forward the caller's cancellation: aborting closes the remote channel
+        // instead of leaving the command running on the host.
+        return await engine.exec(args.alias, args.command, args.timeoutMs, execution.signal)
       } catch (error) {
         return {
           success: false,
@@ -193,8 +195,7 @@ export function sshExecTool(source: SshToolEngine) {
 export function sshUploadTool(source: SshToolEngine) {
   return defineTool({
     name: 'ssh_upload',
-    description: 'Transfer a file FROM this machine (the dsh host) TO a remote SSH host. Use this only when the file must be copied to the remote host. Files that stay on this machine are handled with the local file tools (read / write / edit), not ssh_upload. ' +
-      'Triggers: upload file to server, deploy artifact, copy config to server.',
+    description: 'Transfer a file FROM this machine (the dsh host) TO a remote SSH host. Use this only when the file must be copied to the remote host. Files that stay on this machine are handled with the local file tools (read / write / edit), not ssh_upload.',
     parameters: {
       alias: { type: 'string', required: true, description: 'Host alias from ssh_list.' },
       localPath: { type: 'string', required: true, description: 'Absolute path of the source file on THIS machine (the dsh host) — not a path on the remote host.' },
@@ -231,8 +232,7 @@ export function sshUploadTool(source: SshToolEngine) {
 export function sshDownloadTool(source: SshToolEngine) {
   return defineTool({
     name: 'ssh_download',
-    description: 'Copy a remote FILE from a configured SSH host to this machine (the dsh host). Use this only when the source is on the remote host; files already on this machine are read with the local file tools (read / write / edit), not ssh_download. Directory download is not supported — download files individually. ' +
-      'Triggers: download file from server, fetch remote log/artifact.',
+    description: 'Copy a remote FILE from a configured SSH host to this machine (the dsh host). Use this only when the source is on the remote host; files already on this machine are read with the local file tools (read / write / edit), not ssh_download. Directory download is not supported — download files individually.',
     parameters: {
       alias: { type: 'string', required: true, description: 'Host alias from ssh_list.' },
       remotePath: { type: 'string', required: true, description: 'Absolute path of the source file on the remote SSH host.' },
@@ -268,8 +268,7 @@ export function sshDownloadTool(source: SshToolEngine) {
 export function sshTunnelTool(source: SshToolEngine) {
   return defineTool({
     name: 'ssh_tunnel',
-    description: 'Manage local port-forward tunnels to a configured SSH host. Start a tunnel to reach a remote internal service (database, web UI, API) through 127.0.0.1 on this machine. ' +
-      'Triggers: tunnel, port forward, connect database, access internal service.',
+    description: 'Manage local port-forward tunnels to a configured SSH host. Start a tunnel to reach a remote internal service (database, web UI, API) through 127.0.0.1 on this machine.',
     parameters: {
       action: { type: 'string', required: true, enum: ['start', 'list', 'stop', 'stop-all'], description: 'start / list / stop / stop-all.' },
       alias: { type: 'string', description: 'Host alias (required for start, optional for stop-all).' },
@@ -369,8 +368,7 @@ export function sshTunnelTool(source: SshToolEngine) {
 export function sshClusterTool(source: SshToolEngine) {
   return defineTool({
     name: 'ssh_cluster',
-    description: 'Run one command concurrently across selected SSH hosts; at least one aliases, environment, or tags filter is required. ' +
-      'Triggers: run on selected servers, batch operation, production servers, cluster command.',
+    description: 'Run one command concurrently across selected SSH hosts; at least one aliases, environment, or tags filter is required.',
     parameters: {
       command: { type: 'string', required: true, description: 'The shell command to run on every matched host.' },
       aliases: { type: 'array', items: { type: 'string' }, description: 'Optional alias filter; at least one of aliases, environment, or tags is required.' },
@@ -412,7 +410,8 @@ export function sshClusterTool(source: SshToolEngine) {
         (typeof args.environment === 'string' && args.environment.trim() !== '') ||
         (Array.isArray(args.tags) && args.tags.some((tag) => typeof tag === 'string' && tag.trim() !== ''))
       if (!hasSelector) throw new Error('ssh_cluster requires aliases, environment, or tags to limit the target set')
-      return { results: await engine.cluster(args) }
+      // Cancellation reaches every host's in-flight command.
+      return { results: await engine.cluster({ ...args, signal: execution.signal }) }
     },
   })
 }

@@ -44,6 +44,7 @@ market/dist/assets/skins/pixel-anime/patches.css whitespace=-blank-at-eof
 market/dist/assets/skins/last-exile/hooks.mjs whitespace=-blank-at-eol
 market/dist/assets/skins/porco-rosso/hooks.mjs whitespace=-blank-at-eol
 market/dist/assets/skins/white-snake/hooks.mjs whitespace=-blank-at-eol
+market/dist/assets/skins/crt-phosphor/assets/licenses/cubic-11-OFL.txt whitespace=-blank-at-eol
 market/dist/assets/skins/meridian/skin.css whitespace=-blank-at-eol
 market/dist/tryon-assets/skins/meridian/skin.css whitespace=-blank-at-eol
 
