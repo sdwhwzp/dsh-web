@@ -1,12 +1,18 @@
 import { Fragment, createElement, useMemo, type ReactNode } from 'react'
 import { Lexer, type Token, type Tokens } from 'marked'
+import { decodeHTMLStrict } from 'entities'
 import css from './task-markdown.module.css'
 
 function safeHref(value: string): string | undefined {
   try {
-    const url = new URL(value)
+    const url = new URL(decodeHTMLStrict(value))
     return ['http:', 'https:', 'mailto:'].includes(url.protocol) ? url.href : undefined
   } catch { return undefined }
+}
+
+function tokenText(token: Token): string {
+  const text = 'text' in token ? String(token.text) : ''
+  return token.type === 'code' || token.type === 'codespan' || token.type === 'escape' ? text : decodeHTMLStrict(text)
 }
 
 function plain(tokens: Token[], separator = ''): string {
@@ -18,7 +24,7 @@ function plain(tokens: Token[], separator = ''): string {
       return [table.header, ...table.rows].map(row => row.map(cell => plain(cell.tokens)).join(' ')).join(' ')
     }
     if ('tokens' in token && Array.isArray(token.tokens)) return plain(token.tokens)
-    return 'text' in token ? String(token.text) : ' '
+    return 'text' in token ? tokenText(token) : ' '
   }).join(separator)
 }
 
@@ -29,7 +35,7 @@ export function markdownToPlainText(source: string): string {
 
 function renderTokens(tokens: Token[]): ReactNode {
   return tokens.map((token, index) => {
-    const children = 'tokens' in token && Array.isArray(token.tokens) ? renderTokens(token.tokens) : 'text' in token ? String(token.text) : null
+    const children = 'tokens' in token && Array.isArray(token.tokens) ? renderTokens(token.tokens) : 'text' in token ? tokenText(token) : null
     let node: ReactNode
     switch (token.type) {
       case 'space': case 'def': case 'html': node = null; break
@@ -48,7 +54,7 @@ function renderTokens(tokens: Token[]): ReactNode {
         node = href ? <a className={css.link} href={href} target="_blank" rel="noopener noreferrer">{children}</a> : children
         break
       }
-      case 'image': node = <span>{token.text}</span>; break
+      case 'image': node = <span>{tokenText(token)}</span>; break
       case 'list': {
         const list = token as Tokens.List
         const items = list.items.map((item, i) => <li key={i} className={css.listItem}>{item.task && <input type="checkbox" checked={item.checked === true} disabled readOnly />} {renderTokens(item.tokens)}</li>)

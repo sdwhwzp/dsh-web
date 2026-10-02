@@ -57,6 +57,7 @@
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.4",
+    "entities": "^8.1.0",
     "marked": "^18.0.14"
   },
   "devDependencies": {

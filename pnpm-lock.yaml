@@ -922,6 +922,9 @@ importers:
       '@deepseek-ai/schemastery':
         specifier: ^3.18.4
         version: 3.18.4
+      entities:
+        specifier: ^8.1.0
+        version: 8.1.0
       marked:
         specifier: ^18.0.14
         version: 18.0.14
