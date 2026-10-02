@@ -260,6 +260,7 @@ async function checkRepository(client: GitHubApiClient, repository: GitHubRepoCo
     const included = issues.filter(issue => isIssueIncluded(issue, effective)).length
     const channels = 'label "' + config.inclusionLabel + '"'
       + (assignee === undefined ? '' : ' or assignment to ' + assignee)
+      + (config.includeUnassigned ? ' or no assignee' : '')
     return {
       owner,
       repository: name,
@@ -268,6 +269,7 @@ async function checkRepository(client: GitHubApiClient, repository: GitHubRepoCo
       ...(typeof found.default_branch === 'string' ? { defaultBranch: found.default_branch } : {}),
       ...(typeof found.private === 'boolean' ? { private: found.private } : {}),
       ...(assignee === undefined ? {} : { assignee }),
+      ...(config.includeUnassigned ? { includeUnassigned: true } : {}),
       openIssues: included,
     }
   } catch (error) {
