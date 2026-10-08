@@ -49,6 +49,27 @@ afterEach(() => {
 })
 
 describe('task-board deployment identities', () => {
+  it('admin reuses only the current task owner roster and refuses reuse after revocation', async () => {
+    // Given an idle execution owned by Alice and a gateway that requires her principal.
+    const fixture = accountFixture()
+    const invoke = vi.fn(async (request: { principal?: TaskBoardPrincipal }) => {
+      expect(request.principal).toEqual(alice)
+      return { items: [{ sessionId: 'alice-session', running: false }] }
+    })
+    const gateway = { invoke } as TypertGateway
+    const host = new TaskBoardHostService(gateway, { ledger: ledger(), accounts: fixture.accounts })
+    disposers.push(() => host.dispose())
+    const task = { ...createTask({ ...input(), reuseSession: true }, 1, 'task-a'), executions: [
+      { id: 'execution-a', sessionId: 'alice-session', startedAt: 1, endedAt: 2, result: 'succeeded' as const },
+    ] }
+    // When a launch requests reuse, it reads the owner's current roster.
+    await expect(host['reuseSessionFor'](task, alice)).resolves.toBe('alice-session')
+    fixture.revoke()
+    // Then a later revoked request starts fresh without exposing another roster.
+    await expect(host['reuseSessionFor'](task, alice)).resolves.toBeUndefined()
+    expect(invoke).toHaveBeenCalledOnce()
+  })
+
   it('admin account mode keeps shared providers inactive and refuses their actions', async () => {
     // Given an authenticated deployment and a shared provider with an outbound request hook.
     const fixture = accountFixture()

@@ -18,14 +18,18 @@ import z from '@deepseek-ai/schemastery'
 // Type-only: pulls the host web server's Context merge (ctx.webServer) this
 // half registers its setup routes on.
 import type {} from '@deepseek-ai/dsh-host-webserver'
+import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
 import { resolveTaskBoardHostFace } from './core/contract.ts'
+import { createLlmIssueAnalyzer } from './host/analysis.ts'
 import { createGitHubExtension } from './host/extension.ts'
+import { probeWorkspaceRegistry } from './host/workspace-registry.ts'
 import { resolveGitHubToken } from './host/credentials.ts'
 import { makeGitHubSetupRoutes } from './host/routes.ts'
 import { createGitHubSetup } from './host/setup.ts'
 import { GitHubAccountAccess } from './host/accounts.ts'
+import type { GitHubSyncService } from './host/service.ts'
 import { mountOnce } from './mount-once.ts'
-import { PLUGIN_TOOL_SECTION_ORDERS, visibleToolText } from './tool-surface.ts'
+import { EXTENSION_TOOL_SECTION_ORDER, visibleToolText } from './tool-surface.ts'
 
 /**
  * npm identity shared by every install source of this package. The host
@@ -44,9 +48,9 @@ export const DRAFT_PR_POLICIES = ['draft', 'ready'] as const
 export type DraftPrPolicy = (typeof DRAFT_PR_POLICIES)[number]
 
 /** Order of this extension's announcement section, just after the board's. */
-const SECTION_ORDER = PLUGIN_TOOL_SECTION_ORDERS['task-board-github']
+const SECTION_ORDER = EXTENSION_TOOL_SECTION_ORDER
 
-/** The seven agent-tool names this extension's announcement describes. */
+/** The nine agent-tool names this extension's announcement describes. */
 const GITHUB_TOOL_NAMES = [
   'task_board_github_setup',
   'task_board_github_repositories',
@@ -55,13 +59,15 @@ const GITHUB_TOOL_NAMES = [
   'task_board_github_refresh',
   'task_board_github_create_pr',
   'task_board_github_link_pr',
+  'task_board_github_comment',
+  'task_board_github_close_issue',
 ] as const
 
 /**
  * Model-facing announcement: what the extension does, what it never does with
  * remote text, and the words that name it.
  */
-export const GITHUB_GUIDANCE = '本机已安装 dsh-task-board-github 扩展（DSH Web GUI 任务看板的 GitHub Issues 提供方）：把带包含标签的 GitHub issue 同步为看板卡片，并把卡片的列变化写回 issue 上由本扩展管理的标签；另注册 task_board_github_* agent 工具（list/get/refresh/create_pr/link_pr），随看板总开关与本扩展开关一起收放。GitHub 凭据只在宿主进程从环境变量读取，绝不进入浏览器、设置卡或模型可见载荷；远端 issue 文本只作为卡片内容，绝不进入 promptPrefix、权限或工作区身份。用户提到「GitHub 任务 / GitHub issue / 同步 GitHub / 关联 PR / 创建 PR」时即指本扩展，请据此协作。'
+export const GITHUB_GUIDANCE = '本机已安装 dsh-task-board-github 扩展（DSH Web GUI 任务看板的 GitHub Issues 提供方）：把带包含标签的 GitHub issue 同步为看板卡片，并把卡片的列变化写回 issue 上由本扩展管理的标签；另注册 task_board_github_* agent 工具（list/get/refresh/create_pr/link_pr/comment/close_issue），随看板总开关与本扩展开关一起收放。GitHub 凭据只在宿主进程从环境变量读取，绝不进入浏览器、设置卡或模型可见载荷；远端 issue 文本只作为卡片内容，绝不进入 promptPrefix、权限或工作区身份。用户提到「GitHub 任务 / GitHub issue / 同步 GitHub / 关联 PR / 创建 PR」时即指本扩展，请据此协作。'
 
 /** GitHub labels one repository maps onto the board columns. */
 export interface GitHubStateLabels {
@@ -101,6 +107,8 @@ export interface GitHubRepoConfig {
   closeIssueOnMerge: boolean
   /** Base branch pull requests target. */
   baseBranch: string
+  /** Qualified provider/model the issue analysis uses; empty falls back to the card, then the host default. */
+  analysisModel: string
 }
 
 /**
@@ -178,6 +186,8 @@ export interface GitHubRepoConfigInput {
   closeIssueOnMerge?: boolean
   /** Base branch pull requests target. */
   baseBranch?: string
+  /** Qualified provider/model the issue analysis uses. */
+  analysisModel?: string
 }
 
 /** One configured repository, as the profile patch declares it. */
@@ -201,6 +211,7 @@ const GitHubRepoConfigSchema = z.object({
   draftPrPolicy: z.union(DRAFT_PR_POLICIES).default('draft'),
   closeIssueOnMerge: z.boolean().default(true),
   baseBranch: z.string().default('main'),
+  analysisModel: z.string().default(''),
 })
 
 export const Config: z<ConfigInput, Config> = z.object({
@@ -307,6 +318,55 @@ function resolveToolLookup(ctx: Context): ToolLookupFace | undefined {
   }
 }
 
+/**
+ * Resolve the optional `llm` service per call. It is deliberately not
+ * injected: a deployment without a model must still mount the provider, which
+ * then synchronizes cards on the templated prompt alone and refuses analysis
+ * requests with a reason.
+ * @param ctx - host context.
+ * @returns the llm service, or undefined.
+ */
+export function resolveLlmRuntime(ctx: Context): LlmRuntime | undefined {
+  try {
+    const get = (ctx as { get?: (name: string) => unknown }).get
+    if (typeof get !== 'function') return undefined
+    const llm = get.call(ctx, 'llm') as LlmRuntime | undefined
+    return llm !== undefined && typeof (llm as { stream?: unknown }).stream === 'function' ? llm : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** The slice of the host gateway the default-model lookup speaks to. */
+interface GatewayFace {
+  invoke(request: { namespace: string; method: string; args: Record<string, unknown> }): Promise<unknown>
+}
+
+/**
+ * Read the host's default model route (the route an unconfigured session
+ * starts at) from the optional gateway's `session/modelCatalog`. Any failure
+ * reads as "no default": the analysis then needs an explicit model.
+ * @param ctx - host context.
+ * @returns the qualified provider/model, or undefined.
+ */
+export async function resolveHostDefaultModel(ctx: Context): Promise<string | undefined> {
+  try {
+    const get = (ctx as { get?: (name: string) => unknown }).get
+    if (typeof get !== 'function') return undefined
+    const gateway = get.call(ctx, 'typertGateway') as GatewayFace | undefined
+    if (gateway === undefined || typeof gateway.invoke !== 'function') return undefined
+    // session/modelCatalog declares zero parameters, so its args must be {}.
+    const catalog = await gateway.invoke({ namespace: 'session', method: 'modelCatalog', args: {} })
+    if (typeof catalog !== 'object' || catalog === null) return undefined
+    const route = (catalog as { default?: { provider?: unknown; model?: unknown } }).default
+    if (typeof route?.provider !== 'string' || route.provider === '') return undefined
+    if (typeof route.model !== 'string' || route.model === '') return undefined
+    return `${route.provider}/${route.model}`
+  } catch {
+    return undefined
+  }
+}
+
 function resolveSystemPrompt(ctx: Context): SystemPromptFace | undefined {
   try {
     const get = (ctx as { get?: (name: string) => unknown }).get
@@ -351,11 +411,16 @@ function applyImpl(ctx: Context, config?: Config): void {
   let providerLive = false
   /** Signature of the mounted registration; a change remounts it. */
   let mounted: string | undefined
+  /** The provider this process mounted, so the status route can read its health. */
+  let liveService: GitHubSyncService | undefined
   /** The credential the mounted client authenticates with. */
   let token: string | undefined
   let disposed = false
   let disposeSection: (() => void) | undefined
   let announceLive = false
+
+  /** One analyzer for the life of the row; it resolves the model service per call. */
+  const analyzer = createLlmIssueAnalyzer(() => resolveLlmRuntime(ctx))
 
   /** The configuration surface the settings card, the routes and the tools share. */
   const access = new GitHubAccountAccess(ctx)
@@ -365,6 +430,11 @@ function applyImpl(ctx: Context, config?: Config): void {
     repositories: () => settings().repositories,
     tokenEnv: () => settings().tokenEnv,
     running: () => providerLive,
+    // Health of the provider THIS process mounted, read live: the status route
+    // is how an operator tells a configured integration that has stopped
+    // syncing from one that is merely quiet, and a snapshot taken at mount
+    // would say nothing about the pass running now.
+    health: () => liveService?.syncHealth(),
     // A credential write lands in the store, so the value this process already
     // read is stale: re-resolve and remount before the next request.
     reload: () => { requestSync() },
@@ -414,13 +484,17 @@ function applyImpl(ctx: Context, config?: Config): void {
       teardownProvider()
       return
     }
-    // The credential is re-resolved on every sync: reading the store is cheap,
-    // and a token rotated behind this process (the Models page, a hand-edited
-    // store) must reach the next request instead of the copy read at activation.
+    // A token resolved HERE is only a fallback for a mount with no credential
+    // seam: the service resolves the live one per pass, which is what keeps an
+    // activation-time read that raced the credential store from deciding
+    // anything. A token that is absent must not enter the mount key at all —
+    // keying on `null` latched the provider in place with no token, and since
+    // a pre-existing credential never fires `reference-updated`, nothing ever
+    // revisited that decision.
     const resolved = await resolveGitHubToken(ctx, next.tokenEnv)
     if (disposed) return
     access.assertSharedAccess()
-    const desired = JSON.stringify({ tokenEnv: next.tokenEnv, token: resolved ?? null, repositories: next.repositories })
+    const desired = JSON.stringify({ tokenEnv: next.tokenEnv, repositories: next.repositories })
     if (desired === mounted) return
     teardownProvider()
     token = resolved
@@ -446,7 +520,15 @@ function applyImpl(ctx: Context, config?: Config): void {
           tokenEnv: next.tokenEnv,
           enabled: () => settings().enabled && !access.required(),
           assertAccess: () => access.assertSharedAccess(),
+          workspaceRegistry: () => probeWorkspaceRegistry(ctx),
+          // Resolved PER PASS by the service, never captured here: reading it
+          // during activation races the credential store and mounts the
+          // provider with nothing, which no restart clears.
+          credential: async () => resolveGitHubToken(ctx, settings().tokenEnv),
+          onService: service => { liveService = service },
           setup,
+          analyzer,
+          defaultModel: () => resolveHostDefaultModel(ctx),
         }))
         return () => { providerLive = false; dispose() }
       }, 'task-board-github: provider registration')

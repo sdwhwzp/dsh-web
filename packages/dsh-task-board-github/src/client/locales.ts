@@ -7,7 +7,8 @@
  * Prefixes: `settings.*` is the plugin card (its shared chrome plus this
  * extension's own switches), `detail.*` is the task-detail seat, `summary.*`
  * is the repository/credential summary shown by the settings seat and the card,
- * and `common.*` is shared button copy.
+ * `prompt.*` is the execution-prompt panel of the task-detail seat, and
+ * `common.*` is shared button copy.
  */
 
 /** Extension copy, key source of truth. */
@@ -36,6 +37,10 @@ export const zh = {
   'settings.saveFailed': '部署未接受这些值，已保留供你修改。',
 
   'setup.apiUnavailable': '无法访问本机 Host 配置接口：{error}',
+  'setup.healthOk': '后台同步：最近一次成功同步于 {at}。',
+  'setup.healthStale': '后台同步：已 {minutes} 分钟没有成功同步（配置看起来正常，但同步实际已停）。',
+  'setup.healthNever': '后台同步：本次启动以来还没有成功同步过一次。',
+  'setup.healthErrors': '最近一次同步报告了 {count} 条错误，详情见宿主日志（dsh-task-board-github）。',
   'setup.credentialConfigured': 'Host 凭据：已配置（{name}，来源 {source}）',
   'setup.credentialMissing': 'Host 凭据：未配置（可直接在下方粘贴 GitHub Token，存到本机凭据库 {name}）',
   'setup.credentialSourceUnknown': '未知',
@@ -77,6 +82,7 @@ export const zh = {
   'summary.credentialMissing': 'Host 凭据：未检测到（请设置 GITHUB_TOKEN 环境变量，或用 tokenEnv 指定变量名）',
   'summary.notRunning': '扩展当前未运行：打开开关后才会显示同步状态。',
 
+  'card.openIssue': '在 GitHub 打开 {reference}',
   'detail.title': 'GitHub Issue',
   'detail.state.open': '开启',
   'detail.state.closed': '已关闭',
@@ -99,6 +105,28 @@ export const zh = {
   'detail.linkPrTitle': '关联已有 Pull Request',
   'detail.prNumberInput': 'PR 编号',
   'detail.deactivated': '该 Issue 在 GitHub 上已移除包含标签，已在看板停用。',
+
+  'prompt.title': '执行 Prompt',
+  'prompt.templateHint': '执行 Prompt 由模板生成：issue 头信息、执行要求与回写规则固定，issue 原文原样附在来源声明里。AI 分析是可选的一段，只补充目标、步骤与完成标准。',
+  'prompt.edited': '执行 Prompt 已被手动修改：同步不再覆盖它；重新生成需要确认覆盖。',
+  'prompt.frozen': '卡片已开始执行，执行 Prompt 已冻结。',
+  'prompt.analysisNone': '尚未生成 AI 分析。',
+  'prompt.analysisFresh': 'AI 分析由 {model} 生成于 {time}，已写入执行 Prompt。',
+  'prompt.analysisStale': 'issue 已在 AI 分析之后更新：旧分析已从执行 Prompt 中移除，可重新生成。',
+  'prompt.analysisPending': '正在生成 AI 分析…',
+  'prompt.analysisError': 'AI 分析失败：{error}',
+  'prompt.noCodeChange': '模型判断该 issue 不需要改代码（通知或讨论类），可考虑移到待规划，避免执行时为推进目标制造改动。',
+  'prompt.moveBacklog': '移到待规划',
+  'prompt.modelLabel': '分析模型',
+  'prompt.modelPlaceholder': 'provider/model，留空则用仓库设置、卡片模型或宿主默认',
+  'prompt.generate': 'AI 生成分析',
+  'prompt.regenerate': '重新生成',
+  'prompt.overwrite': '覆盖并重新生成',
+  'prompt.clear': '移除 AI 分析',
+  'prompt.goal': '目标',
+  'prompt.steps': '建议步骤',
+  'prompt.acceptance': '完成标准',
+  'prompt.notes': '备注',
 
   'common.cancel': '取消',
 }
@@ -129,6 +157,10 @@ export const en: Record<keyof typeof zh, string> = {
   'settings.saveFailed': 'The deployment did not accept these values; they were left for you to correct.',
 
   'setup.apiUnavailable': 'Cannot reach the host configuration API: {error}',
+  'setup.healthOk': 'Background sync: last reached GitHub at {at}.',
+  'setup.healthStale': 'Background sync: no successful sync for {minutes} minutes (the configuration looks right, but synchronization has stopped).',
+  'setup.healthNever': 'Background sync: nothing has synced successfully since this host started.',
+  'setup.healthErrors': 'The last sync reported {count} error(s); see the host log (dsh-task-board-github).',
   'setup.credentialConfigured': 'Host credential: configured ({name}, source {source})',
   'setup.credentialMissing': 'Host credential: not configured (paste a GitHub token below; it is stored in the local credential store as {name})',
   'setup.credentialSourceUnknown': 'unknown',
@@ -170,6 +202,7 @@ export const en: Record<keyof typeof zh, string> = {
   'summary.credentialMissing': 'Host credential: None detected (set the GITHUB_TOKEN environment variable, or name another one with tokenEnv)',
   'summary.notRunning': 'The extension is not running: its sync status appears once the switch is on.',
 
+  'card.openIssue': 'Open {reference} on GitHub',
   'detail.title': 'GitHub Issue',
   'detail.state.open': 'Open',
   'detail.state.closed': 'Closed',
@@ -192,6 +225,28 @@ export const en: Record<keyof typeof zh, string> = {
   'detail.linkPrTitle': 'Link Existing Pull Request',
   'detail.prNumberInput': 'PR Number',
   'detail.deactivated': 'Inclusion label was removed on GitHub; item is deactivated on the board.',
+
+  'prompt.title': 'Execution prompt',
+  'prompt.templateHint': 'The execution prompt is generated from a template: the issue header, the workflow and the write-back rules are fixed, and the issue body is appended verbatim inside a provenance wrap. The AI analysis is an optional section that only adds the goal, steps and completion criteria.',
+  'prompt.edited': 'The execution prompt was edited by hand: synchronization no longer overwrites it, and regenerating needs a confirmation.',
+  'prompt.frozen': 'The card has started executing; its execution prompt is frozen.',
+  'prompt.analysisNone': 'No AI analysis yet.',
+  'prompt.analysisFresh': 'AI analysis written by {model} at {time} is part of the execution prompt.',
+  'prompt.analysisStale': 'The issue changed after the AI analysis: the old analysis was left out of the execution prompt. Generate it again to refresh it.',
+  'prompt.analysisPending': 'Generating the AI analysis…',
+  'prompt.analysisError': 'AI analysis failed: {error}',
+  'prompt.noCodeChange': 'The model judged that this issue needs no code change (a notice or a discussion). Consider moving it to the backlog so a run does not invent changes to finish a goal.',
+  'prompt.moveBacklog': 'Move to backlog',
+  'prompt.modelLabel': 'Analysis model',
+  'prompt.modelPlaceholder': 'provider/model; empty uses the repository setting, the card model or the host default',
+  'prompt.generate': 'Generate AI analysis',
+  'prompt.regenerate': 'Regenerate',
+  'prompt.overwrite': 'Overwrite and regenerate',
+  'prompt.clear': 'Remove AI analysis',
+  'prompt.goal': 'Goal',
+  'prompt.steps': 'Suggested steps',
+  'prompt.acceptance': 'Completion criteria',
+  'prompt.notes': 'Notes',
 
   'common.cancel': 'Cancel',
 }

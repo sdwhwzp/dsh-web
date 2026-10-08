@@ -656,7 +656,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$8() {
 			try {
-				return "0.4.4-dsh.20261003.1";
+				return "0.4.5-dsh.20261007.1";
 			} catch {
 				return;
 			}
@@ -847,9 +847,9 @@ window.__ModuleLoader__.load({
 		* @module @linxin666/dsh-client-ui-plugin-manager/client
 		*/
 		/** Error text for a caught request or lifecycle failure. */
-		function messageOf$5(error) {
+		function messageOf$6(error) {
 			if (error instanceof AggregateError) {
-				const details = error.errors.map(messageOf$5).join("; ");
+				const details = error.errors.map(messageOf$6).join("; ");
 				return details === "" ? error.message : `${error.message}: ${details}`;
 			}
 			return error instanceof Error ? error.message : String(error);
@@ -917,7 +917,7 @@ window.__ModuleLoader__.load({
 					setFound(items.find((item) => item.id === name));
 					setChecked(true);
 				}).catch((reason) => {
-					setError(t("failed", { reason: messageOf$5(reason) }));
+					setError(t("failed", { reason: messageOf$6(reason) }));
 				}).finally(() => {
 					busyRef.current = false;
 					setBusy(void 0);
@@ -933,7 +933,7 @@ window.__ModuleLoader__.load({
 					setChecked(false);
 					setDirty(true);
 				}).catch((reason) => {
-					setError(t("failed", { reason: messageOf$5(reason) }));
+					setError(t("failed", { reason: messageOf$6(reason) }));
 				}).finally(() => {
 					busyRef.current = false;
 					setBusy(void 0);
@@ -947,6 +947,7 @@ window.__ModuleLoader__.load({
 			});
 			const requiresDsh = found?.requiresDsh;
 			const blocked = found?.compatible === false;
+			const unverified = blocked && found?.hostVersion === void 0;
 			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
 				className: plugin_manager_module_css_default.section,
 				"data-update-patch": true,
@@ -978,7 +979,8 @@ window.__ModuleLoader__.load({
 							found !== void 0 && requiresDsh !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 								className: blocked ? plugin_manager_module_css_default.compatBlocked : plugin_manager_module_css_default.compatHint,
 								"data-update-compat": blocked ? "blocked" : "ok",
-								children: blocked ? t("updateBlockedDsh", { min: displayMinimumVersion(requiresDsh) }) : t("updateRequiresDsh", { min: displayMinimumVersion(requiresDsh) })
+								"data-update-compat-reason": blocked ? unverified ? "unverified" : "below-minimum" : void 0,
+								children: !blocked ? t("updateRequiresDsh", { min: displayMinimumVersion(requiresDsh) }) : unverified ? t("updateUnverifiedDsh", { min: displayMinimumVersion(requiresDsh) }) : t("updateBlockedDsh", { min: displayMinimumVersion(requiresDsh) })
 							}),
 							found !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 								type: "button",
@@ -1145,9 +1147,9 @@ window.__ModuleLoader__.load({
 		* @module @linxin666/dsh-client-ui-plugin-manager/client
 		*/
 		/** Error text for a caught request or lifecycle failure. */
-		function messageOf$4(error) {
+		function messageOf$5(error) {
 			if (error instanceof AggregateError) {
-				const details = error.errors.map(messageOf$4).join("; ");
+				const details = error.errors.map(messageOf$5).join("; ");
 				return details === "" ? error.message : `${error.message}: ${details}`;
 			}
 			return error instanceof Error ? error.message : String(error);
@@ -1198,7 +1200,7 @@ window.__ModuleLoader__.load({
 					setChecked(true);
 					setPanel("list");
 				}).catch((reason) => {
-					setError(t("failed", { reason: messageOf$4(reason) }));
+					setError(t("failed", { reason: messageOf$5(reason) }));
 					setPanel("list");
 				}).finally(() => {
 					busyRef.current = false;
@@ -1223,7 +1225,7 @@ window.__ModuleLoader__.load({
 						try {
 							await update(row.id);
 						} catch (reason) {
-							setError(t("failed", { reason: messageOf$4(reason) }));
+							setError(t("failed", { reason: messageOf$5(reason) }));
 							break;
 						}
 						done.push(row.id);
@@ -1245,7 +1247,7 @@ window.__ModuleLoader__.load({
 					setPlan(mode);
 					setPanel("restart");
 				}).catch((reason) => {
-					setError(t("failed", { reason: messageOf$4(reason) }));
+					setError(t("failed", { reason: messageOf$5(reason) }));
 					setPanel("list");
 				}).finally(() => {
 					busyRef.current = false;
@@ -1260,7 +1262,7 @@ window.__ModuleLoader__.load({
 					setPlan(void 0);
 					setPanel("none");
 				}).catch((reason) => {
-					setError(t("failed", { reason: messageOf$4(reason) }));
+					setError(t("failed", { reason: messageOf$5(reason) }));
 				}).finally(() => {
 					busyRef.current = false;
 				});
@@ -1381,7 +1383,8 @@ window.__ModuleLoader__.load({
 										}),
 										row.compatible === false && row.requiresDsh !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 											className: plugin_manager_module_css_default.compatBlocked,
-											children: t("updateBlockedDsh", { min: displayMinimumVersion(row.requiresDsh) })
+											"data-update-row-compat-reason": row.hostVersion === void 0 ? "unverified" : "below-minimum",
+											children: row.hostVersion === void 0 ? t("updateUnverifiedDsh", { min: displayMinimumVersion(row.requiresDsh) }) : t("updateBlockedDsh", { min: displayMinimumVersion(row.requiresDsh) })
 										})
 									]
 								}, row.id))
@@ -1520,6 +1523,7 @@ window.__ModuleLoader__.load({
 			"latest": "最新 {version}",
 			"updateRequiresDsh": "需要 DSH ≥ {min}",
 			"updateBlockedDsh": "需要 DSH ≥ {min}，请先升级 DSH 再更新",
+			"updateUnverifiedDsh": "无法确认本机 DSH 版本（需要 DSH ≥ {min}），已暂停更新",
 			"restartHint": "插件变更将在重启应用后生效。",
 			"updatesAvailable": "{count} 个可更新",
 			"updateAll": "全部更新（{count}）",
@@ -1558,6 +1562,7 @@ window.__ModuleLoader__.load({
 			"latest": "Latest {version}",
 			"updateRequiresDsh": "Requires DSH >= {min}",
 			"updateBlockedDsh": "Requires DSH >= {min}; upgrade DSH before updating",
+			"updateUnverifiedDsh": "Cannot confirm the local DSH version (this update needs DSH >= {min}); update paused",
 			"restartHint": "Plugin changes take effect after restarting the application.",
 			"updatesAvailable": "{count} updates available",
 			"updateAll": "Update all ({count})",
@@ -1687,6 +1692,10 @@ window.__ModuleLoader__.load({
 					if (typeof update.compatible !== "boolean") throw new Error(`plugin-manager: update row ${String(index)} is invalid`);
 					row.compatible = update.compatible;
 				}
+				if (update.hostVersion !== void 0) {
+					if (!isString(update.hostVersion)) throw new Error(`plugin-manager: update row ${String(index)} is invalid`);
+					row.hostVersion = update.hostVersion;
+				}
 				return row;
 			});
 		}
@@ -1736,7 +1745,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$7() {
 			try {
-				return "0.4.4-dsh.20261003.1";
+				return "0.4.5-dsh.20261007.1";
 			} catch {
 				return;
 			}
@@ -3182,7 +3191,7 @@ window.__ModuleLoader__.load({
 		};
 		//#endregion
 		//#region \0dsh-css:packages/dsh-market/src/client/market.module.css.mjs
-		const css$17 = ".bkhjFa_market{flex-direction:column;gap:10px;display:flex}.bkhjFa_tabs{flex-wrap:wrap;gap:6px;display:flex}.bkhjFa_market .bkhjFa_tabs>button.bkhjFa_tab{font:inherit;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);cursor:pointer;white-space:nowrap;border-radius:999px;padding:2px 10px;font-size:12px;line-height:1.6}.bkhjFa_market .bkhjFa_tabs>button.bkhjFa_tab:hover:enabled{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-dimmed)}.bkhjFa_market .bkhjFa_tabs>button.bkhjFa_tab.bkhjFa_tabActive{color:var(--dsw-alias-bg-layer-3);background:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-primary);font-weight:600}.bkhjFa_market .bkhjFa_tabs>button.bkhjFa_tab.bkhjFa_tabActive:hover:enabled{color:var(--dsw-alias-bg-layer-3);border-color:var(--dsw-alias-label-primary)}.bkhjFa_market .bkhjFa_tabs>button.bkhjFa_tab:active:enabled{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2)}.bkhjFa_market .bkhjFa_tabs>button.bkhjFa_tab.bkhjFa_tabActive:active:enabled{color:var(--dsw-alias-bg-layer-3);background:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-label-primary)}.bkhjFa_tabCount{opacity:.72;margin-left:6px;font-size:12px}.bkhjFa_search{width:100%;max-width:460px;font:inherit;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);border-radius:6px;padding:6px 10px;font-size:13px;line-height:1.5}.bkhjFa_search::placeholder{color:var(--dsw-alias-label-tertiary)}.bkhjFa_search:focus{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}.bkhjFa_grid{grid-template-columns:repeat(auto-fill,minmax(272px,1fr));gap:10px;margin:4px 0 0;padding:0;list-style:none;display:grid}.bkhjFa_card{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);border-radius:8px;gap:10px;min-width:0;padding:12px;display:flex}.bkhjFa_card:hover{border-color:var(--dsw-alias-label-dimmed)}.bkhjFa_thumb{object-fit:cover;background:var(--dsw-alias-bg-layer-2);border-radius:6px;flex:none;place-items:center;width:72px;height:72px;display:grid}.bkhjFa_cardBody{flex-direction:column;flex:1;gap:6px;min-width:0;display:flex}.bkhjFa_cardName{color:var(--dsw-alias-label-primary);text-overflow:ellipsis;white-space:nowrap;font-weight:600;overflow:hidden}.bkhjFa_cardVersion{color:var(--dsw-alias-label-tertiary);margin-left:6px;font-size:11px;font-weight:400}.bkhjFa_cardMeta{color:var(--dsw-alias-label-tertiary);white-space:nowrap;align-items:center;gap:6px;font-size:12px;line-height:1.4;display:flex;overflow:hidden}.bkhjFa_badge{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-module-platform);border:1px solid var(--dsw-alias-border-l2);white-space:nowrap;border-radius:999px;flex:none;padding:0 8px;font-size:11px;line-height:1.6}.bkhjFa_badgeInstalled{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-dimmed);background:var(--dsw-alias-bg-layer-2)}.bkhjFa_metrics{color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;flex-wrap:wrap;gap:4px 10px;font-size:11px;line-height:1.5;display:flex}.bkhjFa_cardDesc{color:var(--dsw-alias-label-secondary);-webkit-line-clamp:2;overflow-wrap:anywhere;-webkit-box-orient:vertical;margin:0;font-size:13px;line-height:1.45;display:-webkit-box;overflow:hidden}.bkhjFa_cardFooter{flex-direction:column;gap:8px;margin-top:auto;padding-top:8px;display:flex}.bkhjFa_actionRow{flex-wrap:wrap;align-items:center;gap:6px;display:flex}.bkhjFa_market .bkhjFa_actionRow>.bkhjFa_like,.bkhjFa_market .bkhjFa_actionRow>.bkhjFa_previewLink{font:inherit;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-module-platform);border:1px solid var(--dsw-alias-border-l2);cursor:pointer;white-space:nowrap;border-radius:999px;align-items:center;padding:1px 10px;font-size:12px;line-height:1.5;text-decoration:none;display:inline-flex}.bkhjFa_market .bkhjFa_actionRow>.bkhjFa_like{font-variant-numeric:tabular-nums}.bkhjFa_market .bkhjFa_actionRow>.bkhjFa_like:hover:enabled,.bkhjFa_market .bkhjFa_actionRow>.bkhjFa_previewLink:hover{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-dimmed)}.bkhjFa_actionRowPrimary{align-items:stretch;gap:8px;display:flex}.bkhjFa_market .bkhjFa_actionRowPrimary>.bkhjFa_install{min-width:0;font:inherit;color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l2);cursor:pointer;white-space:nowrap;background:0 0;border-radius:6px;flex:1 1 0;justify-content:center;align-items:center;min-height:30px;padding:4px 14px;font-size:12px;font-weight:600;line-height:1.5;display:inline-flex}.bkhjFa_market .bkhjFa_actionRowPrimary>.bkhjFa_install:hover:enabled{border-color:var(--dsw-alias-label-dimmed)}.bkhjFa_market .bkhjFa_actionRowPrimary>.bkhjFa_installPrimary{color:var(--dsw-alias-label-primary-foreground);background:var(--dsw-alias-button-primary-fill);border-color:var(--dsw-alias-button-primary-fill);flex-grow:2}.bkhjFa_market .bkhjFa_actionRowPrimary>.bkhjFa_installPrimary:hover:enabled{background:var(--dsw-alias-button-primary-hover);border-color:var(--dsw-alias-button-primary-hover)}.bkhjFa_market .bkhjFa_actionRowPrimary>.bkhjFa_installPrimary:disabled{opacity:.55;cursor:default}.bkhjFa_error{color:var(--dsw-alias-label-error,#c53030);margin:0;font-size:12px;line-height:1.4}.bkhjFa_callout{color:var(--dsw-alias-state-success-primary);margin:0;font-size:12px;line-height:1.4}.bkhjFa_filterRows{flex-direction:column;gap:6px;display:flex}.bkhjFa_filterRow{flex-wrap:wrap;gap:6px;display:flex}.bkhjFa_market .bkhjFa_filterRow>button.bkhjFa_filterChip{font:inherit;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);cursor:pointer;white-space:nowrap;border-radius:999px;padding:2px 10px;font-size:12px;line-height:1.6}.bkhjFa_market .bkhjFa_filterRow>button.bkhjFa_filterChip:hover:enabled{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-dimmed)}.bkhjFa_market .bkhjFa_filterRow>button.bkhjFa_filterChip.bkhjFa_filterChipSub{color:var(--dsw-alias-label-tertiary);border-style:dashed;font-size:11px}.bkhjFa_market .bkhjFa_filterRow>button.bkhjFa_filterChip.bkhjFa_filterChipOn{color:var(--dsw-alias-bg-layer-3);background:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-primary);border-style:solid;font-weight:600}.bkhjFa_market .bkhjFa_filterRow>button.bkhjFa_filterChip.bkhjFa_filterChipOn:hover:enabled{color:var(--dsw-alias-bg-layer-3);border-color:var(--dsw-alias-label-primary)}.bkhjFa_filterCount{opacity:.72;margin-left:6px;font-size:11px}.bkhjFa_empty{color:var(--dsw-alias-label-tertiary);align-items:center;gap:8px;font-size:13px;display:flex}.bkhjFa_retry{padding:3px 10px;font-size:12px}.bkhjFa_remoteNote{color:var(--dsw-alias-label-tertiary);margin:6px 0 0;font-size:12px;line-height:1.4}.bkhjFa_modalActions{justify-content:flex-end;gap:8px;margin-top:10px;display:flex}";
+		const css$17 = ".bkhjFa_market{flex-direction:column;gap:10px;display:flex}.bkhjFa_tabs{flex-wrap:wrap;gap:6px;display:flex}.bkhjFa_market .bkhjFa_tabs>button.bkhjFa_tab{font:inherit;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);cursor:pointer;white-space:nowrap;border-radius:999px;padding:2px 10px;font-size:12px;line-height:1.6}.bkhjFa_market .bkhjFa_tabs>button.bkhjFa_tab:hover:enabled{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-dimmed)}.bkhjFa_market .bkhjFa_tabs>button.bkhjFa_tab.bkhjFa_tabActive{color:var(--dsw-alias-bg-layer-3);background:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-primary);font-weight:600}.bkhjFa_market .bkhjFa_tabs>button.bkhjFa_tab.bkhjFa_tabActive:hover:enabled{color:var(--dsw-alias-bg-layer-3);border-color:var(--dsw-alias-label-primary)}.bkhjFa_market .bkhjFa_tabs>button.bkhjFa_tab:active:enabled{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2)}.bkhjFa_market .bkhjFa_tabs>button.bkhjFa_tab.bkhjFa_tabActive:active:enabled{color:var(--dsw-alias-bg-layer-3);background:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-label-primary)}.bkhjFa_tabCount{opacity:.72;margin-left:6px;font-size:12px}.bkhjFa_search{width:100%;max-width:460px;font:inherit;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);border-radius:6px;padding:6px 10px;font-size:13px;line-height:1.5}.bkhjFa_search::placeholder{color:var(--dsw-alias-label-tertiary)}.bkhjFa_search:focus{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}.bkhjFa_grid{grid-template-columns:repeat(auto-fill,minmax(272px,1fr));gap:10px;margin:4px 0 0;padding:0;list-style:none;display:grid}.bkhjFa_card{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);border-radius:8px;gap:10px;min-width:0;padding:12px;display:flex}.bkhjFa_card:hover{border-color:var(--dsw-alias-label-dimmed)}.bkhjFa_thumb{object-fit:cover;background:var(--dsw-alias-bg-layer-2);border-radius:6px;flex:none;place-items:center;width:72px;height:72px;display:grid}.bkhjFa_cardBody{flex-direction:column;flex:1;gap:6px;min-width:0;display:flex}.bkhjFa_cardName{color:var(--dsw-alias-label-primary);text-overflow:ellipsis;white-space:nowrap;font-weight:600;overflow:hidden}.bkhjFa_cardVersion{color:var(--dsw-alias-label-tertiary);margin-left:6px;font-size:11px;font-weight:400}.bkhjFa_cardMeta{color:var(--dsw-alias-label-tertiary);white-space:nowrap;align-items:center;gap:6px;font-size:12px;line-height:1.4;display:flex;overflow:hidden}.bkhjFa_badge{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-module-platform);border:1px solid var(--dsw-alias-border-l2);white-space:nowrap;border-radius:999px;flex:none;padding:0 8px;font-size:11px;line-height:1.6}.bkhjFa_badgeInstalled{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-dimmed);background:var(--dsw-alias-bg-layer-2)}.bkhjFa_metrics{color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;flex-wrap:wrap;gap:4px 10px;font-size:11px;line-height:1.5;display:flex}.bkhjFa_cardDesc{color:var(--dsw-alias-label-secondary);-webkit-line-clamp:2;overflow-wrap:anywhere;-webkit-box-orient:vertical;margin:0;font-size:13px;line-height:1.45;display:-webkit-box;overflow:hidden}.bkhjFa_cardFooter{flex-direction:column;gap:8px;margin-top:auto;padding-top:8px;display:flex}.bkhjFa_actionRow{flex-wrap:wrap;align-items:center;gap:6px;display:flex}.bkhjFa_market .bkhjFa_actionRow>.bkhjFa_like,.bkhjFa_market .bkhjFa_actionRow>.bkhjFa_previewLink{font:inherit;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-module-platform);border:1px solid var(--dsw-alias-border-l2);cursor:pointer;white-space:nowrap;border-radius:999px;align-items:center;padding:1px 10px;font-size:12px;line-height:1.5;text-decoration:none;display:inline-flex}.bkhjFa_market .bkhjFa_actionRow>.bkhjFa_like{font-variant-numeric:tabular-nums}.bkhjFa_market .bkhjFa_actionRow>.bkhjFa_like:hover:enabled,.bkhjFa_market .bkhjFa_actionRow>.bkhjFa_previewLink:hover{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-dimmed)}.bkhjFa_actionRowPrimary{align-items:stretch;gap:8px;display:flex}.bkhjFa_market .bkhjFa_actionRowPrimary>.bkhjFa_install{min-width:0;font:inherit;color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l2);cursor:pointer;white-space:nowrap;background:0 0;border-radius:6px;flex:1 1 0;justify-content:center;align-items:center;min-height:30px;padding:4px 14px;font-size:12px;font-weight:600;line-height:1.5;display:inline-flex}.bkhjFa_market .bkhjFa_actionRowPrimary>.bkhjFa_install:hover:enabled{border-color:var(--dsw-alias-label-dimmed)}.bkhjFa_market .bkhjFa_actionRowPrimary>.bkhjFa_installPrimary{color:var(--dsw-alias-label-primary-foreground);background:var(--dsw-alias-button-primary-fill);border-color:var(--dsw-alias-button-primary-fill);flex-grow:2}.bkhjFa_market .bkhjFa_actionRowPrimary>.bkhjFa_installPrimary:hover:enabled{background:var(--dsw-alias-button-primary-hover);border-color:var(--dsw-alias-button-primary-hover)}.bkhjFa_market .bkhjFa_actionRowPrimary>.bkhjFa_installPrimary:disabled{opacity:.55;cursor:default}.bkhjFa_error{color:var(--dsw-alias-label-error,#c53030);margin:0;font-size:12px;line-height:1.4}.bkhjFa_market .bkhjFa_bulkRow{flex-wrap:wrap;align-items:center;gap:8px;margin:6px 0 0;display:flex}.bkhjFa_market .bkhjFa_bulkButton,.bkhjFa_market .bkhjFa_bulkArmed,.bkhjFa_market .bkhjFa_bulkCancel{font:inherit;border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary);cursor:pointer;background:0 0;border-radius:6px;padding:3px 10px;font-size:12px;line-height:1.6}.bkhjFa_market .bkhjFa_bulkButton:hover:not(:disabled),.bkhjFa_market .bkhjFa_bulkCancel:hover:not(:disabled){border-color:var(--dsw-alias-border-l3);background:var(--dsw-alias-interactive-bg-hover)}.bkhjFa_market .bkhjFa_bulkButton:disabled,.bkhjFa_market .bkhjFa_bulkArmed:disabled{opacity:.55;cursor:default}.bkhjFa_market .bkhjFa_bulkArmed{border-color:var(--dsw-alias-state-danger-primary,#d93025);background:var(--dsw-alias-state-danger-primary,#d93025);color:#fff}.bkhjFa_market .bkhjFa_bulkNote,.bkhjFa_market .bkhjFa_bulkNoteWarn{margin:4px 0 0;font-size:12px;line-height:1.4}.bkhjFa_market .bkhjFa_bulkNote{color:var(--dsw-alias-state-success-primary)}.bkhjFa_market .bkhjFa_bulkNoteWarn{color:var(--dsw-alias-label-warning,#b06000)}.bkhjFa_callout{color:var(--dsw-alias-state-success-primary);margin:0;font-size:12px;line-height:1.4}.bkhjFa_filterRows{flex-direction:column;gap:6px;display:flex}.bkhjFa_filterRow{flex-wrap:wrap;gap:6px;display:flex}.bkhjFa_market .bkhjFa_filterRow>button.bkhjFa_filterChip{font:inherit;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);cursor:pointer;white-space:nowrap;border-radius:999px;padding:2px 10px;font-size:12px;line-height:1.6}.bkhjFa_market .bkhjFa_filterRow>button.bkhjFa_filterChip:hover:enabled{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-dimmed)}.bkhjFa_market .bkhjFa_filterRow>button.bkhjFa_filterChip.bkhjFa_filterChipSub{color:var(--dsw-alias-label-tertiary);border-style:dashed;font-size:11px}.bkhjFa_market .bkhjFa_filterRow>button.bkhjFa_filterChip.bkhjFa_filterChipOn{color:var(--dsw-alias-bg-layer-3);background:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-primary);border-style:solid;font-weight:600}.bkhjFa_market .bkhjFa_filterRow>button.bkhjFa_filterChip.bkhjFa_filterChipOn:hover:enabled{color:var(--dsw-alias-bg-layer-3);border-color:var(--dsw-alias-label-primary)}.bkhjFa_filterCount{opacity:.72;margin-left:6px;font-size:11px}.bkhjFa_empty{color:var(--dsw-alias-label-tertiary);align-items:center;gap:8px;font-size:13px;display:flex}.bkhjFa_retry{padding:3px 10px;font-size:12px}.bkhjFa_remoteNote{color:var(--dsw-alias-label-tertiary);margin:6px 0 0;font-size:12px;line-height:1.4}.bkhjFa_modalActions{justify-content:flex-end;gap:8px;margin-top:10px;display:flex}";
 		const tagId$17 = "@linxin666/dsh-web-all/packages/dsh-market/src/client/market.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$17) + "]") === null) {
 			const tag = document.createElement("style");
@@ -3196,6 +3205,12 @@ window.__ModuleLoader__.load({
 			"actionRowPrimary": "bkhjFa_actionRowPrimary",
 			"badge": "bkhjFa_badge",
 			"badgeInstalled": "bkhjFa_badgeInstalled",
+			"bulkArmed": "bkhjFa_bulkArmed",
+			"bulkButton": "bkhjFa_bulkButton",
+			"bulkCancel": "bkhjFa_bulkCancel",
+			"bulkNote": "bkhjFa_bulkNote",
+			"bulkNoteWarn": "bkhjFa_bulkNoteWarn",
+			"bulkRow": "bkhjFa_bulkRow",
 			"callout": "bkhjFa_callout",
 			"card": "bkhjFa_card",
 			"cardBody": "bkhjFa_cardBody",
@@ -3305,7 +3320,7 @@ window.__ModuleLoader__.load({
 			}
 			return fp;
 		}
-		function messageOf$3(reason) {
+		function messageOf$4(reason) {
 			return reason instanceof Error ? reason.message : String(reason);
 		}
 		async function fetchJson(url) {
@@ -3360,6 +3375,8 @@ window.__ModuleLoader__.load({
 			const [pluginErrors, setPluginErrors] = (0, react.useState)({});
 			const [npmDownloads, setNpmDownloads] = (0, react.useState)({});
 			const likeSeq = (0, react.useRef)(/* @__PURE__ */ new Map());
+			const [installAllArmed, setInstallAllArmed] = (0, react.useState)(false);
+			const [installAll, setInstallAll] = (0, react.useState)(null);
 			(0, react.useEffect)(() => {
 				if (props.remote !== void 0) {
 					setData(props.remote);
@@ -3430,7 +3447,6 @@ window.__ModuleLoader__.load({
 			]);
 			const [liveGateway, setLiveGateway] = (0, react.useState)(void 0);
 			(0, react.useEffect)(() => {
-				if (props.gateway !== void 0) return;
 				let alive = true;
 				const gatewayClient = {
 					async install(kind, id, force) {
@@ -3461,12 +3477,12 @@ window.__ModuleLoader__.load({
 						};
 					}
 				};
-				gatewayClient.list().then((list) => {
+				(props.gateway ?? gatewayClient).list().then((list) => {
 					if (!alive) return;
 					setInstalled(list);
-					setLiveGateway(gatewayClient);
+					setLiveGateway(props.gateway ?? gatewayClient);
 				}).catch(() => {
-					if (alive) setLiveGateway(null);
+					if (alive && props.gateway === void 0) setLiveGateway(null);
 				});
 				return () => {
 					alive = false;
@@ -3633,10 +3649,118 @@ window.__ModuleLoader__.load({
 						id,
 						dest: err.dest ?? id
 					});
-					else callout(id, t("installFailed", { reason: messageOf$3(err) }));
+					else callout(id, t("installFailed", { reason: messageOf$4(err) }));
 				} finally {
 					setInstalling(null);
 				}
+			};
+			/**
+			* Install every published skin this machine does not have yet, then report
+			* the whole run to the market as ONE event.
+			*
+			* The downloads go through the same loopback gateway one at a time, so each
+			* asset keeps its own progress, its own failure and its own integrity
+			* write. Only the reporting is aggregated: a bulk install is one user
+			* gesture, so it costs one Turnstile challenge and one request rather than
+			* one per asset, and the per-asset counters it produces are the same rows a
+			* run of single installs would have written.
+			*/
+			/** Published skins this machine does not have yet, in catalog order. */
+			const missingInstallCount = () => {
+				const have = new Set(installed.skins);
+				return (data?.items.skin ?? []).filter((item) => !have.has(item.id)).length;
+			};
+			const onInstallAll = async () => {
+				if (gateway === null) return;
+				setInstallAllArmed(false);
+				setInstallAll({
+					phase: "checking",
+					done: 0,
+					total: 0,
+					failed: 0,
+					reported: 0,
+					note: ""
+				});
+				const published = (data?.items.skin ?? []).map((item) => item.id);
+				const have = new Set(installed.skins);
+				const missing = published.filter((id) => !have.has(id));
+				if (missing.length === 0) {
+					setInstallAll({
+						phase: "idle",
+						done: 0,
+						total: 0,
+						failed: 0,
+						reported: 0,
+						note: t("installAllNone", {})
+					});
+					return;
+				}
+				if (!installAllArmed) {
+					setInstallAll({
+						phase: "idle",
+						done: 0,
+						total: 0,
+						failed: 0,
+						reported: 0,
+						note: ""
+					});
+					setInstallAllArmed(true);
+					return;
+				}
+				let done = 0;
+				let failed = 0;
+				const landed = [];
+				for (const id of missing) {
+					setInstallAll({
+						phase: "running",
+						done,
+						total: missing.length,
+						failed,
+						reported: 0,
+						note: ""
+					});
+					try {
+						await gateway.install("skin", id, false);
+						landed.push(id);
+					} catch {
+						failed++;
+					}
+					done++;
+				}
+				try {
+					setInstalled(await gateway.list());
+				} catch {}
+				let reported = 0;
+				if (landed.length > 0) try {
+					const counts = await reportInstallBatch("skin", landed);
+					reported = Object.keys(counts).length;
+					setData((prev) => prev ? {
+						...prev,
+						stats: {
+							...prev.stats,
+							installs: {
+								...prev.stats.installs ?? {
+									skin: {},
+									pet: {},
+									plugin: {},
+									preset: {}
+								},
+								skin: {
+									...prev.stats.installs?.skin ?? {},
+									...counts
+								}
+							}
+						}
+					} : prev);
+				} catch {}
+				setInstallAll({
+					phase: "idle",
+					done,
+					total: missing.length,
+					failed,
+					reported,
+					note: failed === 0 ? t("installAllDone", { count: done }) : t("installAllFailed", { count: failed })
+				});
 			};
 			const onInstallAsset = (kind, id) => {
 				if (gateway === null || installing !== null) return;
@@ -3682,7 +3806,7 @@ window.__ModuleLoader__.load({
 				}).catch((reason) => {
 					setPluginErrors((prev) => ({
 						...prev,
-						[id]: t("installFailed", { reason: messageOf$3(reason) })
+						[id]: t("installFailed", { reason: messageOf$4(reason) })
 					}));
 				}).finally(() => setInstalling(null));
 			};
@@ -3765,6 +3889,33 @@ window.__ModuleLoader__.load({
 				});
 				if (!res.ok) throw new Error("HTTP " + res.status);
 				return (await res.json()).installs ?? 0;
+			});
+			/**
+			* Report a whole bulk install as ONE request.
+			*
+			* A bulk install is one user gesture, so it must not spend one Turnstile
+			* challenge and one round trip per asset. The edge endpoint writes exactly
+			* the same per-asset rows and per-asset counts a run of single installs
+			* would - it only folds them into one D1 batch - so the public counters are
+			* indistinguishable from installing one at a time.
+			*/
+			const reportInstallBatch = props.reportInstallBatch ?? (async (kind, ids) => {
+				if (ids.length === 0) return {};
+				const token = await (props.turnstileToken ?? (() => marketTurnstileToken("market-install")))();
+				const installId = window.crypto.randomUUID ? window.crypto.randomUUID() : "ins-" + Math.random().toString(36).slice(2) + "-" + Date.now().toString(36);
+				const res = await fetch(origin + "/api/install-batch", {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({
+						kind,
+						asset_ids: ids,
+						device_fp: deviceFp(),
+						install_id: installId,
+						turnstile_token: token
+					})
+				});
+				if (!res.ok) throw new Error("HTTP " + res.status);
+				return (await res.json()).installs ?? {};
 			});
 			const chipClass = (isOn, isSub) => {
 				const cls = [market_module_css_default.filterChip];
@@ -3866,6 +4017,32 @@ window.__ModuleLoader__.load({
 									})]
 								}, entry))
 							}),
+							tab === "skin" ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: market_module_css_default.bulkRow,
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: installAllArmed ? market_module_css_default.bulkArmed : market_module_css_default.bulkButton,
+									disabled: gateway === null || installing !== null || installAll !== null && installAll.phase === "running",
+									onClick: () => {
+										onInstallAll();
+									},
+									children: installAll?.phase === "checking" ? t("installAllChecking", {}) : installAll?.phase === "running" ? t("installAllRunning", {
+										done: installAll.done,
+										total: installAll.total
+									}) : installAllArmed ? t("installAllConfirm", { count: missingInstallCount() }) : t("installAll", {})
+								}), installAllArmed ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: market_module_css_default.bulkCancel,
+									onClick: () => {
+										setInstallAllArmed(false);
+									},
+									children: t("cancel", {})
+								}) : null]
+							}) : null,
+							installAll !== null && installAll.note !== "" ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("p", {
+								className: installAll.failed > 0 ? market_module_css_default.bulkNoteWarn : market_module_css_default.bulkNote,
+								children: [installAll.note, installAll.reported > 0 ? " · " + t("installAllSummary", { count: installAll.reported }) : ""]
+							}) : null,
 							tab === "preset" || tab === "picks" ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
 								className: market_module_css_default.search,
 								type: "search",
@@ -4391,6 +4568,14 @@ window.__ModuleLoader__.load({
 			"install": "安装",
 			"installNow": "一键安装",
 			"installing": "安装中…",
+			"installAll": "全部安装",
+			"installAllChecking": "正在检查缺失项…",
+			"installAllRunning": "正在安装 {done}/{total}…",
+			"installAllConfirm": "将补装 {count} 款未安装的皮肤（可能占用较多磁盘空间），确定继续吗？",
+			"installAllDone": "已安装 {count} 款皮肤",
+			"installAllNone": "所有皮肤均已安装",
+			"installAllFailed": "{count} 款皮肤安装失败",
+			"installAllSummary": "已汇总上报 {count} 款安装记录",
 			"installed": "已安装",
 			"manageInPluginPage": "在插件页管理",
 			"installFailed": "安装失败：{reason}",
@@ -4491,6 +4676,14 @@ window.__ModuleLoader__.load({
 			"install": "Install",
 			"installNow": "Install now",
 			"installing": "Installing…",
+			"installAll": "Install all",
+			"installAllChecking": "Checking for missing…",
+			"installAllRunning": "Installing {done}/{total}…",
+			"installAllConfirm": "Install {count} skin(s) you do not have yet? This can use a lot of disk space.",
+			"installAllDone": "Installed {count} skin(s)",
+			"installAllNone": "Every skin is already installed",
+			"installAllFailed": "{count} skin(s) failed to install",
+			"installAllSummary": "Reported {count} install(s) as one batch",
 			"installed": "Installed",
 			"manageInPluginPage": "Manage in Plugins",
 			"installFailed": "Install failed: {reason}",
@@ -4525,7 +4718,7 @@ window.__ModuleLoader__.load({
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$6() {
 			try {
-				return "0.4.4-dsh.20261003.1";
+				return "0.4.5-dsh.20261007.1";
 			} catch {
 				return;
 			}
@@ -4925,6 +5118,7 @@ window.__ModuleLoader__.load({
 				reuseSession: input.reuseSession === true ? true : void 0,
 				teamRun: input.teamRun === true ? true : void 0,
 				goalRun: input.goalRun === false ? false : void 0,
+				skipVerification: input.skipVerification === true ? true : void 0,
 				...input.freeze === void 0 ? {} : { freeze: freezeOf(input.freeze, now) },
 				...input.handover === void 0 ? {} : { handover: {
 					...input.handover,
@@ -5908,6 +6102,7 @@ window.__ModuleLoader__.load({
 				if ("reuseSession" in patch) next.reuseSession = patch.reuseSession === true ? true : void 0;
 				if ("teamRun" in patch) next.teamRun = patch.teamRun === true ? true : void 0;
 				if ("goalRun" in patch) next.goalRun = patch.goalRun === false ? false : void 0;
+				if ("skipVerification" in patch) next.skipVerification = patch.skipVerification === true ? true : void 0;
 				if (workspaceId !== void 0 || "workspaceId" in patch) next.workspaceId = workspaceId;
 				if (mode !== void 0 || "mode" in patch) next.mode = mode;
 				if (permission !== void 0 || "permission" in patch) next.permission = permission;
@@ -5937,7 +6132,7 @@ window.__ModuleLoader__.load({
 			const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 			return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 		}
-		function messageOf$2(error) {
+		function messageOf$3(error) {
 			return error instanceof Error ? error.message : String(error);
 		}
 		/**
@@ -6456,7 +6651,7 @@ window.__ModuleLoader__.load({
 				try {
 					return this.acceptRemote(await transport.action(action, initiator)) || await this.refreshRemote();
 				} catch (error) {
-					await this.refreshRemote(messageOf$2(error));
+					await this.refreshRemote(messageOf$3(error));
 					return false;
 				}
 			}
@@ -6483,7 +6678,7 @@ window.__ModuleLoader__.load({
 					}
 					return true;
 				} catch (error) {
-					this.transportError = messageOf$2(error);
+					this.transportError = messageOf$3(error);
 					this.notify();
 					return false;
 				}
@@ -6549,7 +6744,7 @@ window.__ModuleLoader__.load({
 					}
 					return true;
 				} catch (error) {
-					this.transportError = preserveError ?? messageOf$2(error);
+					this.transportError = preserveError ?? messageOf$3(error);
 					this.notify();
 					return false;
 				}
@@ -6997,7 +7192,7 @@ window.__ModuleLoader__.load({
 				};
 			}
 			const applicability = row.applicability;
-			if (applicability !== "enforced" && applicability !== "disabled" && applicability !== "goal-unavailable" && applicability !== "team-member") return void 0;
+			if (applicability !== "enforced" && applicability !== "disabled" && applicability !== "skipped" && applicability !== "goal-unavailable" && applicability !== "team-member") return void 0;
 			const attempts = [];
 			if (!Array.isArray(row.attempts)) return void 0;
 			for (const entry of row.attempts) {
@@ -7160,6 +7355,7 @@ window.__ModuleLoader__.load({
 			if (record.hidden !== void 0 && typeof record.hidden !== "boolean") return false;
 			if (record.reuseSession !== void 0 && typeof record.reuseSession !== "boolean") return false;
 			if (record.goalRun !== void 0 && typeof record.goalRun !== "boolean") return false;
+			if (record.skipVerification !== void 0 && typeof record.skipVerification !== "boolean") return false;
 			if (!Array.isArray(record.executions)) return false;
 			for (const execution of record.executions) {
 				if (typeof execution !== "object" || execution === null) return false;
@@ -7282,6 +7478,7 @@ window.__ModuleLoader__.load({
 				task.permission = isTaskPermission(row.permission) ? row.permission : void 0;
 				task.reuseSession = row.reuseSession === true ? true : void 0;
 				task.goalRun = row.goalRun === false ? false : void 0;
+				task.skipVerification = row.skipVerification === true ? true : void 0;
 				task.freeze = normalizeFreeze(row.freeze);
 				task.handover = normalizeHandover(row.handover);
 				task.tags = normalizeTags(row.tags);
@@ -7398,7 +7595,6 @@ window.__ModuleLoader__.load({
 			"board.status.failed": "已失败",
 			"board.runs": "次执行",
 			"board.pending": "正在提交",
-			"board.updated": "更新于",
 			"board.created": "创建于",
 			"board.hostError": "Host 操作失败：{error}",
 			"board.hostError.notMounted": "任务看板的后台接口没有挂载：宿主没有加载这个插件（可能未安装、未启用，或该行启动失败）。重启 DSH 服务后再试",
@@ -7510,6 +7706,8 @@ window.__ModuleLoader__.load({
 			"new.archiveOriginal": "创建后归档原任务",
 			"detail.prompt": "执行 Prompt",
 			"detail.description": "描述",
+			"detail.expand": "展开全文",
+			"detail.collapse": "收起",
 			"detail.execution": "执行记录",
 			"detail.noExecution": "尚未执行",
 			"detail.run": "执行",
@@ -7595,6 +7793,8 @@ window.__ModuleLoader__.load({
 			"exec.reuseSessionHint": "开启后，本任务的后续执行在上一次会话里继续（该会话空闲且仍存在时），不再每次新建对话；每次复用时都会重新应用上面钉住的权限与模型。",
 			"exec.goalRun": "以 dsh 内置的 /goal 开始执行任务",
 			"exec.goalRunHint": "默认开启：执行时把任务目标作为持久目标交给 dsh 内置的 /goal，会话会自动续跑多轮，直到 agent 标记目标完成；看板在该目标真正结束后才结算本次执行。关闭则只执行一轮普通对话。",
+			"exec.skipVerification": "跳过本任务的验收",
+			"exec.skipVerificationHint": "默认关闭：勾选后本任务以 goal 形式执行时不再拦截 update_goal 标记完成，也不要求通过验收；执行记录会标注「该卡片跳过验收」。仅对之后新开的执行生效，验收总开关关闭时本项无意义。",
 			"detail.executionSettings": "执行设置",
 			"exec.hint": "执行时生效：工作区决定执行会话落在哪个工作区；Agent 预设决定会话的组合（工具面与提示词段）；权限经 /permission 命令应用到会话。留空则继承部署默认。",
 			"settings.title": "任务看板",
@@ -7625,6 +7825,8 @@ window.__ModuleLoader__.load({
 			"settings.unsaved": "未保存",
 			"settings.saveFailed": "部署未接受这些值，已保留供你修改。",
 			"settings.invalidNumber": "请输入数字，留空则使用默认值。",
+			"settings.sessionPollSeconds": "会话轮询间隔（秒）",
+			"settings.sessionPollSecondsHint": "默认 5 秒。仅在看板有需要核对的事情——运行中的卡片或未结算的执行——时才读取会话名册；两者都没有时不再轮询，Host 不会持续扫描持久化会话目录。取值 1–300 秒：间隔越短结算越快、Host 负载越高。",
 			"settings.maxSubtaskDepth": "子任务深度上限",
 			"settings.maxSubtaskDepthHint": "默认 1：一个任务只允许一层子任务，子任务不能再创建或关联子任务。最大 3。执行父任务会并发执行它的整棵子任务树，层级越深，一次执行开启的会话越多。",
 			"settings.maxSubtaskDepthOption": "{depth} 层",
@@ -7683,6 +7885,7 @@ window.__ModuleLoader__.load({
 			"verify.finalFailure": "判定依据：{reason}",
 			"verify.applicability.disabled": "本次执行启动时验收开关关闭，按原有回合判定结算。",
 			"verify.applicability.goalUnavailable": "本次执行未成为 goal 执行（/goal 被拒绝或不可用），验收未强制执行。",
+			"verify.applicability.skipped": "该任务卡勾选了「跳过验收」，本次执行未经验收判定。",
 			"verify.applicability.teamMember": "团队执行成员：由 Lead 的团队汇总证据统一验收。",
 			"verify.effortFallback": "推理强度回退：{requested} → {resolved}",
 			"verify.thresholdValue": "{value}%",
@@ -7709,6 +7912,25 @@ window.__ModuleLoader__.load({
 			"card.subtasksFailed": "{count} 失败",
 			"card.subtasksRunning": "{count} 运行中",
 			"card.subtasksBreakdown": "子任务 {total}：已完成 {done}，运行中 {running}，失败 {failed}",
+			"card.result.succeeded": "最近成功",
+			"card.result.failed": "最近失败",
+			"card.result.cancelled": "最近取消",
+			"card.declared": "手动结算",
+			"card.declaredHint": "卡片所在列与最近一次执行结果不一致：该列由人工移动或外部系统（如 Issue 关闭）设置，而不是这次执行的结算。",
+			"card.openSession": "打开最近执行的会话",
+			"card.tagsLabel": "标签 {tags}",
+			"card.time.created": "创建于 {time}",
+			"card.time.started": "已运行 {time}",
+			"card.time.settled": "结算于 {time}",
+			"card.time.archived": "归档于 {time}",
+			"card.time.updated": "更新于 {time}",
+			"board.density.compact": "切换为紧凑卡片",
+			"board.density.comfortable": "切换为完整卡片",
+			"board.group.today": "今天",
+			"board.group.week": "近 7 天",
+			"board.group.earlier": "更早",
+			"board.group.expand": "展开 {count} 张",
+			"board.group.collapse": "收起",
 			"board.hideSubtasks": "隐藏子任务",
 			"board.showSubtasks": "显示子任务",
 			"board.subtaskFilterHint": "看板默认只显示父任务；搜索或按标签筛选时会自动展开子任务。"
@@ -7734,7 +7956,6 @@ window.__ModuleLoader__.load({
 			"board.status.failed": "Failed",
 			"board.runs": "runs",
 			"board.pending": "Submitting",
-			"board.updated": "Updated",
 			"board.created": "Created",
 			"board.hostError": "Host action failed: {error}",
 			"board.hostError.notMounted": "The task board Host API is not mounted: the Host did not load this plugin (not installed, disabled, or its row failed to start). Restart the DSH service and try again",
@@ -7846,6 +8067,8 @@ window.__ModuleLoader__.load({
 			"new.archiveOriginal": "Archive original task upon creation",
 			"detail.prompt": "Run Prompt",
 			"detail.description": "Description",
+			"detail.expand": "Show more",
+			"detail.collapse": "Show less",
 			"detail.execution": "Execution History",
 			"detail.noExecution": "Not executed yet",
 			"detail.run": "Run",
@@ -7931,6 +8154,8 @@ window.__ModuleLoader__.load({
 			"exec.reuseSessionHint": "When on, later runs continue in the previous session (when that session is idle and still exists) instead of starting a new conversation each time; the pinned permission and model above are re-applied on every reuse.",
 			"exec.goalRun": "Start the run with dsh's built-in /goal",
 			"exec.goalRunHint": "On by default: the run arms dsh built-in /goal with the task objective, so the session keeps working automatic continuation rounds until the agent marks the goal complete, and the board settles the execution only when that goal really ends. Off: one plain turn.",
+			"exec.skipVerification": "Skip acceptance for this task",
+			"exec.skipVerificationHint": "Off by default: when checked, a goal-form run of this task no longer gates update_goal on a passing acceptance, and the execution record is marked as skipped. It applies only to executions started afterwards, and means nothing while the board-wide acceptance switch is off.",
 			"detail.executionSettings": "Execution Settings",
 			"exec.hint": "Applied when the task runs: the workspace decides where the execution session lands; the agent preset composes the session (tool face and prompt sections); the permission is applied through the /permission command. Blank inherits the deployment default.",
 			"settings.title": "Task Board",
@@ -7961,6 +8186,8 @@ window.__ModuleLoader__.load({
 			"settings.unsaved": "Unsaved",
 			"settings.saveFailed": "The deployment did not accept these values; they were left for you to correct.",
 			"settings.invalidNumber": "Enter a number, or leave blank to use the default.",
+			"settings.sessionPollSeconds": "Session poll interval (seconds)",
+			"settings.sessionPollSecondsHint": "Default 5. The Host reads the DSH session roster only while the board has something to reconcile: a running card or an open execution. With neither it stops polling and never re-scans the persisted session directory. Range 1 to 300 seconds: a shorter interval settles runs sooner and costs the Host more.",
 			"settings.maxSubtaskDepth": "Subtask depth limit",
 			"settings.maxSubtaskDepthHint": "Default 1: a task may carry one level of subtasks, and a subtask cannot create or link further subtasks. Maximum 3. Running a task also runs its whole subtask tree concurrently, and every extra level opens more sessions per run.",
 			"settings.maxSubtaskDepthOption": "{depth} levels",
@@ -8019,6 +8246,7 @@ window.__ModuleLoader__.load({
 			"verify.finalFailure": "Verdict basis: {reason}",
 			"verify.applicability.disabled": "Acceptance was off when this execution started; it settles on the historical verdict.",
 			"verify.applicability.goalUnavailable": "This execution never became a goal run (/goal was refused or unavailable), so acceptance was not enforced.",
+			"verify.applicability.skipped": "This card checked Skip acceptance, so the execution was never judged.",
 			"verify.applicability.teamMember": "Team member: the Lead team-summary evidence is accepted as one execution.",
 			"verify.effortFallback": "Reasoning effort fallback: {requested} → {resolved}",
 			"verify.thresholdValue": "{value}%",
@@ -8045,6 +8273,25 @@ window.__ModuleLoader__.load({
 			"card.subtasksFailed": "{count} failed",
 			"card.subtasksRunning": "{count} running",
 			"card.subtasksBreakdown": "Subtasks {total}: {done} done, {running} running, {failed} failed",
+			"card.result.succeeded": "last succeeded",
+			"card.result.failed": "last failed",
+			"card.result.cancelled": "last cancelled",
+			"card.declared": "set by hand",
+			"card.declaredHint": "The column disagrees with the latest run: it was set by a manual move or an external system (such as a closed issue), not by that run settling.",
+			"card.openSession": "Open the latest execution session",
+			"card.tagsLabel": "labels {tags}",
+			"card.time.created": "Created {time}",
+			"card.time.started": "Running {time}",
+			"card.time.settled": "Settled {time}",
+			"card.time.archived": "Archived {time}",
+			"card.time.updated": "Updated {time}",
+			"board.density.compact": "Switch to compact cards",
+			"board.density.comfortable": "Switch to full cards",
+			"board.group.today": "Today",
+			"board.group.week": "Last 7 days",
+			"board.group.earlier": "Earlier",
+			"board.group.expand": "Show {count}",
+			"board.group.collapse": "Collapse",
 			"board.hideSubtasks": "Hide subtasks",
 			"board.showSubtasks": "Show subtasks",
 			"board.subtaskFilterHint": "The board shows parent tasks only; a text or label filter reveals the subtasks automatically."
@@ -8074,7 +8321,7 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region \0dsh-css:packages/dsh-task-board/src/client/board.module.css.mjs
-		const css$16 = "[data-dsh-taskboard-view]{box-sizing:border-box;background:var(--dsw-alias-bg-base);flex-direction:column;width:100%;min-width:0;height:100%;min-height:0;display:flex;container:_7D6uKa_task-board-view/inline-size}._7D6uKa_board{--dsh-tb-control-h:30px;--dsh-tb-control-radius:8px;--dsh-tb-control-gap:8px;--dsh-tb-icon-size:30px;--dsh-tb-hit-size:44px;--dsh-tb-motion-enter:.16s;--dsh-tb-motion-close:.14s;--dsh-tb-ease:cubic-bezier(.2, 0, 0, 1);box-sizing:border-box;background:var(--dsw-alias-bg-base);min-width:0;height:100%;min-height:0;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);flex-direction:column;gap:12px;padding:14px 16px 16px;display:flex}._7D6uKa_boardHeader{flex:none;align-items:center;gap:10px;display:flex}._7D6uKa_boardTools{align-items:center;gap:var(--dsh-tb-control-gap);flex:auto;justify-content:flex-end;min-width:0;margin-left:auto;display:flex}._7D6uKa_boardTitle{color:var(--dsw-alias-label-primary);white-space:nowrap;margin:0;font-size:16px;font-weight:700}._7D6uKa_backButton{align-items:center;gap:4px;display:inline-flex}._7D6uKa_search{box-sizing:border-box;min-width:120px;height:var(--dsh-tb-control-h);color:var(--dsw-alias-label-primary);background:var(--dsw-specific-input-major);border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsh-tb-control-radius);outline:none;flex:0 260px;padding:0 10px;font-size:13px}._7D6uKa_search::placeholder{color:var(--dsw-alias-label-tertiary)}._7D6uKa_columns{overscroll-behavior-inline:contain;scrollbar-color:var(--dsw-alias-border-l3) var(--dsw-alias-interactive-bg-hover);scrollbar-width:thin;flex:1;grid-auto-columns:minmax(220px,1fr);grid-auto-flow:column;gap:12px;min-height:0;padding-bottom:6px;display:grid;overflow:auto hidden}._7D6uKa_columns::-webkit-scrollbar{height:10px}._7D6uKa_columns::-webkit-scrollbar-track{background:var(--dsw-alias-interactive-bg-hover);border-radius:999px}._7D6uKa_columns::-webkit-scrollbar-thumb{background:var(--dsw-alias-border-l3);background-clip:content-box;border:2px solid #0000;border-radius:999px}._7D6uKa_columns::-webkit-scrollbar-thumb:hover{background:var(--dsw-alias-border-l4);background-clip:content-box}._7D6uKa_column{background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);border-radius:12px;flex-direction:column;min-height:0;display:flex;overflow:hidden}._7D6uKa_columnHeader{flex:none;align-items:center;gap:6px;padding:10px 12px;display:flex}._7D6uKa_columnTitle{color:var(--dsw-alias-label-primary);text-overflow:ellipsis;white-space:nowrap;flex:1;margin:0;font-size:13px;font-weight:700;overflow:hidden}._7D6uKa_columnCount{min-width:0;color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-interactive-bg-hover);border-radius:999px;flex:none;padding:1px 8px;font-size:12px}._7D6uKa_statusDot{border-radius:50%;flex:none;width:8px;height:8px}._7D6uKa_statusDot[data-status=backlog]{background:var(--dsw-alias-label-tertiary)}._7D6uKa_statusDot[data-status=todo]{background:var(--dsw-alias-state-business-primary)}._7D6uKa_statusDot[data-status=running]{background:var(--dsw-alias-state-warn-primary)}._7D6uKa_statusDot[data-status=done]{background:var(--dsw-alias-state-success-primary)}._7D6uKa_statusDot[data-status=failed]{background:var(--dsw-alias-state-error-primary)}._7D6uKa_cards{flex-direction:column;flex:1;gap:8px;min-height:0;padding:2px 8px 10px;display:flex;overflow-y:auto}._7D6uKa_columnEmpty{text-align:center;color:var(--dsw-alias-label-tertiary);padding:24px 8px;font-size:12px}._7D6uKa_card{text-align:left;background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);cursor:pointer;color:var(--dsw-alias-label-primary);border-radius:10px;flex-direction:column;gap:6px;padding:10px 12px;font-family:inherit;transition:box-shadow .12s,border-color .12s,transform .12s;display:flex}._7D6uKa_card:hover{box-shadow:var(--dsw-shadow-lv2);border-color:var(--dsw-alias-border-l3);transform:translateY(-1px)}._7D6uKa_card[data-status=running]{border-color:var(--dsw-alias-state-warn-primary)}._7D6uKa_cardTitle{-webkit-line-clamp:2;-webkit-box-orient:vertical;font-size:13px;font-weight:600;line-height:1.35;display:-webkit-box;overflow:hidden}._7D6uKa_cardExcerpt{color:var(--dsw-alias-label-secondary);-webkit-line-clamp:2;-webkit-box-orient:vertical;font-size:12px;line-height:1.4;display:-webkit-box;overflow:hidden}._7D6uKa_cardMeta{color:var(--dsw-alias-label-tertiary);flex-wrap:wrap;align-items:center;gap:4px 8px;font-size:11px;display:flex}._7D6uKa_cardTime{text-overflow:ellipsis;white-space:nowrap;flex:auto;min-width:max-content;overflow:hidden}._7D6uKa_cardSchedule{white-space:nowrap;min-width:0;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-interactive-bg-hover);border-radius:999px;flex:none;align-items:center;gap:4px;padding:2px 6px;font-size:12px;line-height:1;display:inline-flex}._7D6uKa_cardRun{flex:none}._7D6uKa_cardRun[data-result=failed]{color:var(--dsw-alias-state-error-primary)}._7D6uKa_cardRun[data-result=succeeded]{color:var(--dsw-alias-state-success-primary)}._7D6uKa_cardSession{color:var(--dsw-alias-state-business-primary);flex:none;align-items:center;display:inline-flex}._7D6uKa_cardRunningLabel{color:var(--dsw-alias-state-warn-primary);font-size:11px}._7D6uKa_cardSpinner{border:2px solid var(--dsw-alias-state-warn-primary);border-top-color:#0000;border-radius:50%;flex:none;width:10px;height:10px;animation:.8s linear infinite _7D6uKa_dshTbSpin}@keyframes _7D6uKa_dshTbSpin{to{transform:rotate(360deg)}}._7D6uKa_primaryButton,._7D6uKa_ghostButton,._7D6uKa_dangerButton,._7D6uKa_iconButton{box-sizing:border-box;height:var(--dsh-tb-control-h);border-radius:var(--dsh-tb-control-radius);cursor:pointer;white-space:nowrap;justify-content:center;align-items:center;gap:6px;font-family:inherit;display:inline-flex}._7D6uKa_primaryButton,._7D6uKa_dangerButton{padding:0 14px;font-size:13px;font-weight:600}._7D6uKa_primaryButton{color:var(--dsw-alias-label-primary-foreground);background:var(--dsw-alias-button-primary-fill);border:1px solid #0000}._7D6uKa_dangerButton{color:var(--dsw-alias-label-primary-foreground);background:var(--dsw-alias-state-error-primary);border:1px solid #0000}._7D6uKa_ghostButton{color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l2);background:0 0;padding:0 12px;font-size:13px}._7D6uKa_ghostButton[data-active=true]{color:var(--dsw-alias-label-primary-foreground);background:var(--dsw-alias-button-primary-fill);border-color:#0000}._7D6uKa_primaryButton:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}._7D6uKa_ghostButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}._7D6uKa_ghostButton[data-active=true]:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}._7D6uKa_dangerButton:hover:not(:disabled){filter:brightness(1.08)}._7D6uKa_dangerButton:active:not(:disabled){filter:brightness(.94)}._7D6uKa_primaryButton:disabled,._7D6uKa_dangerButton:disabled{opacity:.5;cursor:default}._7D6uKa_ghostButton:disabled{opacity:.45;cursor:default}._7D6uKa_iconButton{width:var(--dsh-tb-icon-size);color:var(--dsw-alias-label-secondary);background:0 0;border:1px solid #0000;padding:0;position:relative}._7D6uKa_iconButton:after{content:\"\";width:var(--dsh-tb-hit-size);height:var(--dsh-tb-hit-size);position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)}._7D6uKa_iconButton:disabled{opacity:.45;cursor:default}._7D6uKa_linkButton{color:var(--dsw-alias-state-business-primary);cursor:pointer;white-space:nowrap;background:0 0;border:none;padding:0;font-size:12px}._7D6uKa_linkButton:hover{text-decoration:underline}._7D6uKa_modalBackdrop{z-index:1300;background:var(--dsw-alias-bg-mask-1);animation:_7D6uKa_dshTbBackdropIn var(--dsh-tb-motion-enter) var(--dsh-tb-ease) both;justify-content:center;align-items:center;display:flex;position:fixed;inset:0}._7D6uKa_modalBackdrop[data-state=closing]{animation:_7D6uKa_dshTbBackdropOut var(--dsh-tb-motion-close) var(--dsh-tb-ease) both}._7D6uKa_modal,._7D6uKa_detail{animation:_7D6uKa_dshTbSurfaceIn var(--dsh-tb-motion-enter) var(--dsh-tb-ease) both}._7D6uKa_modalBackdrop[data-state=closing] ._7D6uKa_modal,._7D6uKa_modalBackdrop[data-state=closing] ._7D6uKa_detail{animation:_7D6uKa_dshTbSurfaceOut var(--dsh-tb-motion-close) var(--dsh-tb-ease) both}@keyframes _7D6uKa_dshTbBackdropIn{0%{opacity:0}to{opacity:1}}@keyframes _7D6uKa_dshTbBackdropOut{0%{opacity:1}to{opacity:0}}@keyframes _7D6uKa_dshTbSurfaceIn{0%{opacity:0;transform:translateY(8px)scale(.98)}to{opacity:1;transform:none}}@keyframes _7D6uKa_dshTbSurfaceOut{0%{opacity:1;transform:none}to{opacity:0;transform:translateY(8px)scale(.98)}}._7D6uKa_modal{background:var(--dsw-alias-bg-overlay,var(--dsw-alias-bg-layer-1));background:rgb(from var(--dsw-alias-bg-overlay,var(--dsw-alias-bg-layer-1)) r g b / 1);border:1px solid var(--dsw-alias-border-l2);width:min(520px,100vw - 48px);max-height:calc(100vh - 96px);box-shadow:var(--dsw-shadow-lv3);color:var(--dsw-alias-label-primary);border-radius:14px;flex-direction:column;gap:10px;padding:18px;display:flex;overflow:hidden}._7D6uKa_modalTitle{margin:0;font-size:15px;font-weight:700}._7D6uKa_confirmMessage{color:var(--dsw-alias-label-secondary);white-space:pre-wrap;overflow-wrap:anywhere;margin:0;font-size:13px;line-height:1.5}._7D6uKa_modalFooter{justify-content:flex-end;gap:10px;margin-top:4px;display:flex}._7D6uKa_modalHeader{align-items:center;gap:10px;display:flex}._7D6uKa_modalHeader>._7D6uKa_modalTitle{flex:1;min-width:0}._7D6uKa_tagManageList{flex-direction:column;gap:6px;margin:0;padding:0;list-style:none;display:flex}._7D6uKa_tagManageRow{border:1px solid var(--dsw-alias-border-l1);border-radius:var(--dsh-tb-control-radius);flex-wrap:wrap;align-items:center;gap:8px;padding:6px 8px;display:flex}._7D6uKa_tagManageName{text-overflow:ellipsis;white-space:nowrap;min-width:0;color:var(--dsw-alias-label-primary);flex:auto;font-size:13px;overflow:hidden}._7D6uKa_tagManageCount{color:var(--dsw-alias-label-tertiary);flex:none;font-size:11px}._7D6uKa_tagManageInput{flex:auto;min-width:0}._7D6uKa_tagManageMerge{color:var(--dsw-alias-label-tertiary);flex:1 0 100%;font-size:11px}._7D6uKa_modalBody{flex-direction:column;gap:8px;min-height:0;display:flex;overflow-y:auto}._7D6uKa_modalBody>*{flex:none}._7D6uKa_formSection{border:1px solid var(--dsw-alias-separator-primary);border-radius:10px;flex-direction:column;display:flex;overflow:hidden}._7D6uKa_formSectionHeader{width:100%;color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer;background:0 0;border:0;align-items:center;gap:8px;padding:7px 10px;font-family:inherit;font-size:12.5px;font-weight:600;display:flex}._7D6uKa_formSectionHeader:hover{background:var(--dsw-alias-bg-mask-1)}._7D6uKa_formSectionChevron{border-top:4px solid #0000;border-bottom:4px solid #0000;border-left:5px solid var(--dsw-alias-label-tertiary);flex:none;width:0;height:0;margin-left:1px;transition:transform .12s}._7D6uKa_formSection[data-open=true] ._7D6uKa_formSectionChevron{transform:rotate(90deg)}._7D6uKa_formSectionTitle{flex:none}._7D6uKa_formSectionSummary{min-width:0;color:var(--dsw-alias-label-tertiary);text-align:right;text-overflow:ellipsis;white-space:nowrap;flex:auto;font-weight:400;overflow:hidden}._7D6uKa_formSectionBody{border-top:1px solid var(--dsw-alias-separator-primary);flex-direction:column;gap:8px;padding:8px 10px 10px;display:flex}._7D6uKa_field{flex-direction:column;gap:5px;display:flex}._7D6uKa_fieldLabel{color:var(--dsw-alias-label-secondary);font-size:12px;font-weight:600}._7D6uKa_input{box-sizing:border-box;min-height:var(--dsh-tb-control-h);color:var(--dsw-alias-label-primary);background:var(--dsw-specific-input-major);border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsh-tb-control-radius);resize:vertical;outline:none;padding:6px 10px;font-family:inherit;font-size:13px}._7D6uKa_input:focus{border-color:var(--dsw-alias-state-business-primary)}._7D6uKa_select{box-sizing:border-box;height:var(--dsh-tb-control-h);color:var(--dsw-alias-label-primary);background:var(--dsw-specific-input-major);border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsh-tb-control-radius);outline:none;max-width:100%;padding:0 10px;font-family:inherit;font-size:13px}._7D6uKa_input::placeholder{color:var(--dsw-alias-label-tertiary)}._7D6uKa_formError{color:var(--dsw-alias-state-error-primary);margin:0;font-size:12px}._7D6uKa_detail{background:var(--dsw-alias-bg-overlay,var(--dsw-alias-bg-layer-1));background:rgb(from var(--dsw-alias-bg-overlay,var(--dsw-alias-bg-layer-1)) r g b / 1);border:1px solid var(--dsw-alias-border-l2);width:min(640px,100vw - 48px);max-height:calc(100vh - 80px);box-shadow:var(--dsw-shadow-lv3);color:var(--dsw-alias-label-primary);border-radius:14px;flex-direction:column;display:flex;overflow:hidden}._7D6uKa_detailHeader{border-bottom:1px solid var(--dsw-alias-separator-primary);flex:none;align-items:center;gap:10px;padding:14px 18px;display:flex}._7D6uKa_detailTitle{overflow-wrap:anywhere;flex:1;margin:0;font-size:15px;font-weight:700}._7D6uKa_statusBadge{border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);border-radius:999px;flex:none;padding:2px 10px;font-size:12px}._7D6uKa_statusBadge[data-status=running]{color:var(--dsw-alias-state-warn-primary);border-color:var(--dsw-alias-state-warn-primary)}._7D6uKa_statusBadge[data-status=done]{color:var(--dsw-alias-state-success-primary);border-color:var(--dsw-alias-state-success-primary)}._7D6uKa_statusBadge[data-status=failed]{color:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary)}._7D6uKa_detailBody{flex-direction:column;flex:1;gap:16px;padding:14px 18px;display:flex;overflow-y:auto}._7D6uKa_detailSection{flex-direction:column;gap:6px;display:flex}._7D6uKa_detailSection h4{color:var(--dsw-alias-label-tertiary);text-transform:none;margin:0;font-size:12px;font-weight:700}._7D6uKa_detailText{color:var(--dsw-alias-label-primary);white-space:pre-wrap;overflow-wrap:anywhere;margin:0;font-size:13px;line-height:1.55}._7D6uKa_scheduleToggle{color:var(--dsw-alias-label-primary);cursor:pointer;user-select:none;align-items:center;gap:8px;font-size:13px;display:flex}._7D6uKa_scheduleToggle input{accent-color:var(--dsw-alias-state-business-primary)}._7D6uKa_scheduleRow{align-items:center;gap:8px;display:flex}._7D6uKa_scheduleInput{min-width:0;font-family:var(--dsw-font-markdown-code-block-small);flex:1;font-size:12.5px}._7D6uKa_scheduleInputInvalid,._7D6uKa_scheduleInputInvalid:focus{border-color:var(--dsw-alias-state-error-primary)}._7D6uKa_schedulePreset{box-sizing:border-box;height:var(--dsh-tb-control-h);color:var(--dsw-alias-label-primary);background:var(--dsw-specific-input-major);border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsh-tb-control-radius);outline:none;flex:none;padding:0 8px;font-size:12.5px}._7D6uKa_scheduleZone{color:var(--dsw-alias-label-secondary);align-items:center;gap:8px;font-size:12.5px;display:flex}._7D6uKa_scheduleZone select{flex:1;min-width:0}._7D6uKa_scheduleMeta{color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere;margin:0;font-size:12px}._7D6uKa_promptBlock{font-size:12.5px;line-height:1.5;font-family:var(--dsw-font-markdown-code-block-small);color:var(--dsw-alias-label-primary);background:var(--dsw-alias-markdown-code-block);border:1px solid var(--dsw-alias-border-l1);white-space:pre-wrap;overflow-wrap:anywhere;border-radius:8px;max-height:240px;margin:0;padding:10px 12px;overflow-y:auto}._7D6uKa_executionList{flex-direction:column;gap:8px;margin:0;padding:0;list-style:none;display:flex}._7D6uKa_executionRow{border:1px solid var(--dsw-alias-border-l1);border-radius:8px;flex-wrap:wrap;align-items:center;gap:10px;padding:8px 10px;display:flex}._7D6uKa_executionBadge{color:var(--dsw-alias-state-warn-primary);background:var(--dsw-alias-state-warn-secondary);border-radius:999px;flex:none;padding:1px 8px;font-size:11px;font-weight:600}._7D6uKa_executionBadge[data-result=succeeded]{color:var(--dsw-alias-state-success-primary);background:0 0}._7D6uKa_executionBadge[data-result=failed]{color:var(--dsw-alias-state-error-primary);background:0 0}._7D6uKa_executionBadge[data-result=cancelled]{color:var(--dsw-alias-label-tertiary);background:0 0}._7D6uKa_executionTimes{color:var(--dsw-alias-label-secondary);font-size:12px}._7D6uKa_executionError{width:100%;color:var(--dsw-alias-state-error-primary);overflow-wrap:anywhere;font-size:12px}._7D6uKa_moveRow{flex-wrap:wrap;gap:8px;display:flex}._7D6uKa_detailFooter{border-top:1px solid var(--dsw-alias-separator-primary);flex:none;align-items:center;gap:10px;padding:12px 18px;display:flex}._7D6uKa_detailMeta{color:var(--dsw-alias-label-tertiary);margin-left:auto;font-size:11px}@container _7D6uKa_task-board-view (width<=768px){._7D6uKa_board{gap:10px;padding:10px}._7D6uKa_boardHeader{flex-wrap:wrap;align-items:center;gap:8px}._7D6uKa_backButton{flex:none}._7D6uKa_boardTitle{flex:auto}._7D6uKa_boardHeader>._7D6uKa_detailMeta{flex:1 0 100%;margin-left:0}._7D6uKa_boardTools{flex-wrap:wrap;flex:1 0 100%;justify-content:flex-start;margin-left:0}._7D6uKa_boardTools>._7D6uKa_search{flex:1 0 100%;min-width:0}._7D6uKa_boardTools>._7D6uKa_projectFilter{flex:auto;min-width:0}._7D6uKa_boardTools>button{flex:1 1 0;min-width:0}._7D6uKa_columns{scroll-snap-type:inline mandatory;scrollbar-width:none;-webkit-overflow-scrolling:touch;grid-auto-columns:86cqw;gap:10px;padding-inline:2px 14cqw;scroll-padding-inline:2px}._7D6uKa_columns::-webkit-scrollbar{display:none}._7D6uKa_column{scroll-snap-align:start;scroll-snap-stop:always}}@container _7D6uKa_task-board-view (width<=720px){._7D6uKa_boardHeader>._7D6uKa_detailMeta{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}}@container _7D6uKa_task-board-view (width<=600px){._7D6uKa_board{padding-inline:8px}}@media (width<=768px){[data-dsh-taskboard-view]{height:100dvh}._7D6uKa_card,._7D6uKa_primaryButton,._7D6uKa_ghostButton,._7D6uKa_dangerButton,._7D6uKa_iconButton,._7D6uKa_linkButton,._7D6uKa_search,._7D6uKa_input,._7D6uKa_select,._7D6uKa_schedulePreset,._7D6uKa_scheduleToggle{min-height:44px}._7D6uKa_search,._7D6uKa_input,._7D6uKa_select,._7D6uKa_schedulePreset{box-sizing:border-box;font-size:16px}._7D6uKa_modalBackdrop{justify-content:stretch;align-items:stretch;width:100vw;height:100dvh}._7D6uKa_modal,._7D6uKa_detail{box-sizing:border-box;border:0;border-radius:0;width:100vw;height:100dvh;max-height:none}._7D6uKa_modal{padding-top:max(16px, env(safe-area-inset-top));padding-right:max(16px, env(safe-area-inset-right));padding-bottom:max(16px, env(safe-area-inset-bottom));padding-left:max(16px, env(safe-area-inset-left))}._7D6uKa_modalFooter{z-index:1;background:inherit;flex-wrap:wrap;padding-top:8px;position:sticky;bottom:0}._7D6uKa_modalFooter>button{flex:120px}._7D6uKa_detailHeader{padding-top:max(12px, env(safe-area-inset-top));padding-right:max(14px, env(safe-area-inset-right));padding-left:max(14px, env(safe-area-inset-left));flex-wrap:wrap}._7D6uKa_detailTitle{min-width:0}._7D6uKa_detailBody{overscroll-behavior-y:contain;padding-right:max(14px, env(safe-area-inset-right));padding-left:max(14px, env(safe-area-inset-left))}._7D6uKa_detailFooter{padding-right:max(14px, env(safe-area-inset-right));padding-bottom:max(12px, env(safe-area-inset-bottom));padding-left:max(14px, env(safe-area-inset-left));flex-wrap:wrap}._7D6uKa_detailFooter>button{flex:96px}._7D6uKa_detailFooter>._7D6uKa_detailMeta{text-align:end;flex:1 0 100%;margin-left:0}._7D6uKa_scheduleRow{flex-direction:column;align-items:stretch}._7D6uKa_schedulePreset{width:100%}}._7D6uKa_card:focus-visible,._7D6uKa_primaryButton:focus-visible,._7D6uKa_ghostButton:focus-visible,._7D6uKa_dangerButton:focus-visible,._7D6uKa_iconButton:focus-visible,._7D6uKa_linkButton:focus-visible,._7D6uKa_search:focus-visible,._7D6uKa_input:focus-visible,._7D6uKa_select:focus-visible,._7D6uKa_schedulePreset:focus-visible,._7D6uKa_scheduleToggle input:focus-visible,._7D6uKa_formSectionHeader:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}._7D6uKa_primaryButton,._7D6uKa_ghostButton,._7D6uKa_dangerButton,._7D6uKa_iconButton,._7D6uKa_linkButton,._7D6uKa_search,._7D6uKa_input,._7D6uKa_select,._7D6uKa_schedulePreset,._7D6uKa_scheduleToggle input,._7D6uKa_formSectionHeader,._7D6uKa_formSectionChevron{transition:background-color .12s,color .12s,border-color .12s,outline-color .12s,box-shadow .12s,transform .12s}._7D6uKa_card:active{box-shadow:var(--dsw-shadow-lv1);transform:translateY(0)}._7D6uKa_primaryButton:active:not(:disabled),._7D6uKa_ghostButton:active:not(:disabled),._7D6uKa_dangerButton:active:not(:disabled),._7D6uKa_iconButton:active:not(:disabled),._7D6uKa_linkButton:active:not(:disabled){transform:translateY(1px)}._7D6uKa_iconButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}._7D6uKa_linkButton:hover:not(:disabled){text-decoration:underline}._7D6uKa_iconButton:disabled,._7D6uKa_linkButton:disabled{opacity:.45;cursor:default}._7D6uKa_search:focus,._7D6uKa_select:focus,._7D6uKa_schedulePreset:focus{border-color:var(--dsw-alias-state-business-primary)}._7D6uKa_scheduleToggle input{margin:0}@media (prefers-reduced-motion:reduce){._7D6uKa_card,._7D6uKa_primaryButton,._7D6uKa_ghostButton,._7D6uKa_dangerButton,._7D6uKa_iconButton,._7D6uKa_linkButton,._7D6uKa_search,._7D6uKa_input,._7D6uKa_select,._7D6uKa_schedulePreset,._7D6uKa_scheduleToggle input,._7D6uKa_formSectionHeader,._7D6uKa_formSectionChevron{transition:none}._7D6uKa_cardSpinner{animation:none}._7D6uKa_modalBackdrop,._7D6uKa_modal,._7D6uKa_detail{animation:_7D6uKa_dshTbBackdropIn var(--dsh-tb-motion-close) linear both}._7D6uKa_modalBackdrop[data-state=closing],._7D6uKa_modalBackdrop[data-state=closing] ._7D6uKa_modal,._7D6uKa_modalBackdrop[data-state=closing] ._7D6uKa_detail{animation:_7D6uKa_dshTbBackdropOut var(--dsh-tb-motion-close) linear both}}._7D6uKa_cardTags{flex-wrap:wrap;gap:4px;display:flex}._7D6uKa_cardTag{border:1px solid var(--dsh-task-tag-border);background:var(--dsh-task-tag-fill);max-width:100%;color:var(--dsw-alias-label-primary);text-overflow:ellipsis;white-space:nowrap;border-radius:999px;padding:0 7px;font-size:10px;line-height:16px;overflow:hidden}._7D6uKa_tagFilter{flex-wrap:wrap;flex:none;align-items:center;gap:6px;margin:0;display:flex}._7D6uKa_tagFilterLabel{color:var(--dsw-alias-label-tertiary);font-size:11px}._7D6uKa_tagChip{border:1px solid var(--dsh-task-tag-border);color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border-radius:999px;padding:1px 9px;font-family:inherit;font-size:11px;line-height:18px}._7D6uKa_tagChip[data-active=true]{background:var(--dsh-task-tag-fill);color:var(--dsw-alias-label-primary)}._7D6uKa_cardTag[data-tag-tone=\"0\"],._7D6uKa_tagChip[data-tag-tone=\"0\"]{--dsh-task-tag-fill:#4e93e82e;--dsh-task-tag-border:#4e93e866}._7D6uKa_cardTag[data-tag-tone=\"1\"],._7D6uKa_tagChip[data-tag-tone=\"1\"]{--dsh-task-tag-fill:#2ea36a2e;--dsh-task-tag-border:#2ea36a66}._7D6uKa_cardTag[data-tag-tone=\"2\"],._7D6uKa_tagChip[data-tag-tone=\"2\"]{--dsh-task-tag-fill:#d08a2a2e;--dsh-task-tag-border:#d08a2a66}._7D6uKa_cardTag[data-tag-tone=\"3\"],._7D6uKa_tagChip[data-tag-tone=\"3\"]{--dsh-task-tag-fill:#b456c82e;--dsh-task-tag-border:#b456c866}._7D6uKa_cardTag[data-tag-tone=\"4\"],._7D6uKa_tagChip[data-tag-tone=\"4\"]{--dsh-task-tag-fill:#cf5f7a2e;--dsh-task-tag-border:#cf5f7a66}._7D6uKa_cardTag[data-tag-tone=\"5\"],._7D6uKa_tagChip[data-tag-tone=\"5\"]{--dsh-task-tag-fill:#4a9fb52e;--dsh-task-tag-border:#4a9fb566}._7D6uKa_fieldHint{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:1.4}._7D6uKa_tagRow{align-items:center;gap:6px;display:flex}._7D6uKa_tagRow ._7D6uKa_input{flex:1 1 0;min-width:0}._7D6uKa_tagRow ._7D6uKa_ghostButton{flex:none}._7D6uKa_tagAddButton{align-self:flex-start}._7D6uKa_projectFilter{flex:none;align-items:center;gap:6px;display:flex}._7D6uKa_projectFilterLabel{color:var(--dsw-alias-label-secondary);white-space:nowrap;font-size:12px}._7D6uKa_projectDialog{background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:10px;flex-direction:column;flex:none;gap:8px;margin-bottom:8px;padding:10px 12px;display:flex}._7D6uKa_projectDialogActions{justify-content:flex-end;gap:8px;display:flex}._7D6uKa_aiParse{background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:10px;flex-direction:column;gap:6px;padding:10px 12px;display:flex}._7D6uKa_aiParseRow{align-items:center;gap:8px;display:flex}._7D6uKa_aiParseRow ._7D6uKa_select{flex:1 1 0;min-width:0}._7D6uKa_aiParseRow ._7D6uKa_ghostButton,._7D6uKa_aiParseRow ._7D6uKa_primaryButton{flex:none}._7D6uKa_cardSubtask{border:1px solid var(--dsw-alias-border-l2);max-width:100%;color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap;background:0 0;border-radius:999px;padding:0 7px;font-size:10px;line-height:16px;overflow:hidden}._7D6uKa_cardSubtask[data-tone=failed]{color:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary)}._7D6uKa_cardSubtask[data-tone=running]{color:var(--dsw-alias-state-warn-primary);border-color:var(--dsw-alias-state-warn-primary)}._7D6uKa_cardSubtask[data-tone=done]{color:var(--dsw-alias-state-success-primary);border-color:var(--dsw-alias-state-success-primary)}._7D6uKa_subtaskList{flex-direction:column;gap:6px;margin:0;padding:0;list-style:none;display:flex}._7D6uKa_subtaskRow{border:1px solid var(--dsw-alias-border-l1);border-radius:8px;flex-wrap:wrap;align-items:center;gap:10px;padding:6px 10px;display:flex}._7D6uKa_subtaskRow ._7D6uKa_linkButton:first-child{text-align:left;overflow-wrap:anywhere;flex:auto;min-width:0}._7D6uKa_subtaskAddRow{flex-wrap:wrap;gap:8px;display:flex}._7D6uKa_pickList{flex-direction:column;gap:6px;max-height:320px;margin:0;padding:0;list-style:none;display:flex;overflow-y:auto}._7D6uKa_pickRow{border:1px solid var(--dsw-alias-border-l1);border-radius:8px;align-items:center;gap:10px;padding:6px 10px;display:flex}._7D6uKa_pickTitle{min-width:0;color:var(--dsw-alias-label-primary);overflow-wrap:anywhere;flex:auto;font-size:13px}";
+		const css$16 = "[data-dsh-taskboard-view]{box-sizing:border-box;background:var(--dsw-alias-bg-base);flex-direction:column;width:100%;min-width:0;height:100%;min-height:0;display:flex;container:_7D6uKa_task-board-view/inline-size}._7D6uKa_board{--dsh-tb-control-h:30px;--dsh-tb-control-radius:8px;--dsh-tb-control-gap:8px;--dsh-tb-icon-size:30px;--dsh-tb-hit-size:44px;--dsh-tb-motion-enter:.16s;--dsh-tb-motion-close:.14s;--dsh-tb-ease:cubic-bezier(.2, 0, 0, 1);box-sizing:border-box;background:var(--dsw-alias-bg-base);min-width:0;height:100%;min-height:0;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);flex-direction:column;gap:12px;padding:14px 16px 16px;display:flex}._7D6uKa_boardHeader{flex:none;align-items:center;gap:10px;display:flex}._7D6uKa_boardTools{align-items:center;gap:var(--dsh-tb-control-gap);flex:auto;justify-content:flex-end;min-width:0;margin-left:auto;display:flex}._7D6uKa_boardTitle{color:var(--dsw-alias-label-primary);white-space:nowrap;margin:0;font-size:16px;font-weight:700}._7D6uKa_backButton{align-items:center;gap:4px;display:inline-flex}._7D6uKa_search{box-sizing:border-box;min-width:120px;height:var(--dsh-tb-control-h);color:var(--dsw-alias-label-primary);background:var(--dsw-specific-input-major);border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsh-tb-control-radius);outline:none;flex:0 260px;padding:0 10px;font-size:13px}._7D6uKa_search::placeholder{color:var(--dsw-alias-label-tertiary)}._7D6uKa_columns{overscroll-behavior-inline:contain;scrollbar-color:var(--dsw-alias-border-l3) var(--dsw-alias-interactive-bg-hover);scrollbar-width:thin;flex:1;grid-auto-columns:minmax(220px,1fr);grid-auto-flow:column;gap:12px;min-height:0;padding-bottom:6px;display:grid;overflow:auto hidden}._7D6uKa_columns::-webkit-scrollbar{height:10px}._7D6uKa_columns::-webkit-scrollbar-track{background:var(--dsw-alias-interactive-bg-hover);border-radius:999px}._7D6uKa_columns::-webkit-scrollbar-thumb{background:var(--dsw-alias-border-l3);background-clip:content-box;border:2px solid #0000;border-radius:999px}._7D6uKa_columns::-webkit-scrollbar-thumb:hover{background:var(--dsw-alias-border-l4);background-clip:content-box}._7D6uKa_column{background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);border-radius:12px;flex-direction:column;min-height:0;display:flex;overflow:hidden}._7D6uKa_columnHeader{flex:none;align-items:center;gap:6px;padding:10px 12px;display:flex}._7D6uKa_columnTitle{color:var(--dsw-alias-label-primary);text-overflow:ellipsis;white-space:nowrap;flex:1;margin:0;font-size:13px;font-weight:700;overflow:hidden}._7D6uKa_columnCount{min-width:0;color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-interactive-bg-hover);border-radius:999px;flex:none;padding:1px 8px;font-size:12px}._7D6uKa_statusDot{border-radius:50%;flex:none;width:8px;height:8px}._7D6uKa_statusDot[data-status=backlog]{background:var(--dsw-alias-label-tertiary)}._7D6uKa_statusDot[data-status=todo]{background:var(--dsw-alias-state-business-primary)}._7D6uKa_statusDot[data-status=running]{background:var(--dsw-alias-state-warn-primary)}._7D6uKa_statusDot[data-status=done]{background:var(--dsw-alias-state-success-primary)}._7D6uKa_statusDot[data-status=failed]{background:var(--dsw-alias-state-error-primary)}._7D6uKa_cards{flex-direction:column;flex:1;gap:8px;min-height:0;padding:2px 8px 10px;display:flex;overflow-y:auto}._7D6uKa_columnEmpty{text-align:center;color:var(--dsw-alias-label-tertiary);padding:24px 8px;font-size:12px}._7D6uKa_card{text-align:left;background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);cursor:pointer;color:var(--dsw-alias-label-primary);border-radius:10px;flex-direction:column;flex:none;gap:6px;padding:10px 12px 10px 14px;font-family:inherit;transition:box-shadow .12s,border-color .12s,transform .12s;display:flex;position:relative;overflow:hidden}._7D6uKa_card>:not(._7D6uKa_cardOpen){z-index:1;position:relative}._7D6uKa_card:before{content:\"\";pointer-events:none;background:0 0;width:3px;position:absolute;inset:0 auto 0 0}._7D6uKa_card[data-tone=running]:before{background:var(--dsw-alias-state-warn-primary)}._7D6uKa_card[data-tone=succeeded]:before{background:var(--dsw-alias-state-success-primary)}._7D6uKa_card[data-tone=failed]:before{background:var(--dsw-alias-state-error-primary)}._7D6uKa_card[data-tone=cancelled]:before{background:var(--dsw-alias-label-tertiary)}._7D6uKa_card:hover{box-shadow:var(--dsw-shadow-lv2);border-color:var(--dsw-alias-border-l3);transform:translateY(-1px)}._7D6uKa_card[data-compact]:hover{box-shadow:none;transform:none}._7D6uKa_card[data-status=running]{border-color:var(--dsw-alias-state-warn-primary)}._7D6uKa_cardOpen{z-index:0;border-radius:inherit;cursor:pointer;background:0 0;border:0;margin:0;padding:0;position:absolute;inset:0}._7D6uKa_cardOpen:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}._7D6uKa_cardTitleRow{align-items:flex-start;gap:6px;min-width:0;display:flex}._7D6uKa_cardKind{white-space:nowrap;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-interactive-bg-hover);border-radius:4px;flex:none;margin-top:1px;padding:0 6px;font-size:10px;font-weight:600;line-height:16px}._7D6uKa_cardTitle{-webkit-line-clamp:2;-webkit-box-orient:vertical;min-width:0;font-size:13px;font-weight:600;line-height:1.35;display:-webkit-box;overflow:hidden}._7D6uKa_card[data-compact]{gap:2px;padding-top:6px;padding-bottom:6px}._7D6uKa_card[data-compact] ._7D6uKa_cardTitle{-webkit-line-clamp:1;font-size:12px;font-weight:500}._7D6uKa_cardDecoration{flex:none;align-items:center;gap:4px;display:inline-flex}._7D6uKa_cardDecoration:empty{display:none}._7D6uKa_cardExcerpt{color:var(--dsw-alias-label-secondary);-webkit-line-clamp:2;-webkit-box-orient:vertical;font-size:12px;line-height:1.4;display:-webkit-box;overflow:hidden}._7D6uKa_cardMeta{color:var(--dsw-alias-label-tertiary);flex-wrap:wrap;align-items:center;gap:4px 8px;font-size:11px;display:flex}._7D6uKa_cardTime{text-overflow:ellipsis;white-space:nowrap;flex:auto;min-width:max-content;overflow:hidden}._7D6uKa_cardSchedule{white-space:nowrap;min-width:0;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-interactive-bg-hover);border-radius:999px;flex:none;align-items:center;gap:4px;padding:2px 6px;font-size:12px;line-height:1;display:inline-flex}._7D6uKa_cardRun{flex:none}._7D6uKa_cardRun[data-declared]{text-underline-offset:2px;text-decoration:underline dotted}._7D6uKa_cardRun[data-result=failed]{color:var(--dsw-alias-state-error-primary)}._7D6uKa_cardRun[data-result=succeeded]{color:var(--dsw-alias-state-success-primary)}._7D6uKa_cardSession{color:var(--dsw-alias-state-business-primary);flex:none;align-items:center;display:inline-flex}._7D6uKa_cardAction{cursor:pointer;background:0 0;border:0;border-radius:6px;justify-content:center;width:22px;height:22px;margin:-4px -4px -4px 0;padding:0;font-family:inherit}._7D6uKa_cardAction:hover{background:var(--dsw-alias-interactive-bg-hover)}._7D6uKa_cardAction:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}._7D6uKa_cardGroup{flex-direction:column;gap:6px;display:flex}._7D6uKa_cardGroupHeader{color:var(--dsw-alias-label-tertiary);align-items:center;gap:6px;padding:4px 2px 0;font-size:11px;font-weight:600;display:flex}._7D6uKa_cardGroupCount{font-weight:400}._7D6uKa_cardGroupHeader ._7D6uKa_linkButton{margin-left:auto;font-size:11px}._7D6uKa_densityToggle{width:22px;height:22px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:0;border-radius:6px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}._7D6uKa_densityToggle:hover,._7D6uKa_densityToggle[data-active=true]{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}._7D6uKa_densityToggle:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}._7D6uKa_cardRunningLabel{color:var(--dsw-alias-state-warn-primary);font-size:11px}._7D6uKa_cardSpinner{border:2px solid var(--dsw-alias-state-warn-primary);border-top-color:#0000;border-radius:50%;flex:none;width:10px;height:10px;animation:.8s linear infinite _7D6uKa_dshTbSpin}@keyframes _7D6uKa_dshTbSpin{to{transform:rotate(360deg)}}._7D6uKa_primaryButton,._7D6uKa_ghostButton,._7D6uKa_dangerButton,._7D6uKa_iconButton{box-sizing:border-box;height:var(--dsh-tb-control-h);border-radius:var(--dsh-tb-control-radius);cursor:pointer;white-space:nowrap;justify-content:center;align-items:center;gap:6px;font-family:inherit;display:inline-flex}._7D6uKa_primaryButton,._7D6uKa_dangerButton{padding:0 14px;font-size:13px;font-weight:600}._7D6uKa_primaryButton{color:var(--dsw-alias-label-primary-foreground);background:var(--dsw-alias-button-primary-fill);border:1px solid #0000}._7D6uKa_dangerButton{color:var(--dsw-alias-label-primary-foreground);background:var(--dsw-alias-state-error-primary);border:1px solid #0000}._7D6uKa_ghostButton{color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l2);background:0 0;padding:0 12px;font-size:13px}._7D6uKa_ghostButton[data-active=true]{color:var(--dsw-alias-label-primary-foreground);background:var(--dsw-alias-button-primary-fill);border-color:#0000}._7D6uKa_primaryButton:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}._7D6uKa_ghostButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}._7D6uKa_ghostButton[data-active=true]:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}._7D6uKa_dangerButton:hover:not(:disabled){filter:brightness(1.08)}._7D6uKa_dangerButton:active:not(:disabled){filter:brightness(.94)}._7D6uKa_primaryButton:disabled,._7D6uKa_dangerButton:disabled{opacity:.5;cursor:default}._7D6uKa_ghostButton:disabled{opacity:.45;cursor:default}._7D6uKa_iconButton{width:var(--dsh-tb-icon-size);color:var(--dsw-alias-label-secondary);background:0 0;border:1px solid #0000;padding:0;position:relative}._7D6uKa_iconButton:after{content:\"\";width:var(--dsh-tb-hit-size);height:var(--dsh-tb-hit-size);position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)}._7D6uKa_iconButton:disabled{opacity:.45;cursor:default}._7D6uKa_linkButton{color:var(--dsw-alias-state-business-primary);cursor:pointer;white-space:nowrap;background:0 0;border:none;padding:0;font-size:12px}._7D6uKa_linkButton:hover{text-decoration:underline}._7D6uKa_modalBackdrop{z-index:1300;background:var(--dsw-alias-bg-mask-1);animation:_7D6uKa_dshTbBackdropIn var(--dsh-tb-motion-enter) var(--dsh-tb-ease) both;justify-content:center;align-items:center;display:flex;position:fixed;inset:0}._7D6uKa_modalBackdrop[data-state=closing]{animation:_7D6uKa_dshTbBackdropOut var(--dsh-tb-motion-close) var(--dsh-tb-ease) both}._7D6uKa_modal,._7D6uKa_detail{animation:_7D6uKa_dshTbSurfaceIn var(--dsh-tb-motion-enter) var(--dsh-tb-ease) both}._7D6uKa_modalBackdrop[data-state=closing] ._7D6uKa_modal,._7D6uKa_modalBackdrop[data-state=closing] ._7D6uKa_detail{animation:_7D6uKa_dshTbSurfaceOut var(--dsh-tb-motion-close) var(--dsh-tb-ease) both}@keyframes _7D6uKa_dshTbBackdropIn{0%{opacity:0}to{opacity:1}}@keyframes _7D6uKa_dshTbBackdropOut{0%{opacity:1}to{opacity:0}}@keyframes _7D6uKa_dshTbSurfaceIn{0%{opacity:0;transform:translateY(8px)scale(.98)}to{opacity:1;transform:none}}@keyframes _7D6uKa_dshTbSurfaceOut{0%{opacity:1;transform:none}to{opacity:0;transform:translateY(8px)scale(.98)}}._7D6uKa_modal{background:var(--dsw-alias-bg-overlay,var(--dsw-alias-bg-layer-1));background:rgb(from var(--dsw-alias-bg-overlay,var(--dsw-alias-bg-layer-1)) r g b / 1);border:1px solid var(--dsw-alias-border-l2);width:min(520px,100vw - 48px);max-height:calc(100vh - 96px);box-shadow:var(--dsw-shadow-lv3);color:var(--dsw-alias-label-primary);border-radius:14px;flex-direction:column;gap:10px;padding:18px;display:flex;overflow:hidden}._7D6uKa_modalTitle{margin:0;font-size:15px;font-weight:700}._7D6uKa_confirmMessage{color:var(--dsw-alias-label-secondary);white-space:pre-wrap;overflow-wrap:anywhere;margin:0;font-size:13px;line-height:1.5}._7D6uKa_modalFooter{justify-content:flex-end;gap:10px;margin-top:4px;display:flex}._7D6uKa_modalHeader{align-items:center;gap:10px;display:flex}._7D6uKa_modalHeader>._7D6uKa_modalTitle{flex:1;min-width:0}._7D6uKa_tagManageList{flex-direction:column;gap:6px;margin:0;padding:0;list-style:none;display:flex}._7D6uKa_tagManageRow{border:1px solid var(--dsw-alias-border-l1);border-radius:var(--dsh-tb-control-radius);flex-wrap:wrap;align-items:center;gap:8px;padding:6px 8px;display:flex}._7D6uKa_tagManageName{text-overflow:ellipsis;white-space:nowrap;min-width:0;color:var(--dsw-alias-label-primary);flex:auto;font-size:13px;overflow:hidden}._7D6uKa_tagManageCount{color:var(--dsw-alias-label-tertiary);flex:none;font-size:11px}._7D6uKa_tagManageInput{flex:auto;min-width:0}._7D6uKa_tagManageMerge{color:var(--dsw-alias-label-tertiary);flex:1 0 100%;font-size:11px}._7D6uKa_modalBody{flex-direction:column;gap:8px;min-height:0;display:flex;overflow-y:auto}._7D6uKa_modalBody>*{flex:none}._7D6uKa_formSection{border:1px solid var(--dsw-alias-separator-primary);border-radius:10px;flex-direction:column;display:flex;overflow:hidden}._7D6uKa_formSectionHeader{width:100%;color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer;background:0 0;border:0;align-items:center;gap:8px;padding:7px 10px;font-family:inherit;font-size:12.5px;font-weight:600;display:flex}._7D6uKa_formSectionHeader:hover{background:var(--dsw-alias-bg-mask-1)}._7D6uKa_formSectionChevron{border-top:4px solid #0000;border-bottom:4px solid #0000;border-left:5px solid var(--dsw-alias-label-tertiary);flex:none;width:0;height:0;margin-left:1px;transition:transform .12s}._7D6uKa_formSection[data-open=true] ._7D6uKa_formSectionChevron{transform:rotate(90deg)}._7D6uKa_formSectionTitle{flex:none}._7D6uKa_formSectionSummary{min-width:0;color:var(--dsw-alias-label-tertiary);text-align:right;text-overflow:ellipsis;white-space:nowrap;flex:auto;font-weight:400;overflow:hidden}._7D6uKa_formSectionBody{border-top:1px solid var(--dsw-alias-separator-primary);flex-direction:column;gap:8px;padding:8px 10px 10px;display:flex}._7D6uKa_field{flex-direction:column;gap:5px;display:flex}._7D6uKa_fieldLabel{color:var(--dsw-alias-label-secondary);font-size:12px;font-weight:600}._7D6uKa_input{box-sizing:border-box;min-height:var(--dsh-tb-control-h);color:var(--dsw-alias-label-primary);background:var(--dsw-specific-input-major);border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsh-tb-control-radius);resize:vertical;outline:none;padding:6px 10px;font-family:inherit;font-size:13px}._7D6uKa_input:focus{border-color:var(--dsw-alias-state-business-primary)}._7D6uKa_select{box-sizing:border-box;height:var(--dsh-tb-control-h);color:var(--dsw-alias-label-primary);background:var(--dsw-specific-input-major);border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsh-tb-control-radius);outline:none;max-width:100%;padding:0 10px;font-family:inherit;font-size:13px}._7D6uKa_input::placeholder{color:var(--dsw-alias-label-tertiary)}._7D6uKa_formError{color:var(--dsw-alias-state-error-primary);margin:0;font-size:12px}._7D6uKa_detail{background:var(--dsw-alias-bg-overlay,var(--dsw-alias-bg-layer-1));background:rgb(from var(--dsw-alias-bg-overlay,var(--dsw-alias-bg-layer-1)) r g b / 1);border:1px solid var(--dsw-alias-border-l2);width:min(640px,100vw - 48px);max-height:calc(100vh - 80px);box-shadow:var(--dsw-shadow-lv3);color:var(--dsw-alias-label-primary);border-radius:14px;flex-direction:column;display:flex;overflow:hidden}._7D6uKa_detailHeader{border-bottom:1px solid var(--dsw-alias-separator-primary);flex:none;align-items:center;gap:10px;padding:14px 18px;display:flex}._7D6uKa_detailTitle{overflow-wrap:anywhere;flex:1;margin:0;font-size:15px;font-weight:700}._7D6uKa_statusBadge{border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);border-radius:999px;flex:none;padding:2px 10px;font-size:12px}._7D6uKa_statusBadge[data-status=running]{color:var(--dsw-alias-state-warn-primary);border-color:var(--dsw-alias-state-warn-primary)}._7D6uKa_statusBadge[data-status=done]{color:var(--dsw-alias-state-success-primary);border-color:var(--dsw-alias-state-success-primary)}._7D6uKa_statusBadge[data-status=failed]{color:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary)}._7D6uKa_detailBody{flex-direction:column;flex:1;gap:16px;padding:14px 18px;display:flex;overflow-y:auto}._7D6uKa_detailSection{flex-direction:column;gap:6px;display:flex}._7D6uKa_detailSection h4{color:var(--dsw-alias-label-tertiary);text-transform:none;margin:0;font-size:12px;font-weight:700}._7D6uKa_detailText{color:var(--dsw-alias-label-primary);white-space:pre-wrap;overflow-wrap:anywhere;margin:0;font-size:13px;line-height:1.55}._7D6uKa_scheduleToggle{color:var(--dsw-alias-label-primary);cursor:pointer;user-select:none;align-items:center;gap:8px;font-size:13px;display:flex}._7D6uKa_scheduleToggle input{accent-color:var(--dsw-alias-state-business-primary)}._7D6uKa_scheduleRow{align-items:center;gap:8px;display:flex}._7D6uKa_scheduleInput{min-width:0;font-family:var(--dsw-font-markdown-code-block-small);flex:1;font-size:12.5px}._7D6uKa_scheduleInputInvalid,._7D6uKa_scheduleInputInvalid:focus{border-color:var(--dsw-alias-state-error-primary)}._7D6uKa_schedulePreset{box-sizing:border-box;height:var(--dsh-tb-control-h);color:var(--dsw-alias-label-primary);background:var(--dsw-specific-input-major);border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsh-tb-control-radius);outline:none;flex:none;padding:0 8px;font-size:12.5px}._7D6uKa_scheduleZone{color:var(--dsw-alias-label-secondary);align-items:center;gap:8px;font-size:12.5px;display:flex}._7D6uKa_scheduleZone select{flex:1;min-width:0}._7D6uKa_scheduleMeta{color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere;margin:0;font-size:12px}._7D6uKa_promptBlock{font-size:12.5px;line-height:1.5;font-family:var(--dsw-font-markdown-code-block-small);color:var(--dsw-alias-label-primary);background:var(--dsw-alias-markdown-code-block);border:1px solid var(--dsw-alias-border-l1);white-space:pre-wrap;overflow-wrap:anywhere;border-radius:8px;max-height:240px;margin:0;padding:10px 12px;overflow-y:auto}._7D6uKa_clampBody{position:relative}._7D6uKa_clampBody[data-clamped=true]{max-height:160px;overflow:hidden}._7D6uKa_clampBody[data-clamped=true]:after{content:\"\";pointer-events:none;background:linear-gradient(to bottom, transparent, var(--dsw-alias-bg-base));height:44px;position:absolute;bottom:0;left:0;right:0}._7D6uKa_clampToggle{align-self:flex-start}._7D6uKa_executionList{flex-direction:column;gap:8px;margin:0;padding:0;list-style:none;display:flex}._7D6uKa_executionRow{border:1px solid var(--dsw-alias-border-l1);border-radius:8px;flex-wrap:wrap;align-items:center;gap:10px;padding:8px 10px;display:flex}._7D6uKa_executionBadge{color:var(--dsw-alias-state-warn-primary);background:var(--dsw-alias-state-warn-secondary);border-radius:999px;flex:none;padding:1px 8px;font-size:11px;font-weight:600}._7D6uKa_executionBadge[data-result=succeeded]{color:var(--dsw-alias-state-success-primary);background:0 0}._7D6uKa_executionBadge[data-result=failed]{color:var(--dsw-alias-state-error-primary);background:0 0}._7D6uKa_executionBadge[data-result=cancelled]{color:var(--dsw-alias-label-tertiary);background:0 0}._7D6uKa_executionTimes{color:var(--dsw-alias-label-secondary);font-size:12px}._7D6uKa_executionError{width:100%;color:var(--dsw-alias-state-error-primary);overflow-wrap:anywhere;font-size:12px}._7D6uKa_moveRow{flex-wrap:wrap;gap:8px;display:flex}._7D6uKa_detailFooter{border-top:1px solid var(--dsw-alias-separator-primary);flex:none;align-items:center;gap:10px;padding:12px 18px;display:flex}._7D6uKa_detailMeta{color:var(--dsw-alias-label-tertiary);margin-left:auto;font-size:11px}@container _7D6uKa_task-board-view (width<=768px){._7D6uKa_board{gap:10px;padding:10px}._7D6uKa_boardHeader{flex-wrap:wrap;align-items:center;gap:8px}._7D6uKa_backButton{flex:none}._7D6uKa_boardTitle{flex:auto}._7D6uKa_boardHeader>._7D6uKa_detailMeta{flex:1 0 100%;margin-left:0}._7D6uKa_boardTools{flex-wrap:wrap;flex:1 0 100%;justify-content:flex-start;margin-left:0}._7D6uKa_boardTools>._7D6uKa_search{flex:1 0 100%;min-width:0}._7D6uKa_boardTools>._7D6uKa_projectFilter{flex:auto;min-width:0}._7D6uKa_boardTools>button{flex:1 1 0;min-width:0}._7D6uKa_columns{scroll-snap-type:inline mandatory;scrollbar-width:none;-webkit-overflow-scrolling:touch;grid-auto-columns:86cqw;gap:10px;padding-inline:2px 14cqw;scroll-padding-inline:2px}._7D6uKa_columns::-webkit-scrollbar{display:none}._7D6uKa_column{scroll-snap-align:start;scroll-snap-stop:always}}@container _7D6uKa_task-board-view (width<=720px){._7D6uKa_boardHeader>._7D6uKa_detailMeta{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}}@container _7D6uKa_task-board-view (width<=600px){._7D6uKa_board{padding-inline:8px}}@media (width<=768px){[data-dsh-taskboard-view]{height:100dvh}._7D6uKa_card,._7D6uKa_primaryButton,._7D6uKa_ghostButton,._7D6uKa_dangerButton,._7D6uKa_iconButton,._7D6uKa_linkButton,._7D6uKa_search,._7D6uKa_input,._7D6uKa_select,._7D6uKa_schedulePreset,._7D6uKa_scheduleToggle{min-height:44px}._7D6uKa_search,._7D6uKa_input,._7D6uKa_select,._7D6uKa_schedulePreset{box-sizing:border-box;font-size:16px}._7D6uKa_modalBackdrop{justify-content:stretch;align-items:stretch;width:100vw;height:100dvh}._7D6uKa_modal,._7D6uKa_detail{box-sizing:border-box;border:0;border-radius:0;width:100vw;height:100dvh;max-height:none}._7D6uKa_modal{padding-top:max(16px, env(safe-area-inset-top));padding-right:max(16px, env(safe-area-inset-right));padding-bottom:max(16px, env(safe-area-inset-bottom));padding-left:max(16px, env(safe-area-inset-left))}._7D6uKa_modalFooter{z-index:1;background:inherit;flex-wrap:wrap;padding-top:8px;position:sticky;bottom:0}._7D6uKa_modalFooter>button{flex:120px}._7D6uKa_detailHeader{padding-top:max(12px, env(safe-area-inset-top));padding-right:max(14px, env(safe-area-inset-right));padding-left:max(14px, env(safe-area-inset-left));flex-wrap:wrap}._7D6uKa_detailTitle{min-width:0}._7D6uKa_detailBody{overscroll-behavior-y:contain;padding-right:max(14px, env(safe-area-inset-right));padding-left:max(14px, env(safe-area-inset-left))}._7D6uKa_detailFooter{padding-right:max(14px, env(safe-area-inset-right));padding-bottom:max(12px, env(safe-area-inset-bottom));padding-left:max(14px, env(safe-area-inset-left));flex-wrap:wrap}._7D6uKa_detailFooter>button{flex:96px}._7D6uKa_detailFooter>._7D6uKa_detailMeta{text-align:end;flex:1 0 100%;margin-left:0}._7D6uKa_scheduleRow{flex-direction:column;align-items:stretch}._7D6uKa_schedulePreset{width:100%}}._7D6uKa_primaryButton:focus-visible,._7D6uKa_ghostButton:focus-visible,._7D6uKa_dangerButton:focus-visible,._7D6uKa_iconButton:focus-visible,._7D6uKa_linkButton:focus-visible,._7D6uKa_search:focus-visible,._7D6uKa_input:focus-visible,._7D6uKa_select:focus-visible,._7D6uKa_schedulePreset:focus-visible,._7D6uKa_scheduleToggle input:focus-visible,._7D6uKa_formSectionHeader:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}._7D6uKa_primaryButton,._7D6uKa_ghostButton,._7D6uKa_dangerButton,._7D6uKa_iconButton,._7D6uKa_linkButton,._7D6uKa_search,._7D6uKa_input,._7D6uKa_select,._7D6uKa_schedulePreset,._7D6uKa_scheduleToggle input,._7D6uKa_formSectionHeader,._7D6uKa_formSectionChevron{transition:background-color .12s,color .12s,border-color .12s,outline-color .12s,box-shadow .12s,transform .12s}._7D6uKa_card:active{box-shadow:var(--dsw-shadow-lv1);transform:translateY(0)}._7D6uKa_primaryButton:active:not(:disabled),._7D6uKa_ghostButton:active:not(:disabled),._7D6uKa_dangerButton:active:not(:disabled),._7D6uKa_iconButton:active:not(:disabled),._7D6uKa_linkButton:active:not(:disabled){transform:translateY(1px)}._7D6uKa_iconButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}._7D6uKa_linkButton:hover:not(:disabled){text-decoration:underline}._7D6uKa_iconButton:disabled,._7D6uKa_linkButton:disabled{opacity:.45;cursor:default}._7D6uKa_search:focus,._7D6uKa_select:focus,._7D6uKa_schedulePreset:focus{border-color:var(--dsw-alias-state-business-primary)}._7D6uKa_scheduleToggle input{margin:0}@media (prefers-reduced-motion:reduce){._7D6uKa_card,._7D6uKa_primaryButton,._7D6uKa_ghostButton,._7D6uKa_dangerButton,._7D6uKa_iconButton,._7D6uKa_linkButton,._7D6uKa_search,._7D6uKa_input,._7D6uKa_select,._7D6uKa_schedulePreset,._7D6uKa_scheduleToggle input,._7D6uKa_formSectionHeader,._7D6uKa_formSectionChevron{transition:none}._7D6uKa_cardSpinner{animation:none}._7D6uKa_modalBackdrop,._7D6uKa_modal,._7D6uKa_detail{animation:_7D6uKa_dshTbBackdropIn var(--dsh-tb-motion-close) linear both}._7D6uKa_modalBackdrop[data-state=closing],._7D6uKa_modalBackdrop[data-state=closing] ._7D6uKa_modal,._7D6uKa_modalBackdrop[data-state=closing] ._7D6uKa_detail{animation:_7D6uKa_dshTbBackdropOut var(--dsh-tb-motion-close) linear both}}._7D6uKa_cardTags{flex-wrap:wrap;gap:4px;display:flex}._7D6uKa_cardTag{border:1px solid var(--dsh-task-tag-border);background:var(--dsh-task-tag-fill);max-width:100%;color:var(--dsw-alias-label-primary);text-overflow:ellipsis;white-space:nowrap;border-radius:999px;padding:0 7px;font-size:10px;line-height:16px;overflow:hidden}._7D6uKa_tagFilter{flex-wrap:wrap;flex:none;align-items:center;gap:6px;margin:0;display:flex}._7D6uKa_tagFilterLabel{color:var(--dsw-alias-label-tertiary);font-size:11px}._7D6uKa_tagChip{border:1px solid var(--dsh-task-tag-border);color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border-radius:999px;padding:1px 9px;font-family:inherit;font-size:11px;line-height:18px}._7D6uKa_tagChip[data-active=true]{background:var(--dsh-task-tag-fill);color:var(--dsw-alias-label-primary)}._7D6uKa_cardTag[data-tag-tone=\"0\"],._7D6uKa_tagChip[data-tag-tone=\"0\"]{--dsh-task-tag-fill:#4e93e82e;--dsh-task-tag-border:#4e93e866}._7D6uKa_cardTag[data-tag-tone=\"1\"],._7D6uKa_tagChip[data-tag-tone=\"1\"]{--dsh-task-tag-fill:#2ea36a2e;--dsh-task-tag-border:#2ea36a66}._7D6uKa_cardTag[data-tag-tone=\"2\"],._7D6uKa_tagChip[data-tag-tone=\"2\"]{--dsh-task-tag-fill:#d08a2a2e;--dsh-task-tag-border:#d08a2a66}._7D6uKa_cardTag[data-tag-tone=\"3\"],._7D6uKa_tagChip[data-tag-tone=\"3\"]{--dsh-task-tag-fill:#b456c82e;--dsh-task-tag-border:#b456c866}._7D6uKa_cardTag[data-tag-tone=\"4\"],._7D6uKa_tagChip[data-tag-tone=\"4\"]{--dsh-task-tag-fill:#cf5f7a2e;--dsh-task-tag-border:#cf5f7a66}._7D6uKa_cardTag[data-tag-tone=\"5\"],._7D6uKa_tagChip[data-tag-tone=\"5\"]{--dsh-task-tag-fill:#4a9fb52e;--dsh-task-tag-border:#4a9fb566}._7D6uKa_fieldHint{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:1.4}._7D6uKa_tagRow{align-items:center;gap:6px;display:flex}._7D6uKa_tagRow ._7D6uKa_input{flex:1 1 0;min-width:0}._7D6uKa_tagRow ._7D6uKa_ghostButton{flex:none}._7D6uKa_tagAddButton{align-self:flex-start}._7D6uKa_projectFilter{flex:none;align-items:center;gap:6px;display:flex}._7D6uKa_projectFilterLabel{color:var(--dsw-alias-label-secondary);white-space:nowrap;font-size:12px}._7D6uKa_projectDialog{background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:10px;flex-direction:column;flex:none;gap:8px;margin-bottom:8px;padding:10px 12px;display:flex}._7D6uKa_projectDialogActions{justify-content:flex-end;gap:8px;display:flex}._7D6uKa_aiParse{background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:10px;flex-direction:column;gap:6px;padding:10px 12px;display:flex}._7D6uKa_aiParseRow{align-items:center;gap:8px;display:flex}._7D6uKa_aiParseRow ._7D6uKa_select{flex:1 1 0;min-width:0}._7D6uKa_aiParseRow ._7D6uKa_ghostButton,._7D6uKa_aiParseRow ._7D6uKa_primaryButton{flex:none}._7D6uKa_cardSubtask{border:1px solid var(--dsw-alias-border-l2);max-width:100%;color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap;background:0 0;border-radius:999px;padding:0 7px;font-size:10px;line-height:16px;overflow:hidden}._7D6uKa_cardSubtask[data-tone=failed]{color:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary)}._7D6uKa_cardSubtask[data-tone=running]{color:var(--dsw-alias-state-warn-primary);border-color:var(--dsw-alias-state-warn-primary)}._7D6uKa_cardSubtask[data-tone=done]{color:var(--dsw-alias-state-success-primary);border-color:var(--dsw-alias-state-success-primary)}._7D6uKa_subtaskList{flex-direction:column;gap:6px;margin:0;padding:0;list-style:none;display:flex}._7D6uKa_subtaskRow{border:1px solid var(--dsw-alias-border-l1);border-radius:8px;flex-wrap:wrap;align-items:center;gap:10px;padding:6px 10px;display:flex}._7D6uKa_subtaskRow ._7D6uKa_linkButton:first-child{text-align:left;overflow-wrap:anywhere;flex:auto;min-width:0}._7D6uKa_subtaskAddRow{flex-wrap:wrap;gap:8px;display:flex}._7D6uKa_pickList{flex-direction:column;gap:6px;max-height:320px;margin:0;padding:0;list-style:none;display:flex;overflow-y:auto}._7D6uKa_pickRow{border:1px solid var(--dsw-alias-border-l1);border-radius:8px;align-items:center;gap:10px;padding:6px 10px;display:flex}._7D6uKa_pickTitle{min-width:0;color:var(--dsw-alias-label-primary);overflow-wrap:anywhere;flex:auto;font-size:13px}";
 		const tagId$16 = "@linxin666/dsh-web-all/packages/dsh-task-board/src/client/board.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$16) + "]") === null) {
 			const tag = document.createElement("style");
@@ -8092,8 +8339,15 @@ window.__ModuleLoader__.load({
 			"boardTitle": "_7D6uKa_boardTitle",
 			"boardTools": "_7D6uKa_boardTools",
 			"card": "_7D6uKa_card",
+			"cardAction": "_7D6uKa_cardAction",
+			"cardDecoration": "_7D6uKa_cardDecoration",
 			"cardExcerpt": "_7D6uKa_cardExcerpt",
+			"cardGroup": "_7D6uKa_cardGroup",
+			"cardGroupCount": "_7D6uKa_cardGroupCount",
+			"cardGroupHeader": "_7D6uKa_cardGroupHeader",
+			"cardKind": "_7D6uKa_cardKind",
 			"cardMeta": "_7D6uKa_cardMeta",
+			"cardOpen": "_7D6uKa_cardOpen",
 			"cardRun": "_7D6uKa_cardRun",
 			"cardRunningLabel": "_7D6uKa_cardRunningLabel",
 			"cardSchedule": "_7D6uKa_cardSchedule",
@@ -8104,7 +8358,10 @@ window.__ModuleLoader__.load({
 			"cardTags": "_7D6uKa_cardTags",
 			"cardTime": "_7D6uKa_cardTime",
 			"cardTitle": "_7D6uKa_cardTitle",
+			"cardTitleRow": "_7D6uKa_cardTitleRow",
 			"cards": "_7D6uKa_cards",
+			"clampBody": "_7D6uKa_clampBody",
+			"clampToggle": "_7D6uKa_clampToggle",
 			"column": "_7D6uKa_column",
 			"columnCount": "_7D6uKa_columnCount",
 			"columnEmpty": "_7D6uKa_columnEmpty",
@@ -8113,6 +8370,7 @@ window.__ModuleLoader__.load({
 			"columns": "_7D6uKa_columns",
 			"confirmMessage": "_7D6uKa_confirmMessage",
 			"dangerButton": "_7D6uKa_dangerButton",
+			"densityToggle": "_7D6uKa_densityToggle",
 			"detail": "_7D6uKa_detail",
 			"detailBody": "_7D6uKa_detailBody",
 			"detailFooter": "_7D6uKa_detailFooter",
@@ -8241,6 +8499,32 @@ window.__ModuleLoader__.load({
 					height: "9.6",
 					rx: "1.6"
 				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "M5.3 6.6l1.9 1.7-1.9 1.7M8.8 10h2.4" })]
+			});
+		}
+		/** Switch a column to single-line cards. */
+		function IconCompactRows(props) {
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Glyph, {
+				...props,
+				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "M3 4.5h10M3 8h10M3 11.5h10" })
+			});
+		}
+		/** Switch a column back to full cards. */
+		function IconExpandRows(props) {
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(Glyph, {
+				...props,
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("rect", {
+					x: "2.6",
+					y: "2.6",
+					width: "10.8",
+					height: "4.4",
+					rx: "1.2"
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("rect", {
+					x: "2.6",
+					y: "9",
+					width: "10.8",
+					height: "4.4",
+					rx: "1.2"
+				})]
 			});
 		}
 		/** A scheduled run: the recurrence mark on a card. */
@@ -8802,6 +9086,219 @@ window.__ModuleLoader__.load({
 		/** Read the current seat set (empty when no board registration is above). */
 		function useTaskBoardSeats() {
 			return (0, react.useContext)(TaskBoardSeatsContext);
+		}
+		//#endregion
+		//#region ../dsh-task-board/src/client/board/card-view.ts
+		/**
+		* Card view model: the pure derivations a task card renders from its record.
+		*
+		* Everything here is a function of the task record (plus the clock and the
+		* Host time zone for the recency groups), so the card stays a thin renderer and
+		* every rule is unit-testable without mounting React. Nothing here writes the
+		* record: the type prefix, the tone and the time label are presentation only.
+		*
+		* @module @linxin666/dsh-client-ui-task-board/client/board/card-view
+		*/
+		/** `[Bug]:` / `[Issue]` / a bracketed CJK word, at most 24 characters, optional colon. */
+		const KIND_PREFIX = /^\[([^[\]\n]{1,24})\]\s*[:\uFF1A]?\s*/;
+		/**
+		* Split an issue-form style type prefix off a title. The prefix becomes a
+		* badge, so the clamped title lines carry the text the reader scans for. A
+		* title that is only a prefix keeps its full text.
+		* @param summary - the plain-text title.
+		* @returns the prefix (when present) and the remaining title text.
+		*/
+		function splitTitleKind(summary) {
+			const match = KIND_PREFIX.exec(summary);
+			if (match === null) return { text: summary };
+			const kind = (match[1] ?? "").trim();
+			const text = summary.slice(match[0].length).trim();
+			if (kind === "" || text === "") return { text: summary };
+			return {
+				kind,
+				text
+			};
+		}
+		/**
+		* Derive the card's execution outcome.
+		* @param task - the task record.
+		* @param archived - whether the card renders in the archive view.
+		*/
+		function cardOutcome(task, archived) {
+			const latest = task.executions[task.executions.length - 1];
+			if (latest === void 0) return { declared: false };
+			if (hasOpenExecution(task)) return archived ? {
+				latest,
+				declared: false
+			} : {
+				tone: "running",
+				latest,
+				declared: false
+			};
+			const result = latest.result;
+			if (archived || result === void 0) return {
+				latest,
+				declared: false
+			};
+			return {
+				tone: result,
+				latest,
+				declared: task.status === "done" && result !== "succeeded" || task.status === "failed" && result === "succeeded"
+			};
+		}
+		/** Locale key of the latest settled result shown before the run count. */
+		const RESULT_KEY$1 = {
+			succeeded: "card.result.succeeded",
+			failed: "card.result.failed",
+			cancelled: "card.result.cancelled"
+		};
+		/**
+		* Pick the time that tells cards in the same column apart. `updatedAt` moves
+		* on every provider sync, so a column of synced cards would all read
+		* "updated 4m"; each column instead shows the instant its cards differ by:
+		* planning columns the creation time, an executing card its start, settled
+		* columns the latest run's settlement, the archive the archive time.
+		* @param task - the task record.
+		* @param archived - whether the card renders in the archive view.
+		*/
+		function cardTimeline(task, archived) {
+			if (archived && task.archivedAt !== void 0) return {
+				key: "card.time.archived",
+				at: task.archivedAt
+			};
+			const open = task.executions.find((execution) => execution.endedAt === void 0);
+			if (open !== void 0) return {
+				key: "card.time.started",
+				at: open.startedAt
+			};
+			if (task.status === "done" || task.status === "failed") {
+				const latest = task.executions[task.executions.length - 1];
+				if (latest?.endedAt !== void 0) return {
+					key: "card.time.settled",
+					at: latest.endedAt
+				};
+				return {
+					key: "card.time.updated",
+					at: task.updatedAt
+				};
+			}
+			if (task.status === "backlog" || task.status === "todo") return {
+				key: "card.time.created",
+				at: task.createdAt
+			};
+			return {
+				key: "card.time.updated",
+				at: task.updatedAt
+			};
+		}
+		/** Group order, newest first. */
+		const RECENCY_GROUPS = [
+			"today",
+			"week",
+			"earlier"
+		];
+		/** Locale key of each recency group header. */
+		const RECENCY_KEY = {
+			today: "board.group.today",
+			week: "board.group.week",
+			earlier: "board.group.earlier"
+		};
+		const DAY_FORMATS = /* @__PURE__ */ new Map();
+		/** Calendar day of an instant in a time zone (the browser zone when absent). */
+		function dayKey(ms, timeZone) {
+			const key = timeZone ?? "";
+			let format = DAY_FORMATS.get(key);
+			if (format === void 0) {
+				try {
+					format = new Intl.DateTimeFormat("en-CA", {
+						year: "numeric",
+						month: "2-digit",
+						day: "2-digit",
+						...timeZone === void 0 ? {} : { timeZone }
+					});
+				} catch {
+					format = new Intl.DateTimeFormat("en-CA", {
+						year: "numeric",
+						month: "2-digit",
+						day: "2-digit"
+					});
+				}
+				DAY_FORMATS.set(key, format);
+			}
+			return format.format(new Date(ms));
+		}
+		const WEEK_MS = 10080 * 60 * 1e3;
+		/**
+		* Bucket an instant: the same Host calendar day as now, the last seven days, or
+		* earlier.
+		* @param at - the instant to bucket.
+		* @param now - the current instant.
+		* @param timeZone - Host IANA zone the calendar day is read in.
+		*/
+		function recencyGroup(at, now, timeZone) {
+			if (dayKey(at, timeZone) === dayKey(now, timeZone)) return "today";
+			if (now - at < WEEK_MS) return "week";
+			return "earlier";
+		}
+		/**
+		* Sort items newest first and split them into recency groups; empty groups are
+		* omitted.
+		* @param items - the items to group.
+		* @param at - the instant each item is ordered and bucketed by.
+		* @param now - the current instant.
+		* @param timeZone - Host IANA zone.
+		*/
+		function groupByRecency(items, at, now, timeZone) {
+			const sorted = [...items].sort((left, right) => at(right) - at(left));
+			const buckets = /* @__PURE__ */ new Map();
+			for (const item of sorted) {
+				const group = recencyGroup(at(item), now, timeZone);
+				const list = buckets.get(group) ?? [];
+				list.push(item);
+				buckets.set(group, list);
+			}
+			return RECENCY_GROUPS.filter((group) => buckets.has(group)).map((group) => ({
+				group,
+				items: buckets.get(group)
+			}));
+		}
+		/** Columns that render compact by default: the long settled column. */
+		const DEFAULT_COMPACT_COLUMNS = ["done"];
+		/** Browser storage key of the per-column density choice. */
+		const COMPACT_COLUMNS_KEY = "dsh.taskBoard.compactColumns.v1";
+		const STATUSES = [
+			"backlog",
+			"todo",
+			"running",
+			"done",
+			"failed"
+		];
+		/**
+		* Read the columns the user set to compact. A missing, unreadable or malformed
+		* value falls back to the default rather than failing the board.
+		* @param storage - browser storage (absent outside a browser).
+		*/
+		function readCompactColumns(storage) {
+			try {
+				const raw = storage?.getItem(COMPACT_COLUMNS_KEY);
+				if (raw === null || raw === void 0) return [...DEFAULT_COMPACT_COLUMNS];
+				const parsed = JSON.parse(raw);
+				if (!Array.isArray(parsed)) return [...DEFAULT_COMPACT_COLUMNS];
+				return STATUSES.filter((status) => parsed.includes(status));
+			} catch {
+				return [...DEFAULT_COMPACT_COLUMNS];
+			}
+		}
+		/**
+		* Persist the compact columns; a storage failure (quota, privacy mode) only
+		* loses the preference.
+		* @param storage - browser storage (absent outside a browser).
+		* @param columns - the compact columns.
+		*/
+		function writeCompactColumns(storage, columns) {
+			try {
+				storage?.setItem(COMPACT_COLUMNS_KEY, JSON.stringify(STATUSES.filter((status) => columns.includes(status))));
+			} catch {}
 		}
 		//#endregion
 		//#region ../dsh-task-board/src/client/board/status-key.ts
@@ -11117,6 +11614,24 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 			return decodeWithTrie(htmlString, true, false);
 		}
 		//#endregion
+		//#region ../dsh-task-board/src/core/issue-form.ts
+		/**
+		* Issue-form vocabulary the card excerpt recognizes.
+		*
+		* Issue forms from an issue tracker (and the zh templates this family's repositories use)
+		* write the same section headings and empty-field placeholders on every issue.
+		* The patterns are data about those forms, not UI copy, so they live in the
+		* shared core rather than in a locale dictionary; the browser half imports them.
+		*
+		* @module @linxin666/dsh-client-ui-task-board/core/issue-form
+		*/
+		/** Section headings whose body is the issue's own summary (zh and en forms). */
+		const SUMMARY_HEADING = /^(?:摘要|概要|概述|简介|描述|问题描述|问题|现象|summary|description|overview|problem|what happened)$/i;
+		/** Values an issue form writes for an empty field. */
+		const EMPTY_FIELD = /^(?:_?no response_?|n\/a|none|无|暂无)$/i;
+		/** A trailing colon (ASCII or full-width) after a heading. */
+		const HEADING_COLON = /[:\uFF1A]\s*$/;
+		//#endregion
 		//#region \0dsh-css:packages/dsh-task-board/src/client/board/task-markdown.module.css.mjs
 		const css$15 = ".o4zLLq_markdownRoot{color:var(--dsw-alias-label-primary);overflow-wrap:anywhere;font-size:13px;line-height:1.55}.o4zLLq_markdownRoot>:first-child{margin-top:0}.o4zLLq_markdownRoot>:last-child{margin-bottom:0}.o4zLLq_paragraph{margin:0 0 8px;line-height:1.55}.o4zLLq_heading1,.o4zLLq_heading2,.o4zLLq_heading3,.o4zLLq_heading4,.o4zLLq_heading5,.o4zLLq_heading6{color:var(--dsw-alias-label-primary);margin:12px 0 6px;font-weight:600;line-height:1.35}.o4zLLq_heading1{font-size:16px}.o4zLLq_heading2{font-size:15px}.o4zLLq_heading3{font-size:14px}.o4zLLq_heading4{font-size:13px}.o4zLLq_heading5{font-size:12.5px}.o4zLLq_heading6{font-size:12px}.o4zLLq_list{margin:0 0 8px;padding-left:20px}.o4zLLq_listItem{margin:2px 0}.o4zLLq_taskItem{align-items:baseline;gap:6px;margin-left:-18px;list-style-type:none;display:flex}.o4zLLq_taskCheckbox{cursor:default;vertical-align:middle;margin:0}.o4zLLq_codeBlock{font-size:12px;line-height:1.45;font-family:var(--dsw-font-markdown-code-block-small,monospace);color:var(--dsw-alias-label-primary);background:var(--dsw-alias-markdown-code-block,#0000000d);border:1px solid var(--dsw-alias-border-l1,#0000001a);white-space:pre-wrap;overflow-wrap:anywhere;border-radius:6px;margin:8px 0;padding:8px 10px;overflow-x:auto}.o4zLLq_inlineCode{font-size:12px;font-family:var(--dsw-font-markdown-code-block-small,monospace);color:var(--dsw-alias-label-primary);background:var(--dsw-alias-markdown-code-block,#0000000d);border:1px solid var(--dsw-alias-border-l1,#0000001a);border-radius:4px;padding:1px 4px}.o4zLLq_link{color:var(--dsw-alias-brand-primary,#3b82f6);text-underline-offset:2px;text-decoration:underline}.o4zLLq_link:hover{opacity:.85}.o4zLLq_imagePlaceholder{color:var(--dsw-alias-label-secondary,#666);background:var(--dsw-alias-bg-subtle,#0000000a);border:1px dashed var(--dsw-alias-border-l1,#00000026);border-radius:4px;padding:2px 6px;font-size:11px;display:inline-block}.o4zLLq_blockquote{border-left:3px solid var(--dsw-alias-border-l1,#ccc);color:var(--dsw-alias-label-secondary,#666);margin:8px 0;padding-left:10px}.o4zLLq_table{border-collapse:collapse;width:100%;margin:8px 0;font-size:12.5px}.o4zLLq_table th,.o4zLLq_table td{border:1px solid var(--dsw-alias-border-l1,#0000001a);text-align:left;padding:6px 8px}.o4zLLq_table th{background:var(--dsw-alias-bg-subtle,#00000008);font-weight:600}";
 		const tagId$15 = "@linxin666/dsh-web-all/packages/dsh-task-board/src/client/board/task-markdown.module.css";
@@ -11180,6 +11695,36 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 		/** Readable summary without changing the task source or creating DOM HTML. */
 		function markdownToPlainText(source) {
 			return plain(R.lex(source, { gfm: true }), " ").replace(/\s+/g, " ").trim();
+		}
+		/**
+		* Card excerpt: the plain text a reader can tell cards apart by.
+		*
+		* Issue-form bodies open with identical boilerplate (a duplicate-search
+		* checkbox, a plugin field, an issue-type field), so the plain-text prefix of
+		* every synced card read the same. The excerpt drops section headings, lists
+		* made only of checkboxes, raw HTML, rules and empty-field placeholders; when a
+		* summary-like section exists its body wins. A description that loses
+		* everything to those rules falls back to its full plain text, so no card goes
+		* blank. The stored description is never changed.
+		* @param source - the task description (Markdown).
+		*/
+		function markdownExcerpt(source) {
+			const blocks = [];
+			const summary = [];
+			let inSummary = false;
+			for (const token of R.lex(source, { gfm: true })) {
+				if (token.type === "heading") {
+					inSummary = SUMMARY_HEADING.test(plain([token]).replace(HEADING_COLON, "").trim());
+					continue;
+				}
+				if (token.type === "space" || token.type === "html" || token.type === "hr" || token.type === "def") continue;
+				if (token.type === "list" && token.items.every((item) => item.task)) continue;
+				const text = plain([token], " ").replace(/\s+/g, " ").trim();
+				if (text === "" || EMPTY_FIELD.test(text)) continue;
+				(inSummary ? summary : blocks).push(text);
+			}
+			const picked = (summary.length > 0 ? summary : blocks).join(" ").trim();
+			return picked === "" ? markdownToPlainText(source) : picked;
 		}
 		function renderTokens(tokens) {
 			return tokens.map((token, index) => {
@@ -11299,13 +11844,22 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 		//#endregion
 		//#region ../dsh-task-board/src/client/board/TaskCard.tsx
 		/**
-		* Task card: the board's column item. Clicking opens the task detail — it
-		* never executes anything directly (detail holds the Run button).
+		* Task card: the board's column item. The stretched open control opens the
+		* task detail — it never executes anything directly (detail holds the Run
+		* button).
+		*
+		* The card is an `article` with one stretched `button` rather than a button
+		* itself: interactive content inside a button is invalid HTML, and the card
+		* carries its own quick actions (open the execution session, a provider's
+		* link such as the tracker issue). The article owns the pointer click and
+		* ignores clicks that land on a quick action; the stretched open button is the
+		* keyboard and accessibility target, and its click bubbles into the same
+		* handler, so the detail opens exactly once either way.
 		*
 		* Memoized: the card re-renders only when its own task record changes, so a
 		* status/filter update on one card (or scrolling) never re-renders every
-		* card on the board. The per-card onClick is built with a stable task reference
-		* by the board, so the memo boundary is effective.
+		* card on the board. The per-card callbacks are built with a stable task
+		* reference by the board, so the memo boundary is effective.
 		*/
 		/**
 		* Built formatters, keyed by time zone ('' = the browser's own). Constructing
@@ -11343,20 +11897,102 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 			if (timeZone !== void 0) return formatHostTimestamp$1(ms, timeZone);
 			return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 		}
-		function TaskCardInner({ task, pending, timeZone, onClick, subtaskCount = 0, isSubtask = false, subtasksDone = 0, subtasksRunning = 0, subtasksFailed = 0 }) {
+		/** Cached YYYY-MM-DD formatters, keyed by time zone ('' = the browser's own). */
+		const CARD_DATE_FORMATS = /* @__PURE__ */ new Map();
+		/**
+		* Card time label: relative within a day, otherwise the calendar date read in
+		* the Host time zone (the same zone the tooltip and the detail view use), so a
+		* card never shows a browser-local date beside a Host-zone tooltip.
+		* @param ms - the instant.
+		* @param timeZone - Host IANA zone; absent uses the browser zone.
+		* @param now - the current instant.
+		*/
+		function formatCardTime(ms, timeZone, now = Date.now()) {
+			const minutes = Math.floor((now - ms) / 6e4);
+			if (minutes < 1) return t$5("time.justNow");
+			if (minutes < 60) return `${minutes}m`;
+			if (minutes < 1440) return `${Math.floor(minutes / 60)}h`;
+			const key = timeZone ?? "";
+			try {
+				let format = CARD_DATE_FORMATS.get(key);
+				if (format === void 0) {
+					format = new Intl.DateTimeFormat("en-CA", {
+						year: "numeric",
+						month: "2-digit",
+						day: "2-digit",
+						...timeZone === void 0 ? {} : { timeZone }
+					});
+					CARD_DATE_FORMATS.set(key, format);
+				}
+				return format.format(new Date(ms));
+			} catch {
+				return new Date(ms).toISOString().slice(0, 10);
+			}
+		}
+		function TaskCardInner({ task, pending, timeZone, onClick, onOpenSession, compact = false, subtaskCount = 0, isSubtask = false, subtasksDone = 0, subtasksRunning = 0, subtasksFailed = 0 }) {
 			const { cardDecoration } = useTaskBoardSeats();
-			const latest = task.executions[task.executions.length - 1];
 			const runs = task.executions.length;
 			const summary = (0, react.useMemo)(() => markdownToPlainText(task.title) || task.title, [task.title]);
-			const excerpt = (0, react.useMemo)(() => markdownToPlainText(task.description), [task.description]);
+			const title = (0, react.useMemo)(() => splitTitleKind(summary), [summary]);
+			const excerpt = (0, react.useMemo)(() => compact ? "" : markdownExcerpt(task.description), [task.description, compact]);
 			const archived = task.archivedAt !== void 0;
 			const busy = hasOpenExecution(task);
 			const isDraggable = !archived && !busy && !pending;
+			const outcome = cardOutcome(task, archived);
+			const latest = outcome.latest;
 			const runningKey = verificationRunningKey(latest?.verification);
-			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+			const timeline = cardTimeline(task, archived);
+			const resultText = latest?.result !== void 0 ? t$5(RESULT_KEY$1[latest.result]) : "";
+			const sessionId = latest?.sessionId;
+			const tagNames = (task.tags ?? []).map((tag) => tag.name);
+			const ariaLabel = [
+				title.kind === void 0 ? summary : `${title.kind}: ${title.text}`,
+				!archived && pending ? t$5("board.pending") : "",
+				!archived && busy ? t$5(runningKey ?? "detail.result.running") : "",
+				!archived && !busy && resultText !== "" ? resultText : "",
+				outcome.declared ? t$5("card.declared") : "",
+				subtasksFailed > 0 ? t$5("card.subtasksFailed", { count: String(subtasksFailed) }) : "",
+				tagNames.length > 0 ? t$5("card.tagsLabel", { tags: tagNames.join(", ") }) : ""
+			].filter(Boolean).join(" · ");
+			const tooltip = [
+				summary,
+				t$5(timeline.key, { time: formatHostTimestamp$1(timeline.at, timeZone) }),
+				outcome.declared ? t$5("card.declaredHint") : ""
+			].filter(Boolean).join("\n");
+			const sessionMark = sessionId !== void 0 && (onOpenSession !== void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 				type: "button",
+				className: `${board_module_css_default.cardSession} ${board_module_css_default.cardAction}`,
+				"data-dsh-part": "card-session",
+				title: t$5("card.openSession"),
+				"aria-label": t$5("card.openSession"),
+				onClick: () => {
+					onOpenSession(sessionId);
+				},
+				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconSession, { size: 14 })
+			}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+				className: board_module_css_default.cardSession,
+				title: sessionId,
+				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconSession, { size: 12 })
+			}));
+			const decoration = /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+				className: board_module_css_default.cardDecoration,
+				children: cardDecoration({ task })
+			});
+			const timeLabel = /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+				className: board_module_css_default.cardTime,
+				"data-dsh-part": "card-time",
+				children: t$5(timeline.key, { time: formatCardTime(timeline.at, timeZone) })
+			});
+			const kindBadge = title.kind !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+				className: board_module_css_default.cardKind,
+				"data-dsh-part": "card-kind",
+				children: title.kind
+			});
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("article", {
 				className: board_module_css_default.card,
 				"data-status": archived ? "archived" : task.status,
+				"data-tone": outcome.tone,
+				"data-compact": compact || void 0,
 				"data-dsh-part": "card",
 				"data-pending": pending || void 0,
 				draggable: isDraggable,
@@ -11364,109 +12000,119 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 					event.dataTransfer.setData("text/plain", task.id);
 					event.dataTransfer.effectAllowed = "move";
 				} : void 0,
-				onClick,
-				"aria-label": [
-					summary,
-					!archived && pending ? t$5("board.pending") : "",
-					!archived && busy ? t$5(runningKey ?? "detail.result.running") : "",
-					subtasksFailed > 0 ? t$5("card.subtasksFailed", { count: String(subtasksFailed) }) : ""
-				].filter(Boolean).join(" · "),
-				title: [
-					summary,
-					excerpt,
-					`${t$5("board.updated")} ${formatHostTimestamp$1(task.updatedAt, timeZone)}`
-				].filter(Boolean).join("\n"),
+				title: tooltip,
+				onClick: (event) => {
+					if (event.target.closest("a, button:not([data-dsh-part=\"card-open\"])") !== null) return;
+					onClick();
+				},
 				children: [
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: board_module_css_default.cardTitle,
-						children: summary
-					}),
-					task.tags !== void 0 && task.tags.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: board_module_css_default.cardTags,
-						children: task.tags.map((tag) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-							className: board_module_css_default.cardTag,
-							"data-tag-tone": tagTone(tag.name),
-							"data-dsh-part": "tag-badge",
-							"data-tag-hint": tag.promptPrefix === void 0 ? void 0 : tag.promptPrefix,
-							title: tag.promptPrefix === void 0 ? tag.name : tag.promptPrefix,
-							children: tag.name
-						}, tag.name))
-					}),
-					excerpt !== "" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: board_module_css_default.cardExcerpt,
-						children: excerpt
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: board_module_css_default.cardOpen,
+						"data-dsh-part": "card-open",
+						"aria-label": ariaLabel
 					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+						className: board_module_css_default.cardTitleRow,
+						children: [kindBadge, /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: board_module_css_default.cardTitle,
+							"data-dsh-part": "card-title",
+							children: title.text
+						})]
+					}),
+					compact ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
 						className: board_module_css_default.cardMeta,
 						children: [
-							isSubtask && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-								className: board_module_css_default.cardSubtask,
-								"data-dsh-part": "subtask-badge",
-								children: t$5("card.subtask")
-							}),
-							subtaskCount > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-								className: board_module_css_default.cardSubtask,
-								"data-dsh-part": "subtask-count",
-								"data-tone": subtasksFailed > 0 ? "failed" : subtasksRunning > 0 ? "running" : subtasksDone === subtaskCount ? "done" : void 0,
-								title: t$5("card.subtasksBreakdown", {
-									total: String(subtaskCount),
-									done: String(subtasksDone),
-									running: String(subtasksRunning),
-									failed: String(subtasksFailed)
-								}),
-								children: [
-									t$5("card.subtasks", { count: String(subtaskCount) }),
-									subtasksFailed > 0 ? " · " + t$5("card.subtasksFailed", { count: String(subtasksFailed) }) : "",
-									subtasksFailed === 0 && subtasksRunning > 0 ? " · " + t$5("card.subtasksRunning", { count: String(subtasksRunning) }) : ""
-								]
-							}),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-								className: board_module_css_default.cardTime,
-								children: [
-									t$5("board.updated"),
-									" ",
-									formatTime$3(task.updatedAt)
-								]
-							}),
-							task.freeze !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-								className: board_module_css_default.cardSchedule,
-								title: task.freeze.goal,
-								children: t$5("card.frozen")
-							}),
-							!archived && task.schedule?.enabled === true && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-								className: board_module_css_default.cardSchedule,
-								title: task.schedule.nextRunAt !== void 0 ? `${t$5("card.scheduled")} · ${formatHostTimestamp$1(task.schedule.nextRunAt, timeZone)}` : t$5("card.scheduled"),
-								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconClock, { size: 12 }), t$5("card.scheduled")]
-							}),
-							latest !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-								className: board_module_css_default.cardRun,
-								"data-result": archived ? void 0 : latest.result,
-								children: [
-									runs,
-									" ",
-									t$5("board.runs")
-								]
-							}),
-							latest?.sessionId !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-								className: board_module_css_default.cardSession,
-								title: latest.sessionId,
-								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconSession, { size: 12 })
-							}),
+							decoration,
+							timeLabel,
 							!archived && (busy || pending) && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 								className: board_module_css_default.cardSpinner,
 								"aria-hidden": "true"
 							})
 						]
-					}),
-					cardDecoration({ task }),
-					!archived && pending && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-						className: board_module_css_default.cardRunningLabel,
-						children: [t$5("board.pending"), "…"]
-					}),
-					!archived && latest !== void 0 && executionLabel(latest) === "running" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-						className: board_module_css_default.cardRunningLabel,
-						children: [runningKey !== void 0 ? t$5(runningKey) : latest.ownResult === void 0 ? t$5("detail.result.running") : t$5("detail.subtasks.waiting"), "…"]
-					})
+					}) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
+						task.tags !== void 0 && task.tags.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: board_module_css_default.cardTags,
+							children: task.tags.map((tag) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: board_module_css_default.cardTag,
+								"data-tag-tone": tagTone(tag.name),
+								"data-dsh-part": "tag-badge",
+								"data-tag-hint": tag.promptPrefix === void 0 ? void 0 : tag.promptPrefix,
+								title: tag.promptPrefix === void 0 ? tag.name : tag.promptPrefix,
+								children: tag.name
+							}, tag.name))
+						}),
+						excerpt !== "" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: board_module_css_default.cardExcerpt,
+							"data-dsh-part": "card-excerpt",
+							children: excerpt
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+							className: board_module_css_default.cardMeta,
+							children: [
+								decoration,
+								isSubtask && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: board_module_css_default.cardSubtask,
+									"data-dsh-part": "subtask-badge",
+									children: t$5("card.subtask")
+								}),
+								subtaskCount > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+									className: board_module_css_default.cardSubtask,
+									"data-dsh-part": "subtask-count",
+									"data-tone": subtasksFailed > 0 ? "failed" : subtasksRunning > 0 ? "running" : subtasksDone === subtaskCount ? "done" : void 0,
+									title: t$5("card.subtasksBreakdown", {
+										total: String(subtaskCount),
+										done: String(subtasksDone),
+										running: String(subtasksRunning),
+										failed: String(subtasksFailed)
+									}),
+									children: [
+										t$5("card.subtasks", { count: String(subtaskCount) }),
+										subtasksFailed > 0 ? " · " + t$5("card.subtasksFailed", { count: String(subtasksFailed) }) : "",
+										subtasksFailed === 0 && subtasksRunning > 0 ? " · " + t$5("card.subtasksRunning", { count: String(subtasksRunning) }) : ""
+									]
+								}),
+								timeLabel,
+								task.freeze !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: board_module_css_default.cardSchedule,
+									title: task.freeze.goal,
+									children: t$5("card.frozen")
+								}),
+								!archived && task.schedule?.enabled === true && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+									className: board_module_css_default.cardSchedule,
+									title: task.schedule.nextRunAt !== void 0 ? `${t$5("card.scheduled")} · ${formatHostTimestamp$1(task.schedule.nextRunAt, timeZone)}` : t$5("card.scheduled"),
+									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconClock, { size: 12 }), t$5("card.scheduled")]
+								}),
+								latest !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+									className: board_module_css_default.cardRun,
+									"data-dsh-part": "card-run",
+									"data-result": archived || latest.result === void 0 ? void 0 : latest.result,
+									"data-declared": outcome.declared || void 0,
+									title: outcome.declared ? t$5("card.declaredHint") : void 0,
+									children: [
+										!busy && resultText !== "" ? `${resultText} · ` : "",
+										runs,
+										" ",
+										t$5("board.runs"),
+										outcome.declared ? ` · ${t$5("card.declared")}` : ""
+									]
+								}),
+								sessionMark,
+								!archived && (busy || pending) && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: board_module_css_default.cardSpinner,
+									"aria-hidden": "true"
+								})
+							]
+						}),
+						!archived && pending && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+							className: board_module_css_default.cardRunningLabel,
+							children: [t$5("board.pending"), "…"]
+						}),
+						!archived && latest !== void 0 && executionLabel(latest) === "running" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+							className: board_module_css_default.cardRunningLabel,
+							children: [runningKey !== void 0 ? t$5(runningKey) : latest.ownResult === void 0 ? t$5("detail.result.running") : t$5("detail.subtasks.waiting"), "…"]
+						})
+					] })
 				]
 			});
 		}
@@ -11551,6 +12197,7 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 			const inheritedPermission = parentTask === void 0 ? void 0 : effectiveTaskPermission(parentTask);
 			const [reuseSession, setReuseSession] = (0, react.useState)(initialTask?.reuseSession ?? false);
 			const [goalRun, setGoalRun] = (0, react.useState)(initialTask?.goalRun ?? true);
+			const [skipVerification, setSkipVerification] = (0, react.useState)(initialTask?.skipVerification ?? false);
 			const [scheduleEnabled, setScheduleEnabled] = (0, react.useState)(initialTask?.schedule?.enabled ?? false);
 			const [scheduleCron, setScheduleCron] = (0, react.useState)(initialTask?.schedule?.cron ?? "");
 			const [scheduleZone, setScheduleZone] = (0, react.useState)(initialTask?.schedule?.timeZone ?? "");
@@ -11653,6 +12300,7 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 					model: model === "" ? void 0 : model,
 					...reuseSession ? { reuseSession: true } : {},
 					...goalRun ? {} : { goalRun: false },
+					...skipVerification ? { skipVerification: true } : {},
 					...tagList.length > 0 ? { tags: tagList } : {},
 					schedule: scheduleEnabled ? {
 						enabled: true,
@@ -11984,6 +12632,20 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
 								className: board_module_css_default.detailText,
 								children: t$5("exec.goalRunHint")
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+								className: board_module_css_default.scheduleToggle,
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+									type: "checkbox",
+									checked: skipVerification,
+									onChange: (event) => {
+										setSkipVerification(event.target.checked);
+									}
+								}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t$5("exec.skipVerification") })]
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+								className: board_module_css_default.detailText,
+								children: t$5("exec.skipVerificationHint")
 							})
 						]
 					}),
@@ -12714,10 +13376,10 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 		*/
 		function VerificationReport({ verification }) {
 			const phase = verificationPhase(verification);
-			if (phase === "off" && verification.contract.enabled === false) return null;
+			if (phase === "off" && verification.contract.enabled === false && verification.applicability !== "skipped") return null;
 			const totals = verificationTotals(verification);
 			const route = verification.contract.route;
-			const applicabilityKey = verification.applicability === "disabled" ? "verify.applicability.disabled" : verification.applicability === "goal-unavailable" ? "verify.applicability.goalUnavailable" : verification.applicability === "team-member" ? "verify.applicability.teamMember" : void 0;
+			const applicabilityKey = verification.applicability === "disabled" ? "verify.applicability.disabled" : verification.applicability === "skipped" ? "verify.applicability.skipped" : verification.applicability === "goal-unavailable" ? "verify.applicability.goalUnavailable" : verification.applicability === "team-member" ? "verify.applicability.teamMember" : void 0;
 			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 				className: board_module_css_default.executionTimes,
 				children: [
@@ -12775,6 +13437,61 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 					})
 				]
 			});
+		}
+		//#endregion
+		//#region ../dsh-task-board/src/client/board/ClampedMarkdown.tsx
+		/**
+		* Clamped markdown body for the detail overlay: a long description or prompt
+		* renders behind a max-height clamp with a fade into the dialog surface and
+		* an expand toggle, so it no longer pushes the execution settings and the
+		* execution history out of view. Content that fits the clamp renders
+		* untouched — no toggle, no fade, no extra markup behaviour.
+		*/
+		/**
+		* Clamp height used when the stylesheet is unavailable to the runtime (unit
+		* tests). The rendered value lives on `.clampBody[data-clamped='true']` in
+		* board.module.css and is read back through getComputedStyle, so the CSS
+		* stays the single source of the geometry.
+		*/
+		const CLAMP_FALLBACK_PX = 160;
+		function ClampedMarkdown({ source }) {
+			const [expanded, setExpanded] = (0, react.useState)(false);
+			const [overflowing, setOverflowing] = (0, react.useState)(false);
+			const bodyRef = (0, react.useRef)(null);
+			(0, react.useEffect)(() => {
+				setExpanded(false);
+			}, [source]);
+			(0, react.useEffect)(() => {
+				const node = bodyRef.current;
+				if (node === null) return;
+				const measure = () => {
+					const declared = Number.parseFloat(getComputedStyle(node).maxHeight);
+					const clamp = Number.isFinite(declared) ? declared : CLAMP_FALLBACK_PX;
+					setOverflowing(node.scrollHeight > clamp + 1);
+				};
+				measure();
+				if (typeof ResizeObserver === "undefined") return;
+				const observer = new ResizeObserver(measure);
+				observer.observe(node);
+				return () => {
+					observer.disconnect();
+				};
+			}, [source, expanded]);
+			const clamped = overflowing && !expanded;
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+				ref: bodyRef,
+				className: board_module_css_default.clampBody,
+				"data-clamped": clamped,
+				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(TaskMarkdown, { source })
+			}), overflowing && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+				type: "button",
+				className: `${board_module_css_default.linkButton} ${board_module_css_default.clampToggle}`,
+				"aria-expanded": expanded,
+				onClick: () => {
+					setExpanded(!expanded);
+				},
+				children: expanded ? t$5("detail.collapse") : t$5("detail.expand")
+			})] });
 		}
 		//#endregion
 		//#region ../dsh-task-board/src/client/board/TaskDetail.tsx
@@ -12990,6 +13707,21 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
 						className: board_module_css_default.detailText,
 						children: t$5("exec.goalRunHint")
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+						className: board_module_css_default.scheduleToggle,
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+							type: "checkbox",
+							checked: task.skipVerification === true,
+							disabled: pending,
+							onChange: (event) => {
+								controller.updateTask(task.id, { skipVerification: event.target.checked });
+							}
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t$5("exec.skipVerification") })]
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+						className: board_module_css_default.detailText,
+						children: t$5("exec.skipVerificationHint")
 					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
 						className: board_module_css_default.scheduleToggle,
@@ -13379,7 +14111,7 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 									}),
 									/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
 										className: board_module_css_default.detailSection,
-										children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h4", { children: t$5("detail.description") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(TaskMarkdown, { source: current.description !== "" ? current.description : "—" })]
+										children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h4", { children: t$5("detail.description") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ClampedMarkdown, { source: current.description !== "" ? current.description : "—" })]
 									}),
 									/* @__PURE__ */ (0, react_jsx_runtime.jsx)(SubtaskSection, {
 										controller,
@@ -13510,7 +14242,7 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 									}),
 									/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
 										className: board_module_css_default.detailSection,
-										children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h4", { children: t$5("detail.prompt") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(TaskMarkdown, { source: current.prompt !== "" ? current.prompt : current.title })]
+										children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h4", { children: t$5("detail.prompt") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ClampedMarkdown, { source: current.prompt !== "" ? current.prompt : current.title })]
 									}),
 									!archived && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(ExecutionSettingsSection, {
 										controller,
@@ -13749,7 +14481,7 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 		* re-renders only when its own task changes — not when a sibling card status,
 		* the filter, or the selection moves.
 		*/
-		const MemoTaskCard = (0, react.memo)(function MemoTaskCard({ task, pending, timeZone, onOpen, subtaskCount, isSubtask, subtasksDone, subtasksRunning, subtasksFailed }) {
+		const MemoTaskCard = (0, react.memo)(function MemoTaskCard({ task, pending, timeZone, onOpen, onOpenSession, compact, subtaskCount, isSubtask, subtasksDone, subtasksRunning, subtasksFailed }) {
 			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(TaskCard, {
 				task,
 				pending,
@@ -13757,6 +14489,8 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 				onClick: (0, react.useCallback)(() => {
 					onOpen(task.id);
 				}, [task.id, onOpen]),
+				onOpenSession,
+				compact,
 				subtaskCount,
 				isSubtask,
 				subtasksDone,
@@ -13764,6 +14498,10 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 				subtasksFailed
 			});
 		});
+		/** Settled columns whose cards group by recency and fold the oldest group. */
+		const GROUPED_COLUMNS = ["done", "failed"];
+		/** Column key of the archive view in the fold-open set. */
+		const ARCHIVE_COLUMN = "archived";
 		/** Board component; subscribes to the controller snapshot. */
 		function TaskBoard({ controller }) {
 			const [snapshot, setSnapshot] = (0, react.useState)(controller.getSnapshot());
@@ -13771,6 +14509,8 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 			const [filter, setFilter] = (0, react.useState)("");
 			const [tagFilter, setTagFilter] = (0, react.useState)([]);
 			const [hideSubtasks, setHideSubtasks] = (0, react.useState)(true);
+			const [compactColumns, setCompactColumns] = (0, react.useState)(() => readCompactColumns(globalThis.localStorage));
+			const [unfolded, setUnfolded] = (0, react.useState)([]);
 			const [showNew, setShowNew] = (0, react.useState)(false);
 			const [showTagManager, setShowTagManager] = (0, react.useState)(false);
 			const [projectId, setProjectId] = (0, react.useState)("");
@@ -13837,6 +14577,70 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 			const openTask = (0, react.useCallback)((id) => {
 				controller.openTask(id);
 			}, [controller]);
+			const openSession = (0, react.useCallback)((sessionId) => {
+				controller.openSession(sessionId);
+			}, [controller]);
+			const toggleCompact = (0, react.useCallback)((status) => {
+				setCompactColumns((current) => {
+					const next = current.includes(status) ? current.filter((entry) => entry !== status) : [...current, status];
+					writeCompactColumns(globalThis.localStorage, next);
+					return next;
+				});
+			}, []);
+			const timeZone = snapshot.host?.scheduler.timeZone;
+			const now = Date.now();
+			const renderCard = (task, compact) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(MemoTaskCard, {
+				task,
+				pending: snapshot.pendingTaskIds.includes(task.id),
+				timeZone,
+				onOpen: openTask,
+				onOpenSession: openSession,
+				compact,
+				subtaskCount: subtaskCounts.get(task.id) ?? 0,
+				isSubtask: task.parentId !== void 0,
+				subtasksDone: subtaskRollup.get(task.id)?.done ?? 0,
+				subtasksRunning: subtaskRollup.get(task.id)?.running ?? 0,
+				subtasksFailed: subtaskRollup.get(task.id)?.failed ?? 0
+			}, task.id);
+			/**
+			* Settled cards in recency groups, newest first. A column longer than the
+			* fold threshold folds its oldest group behind a disclosure, so a column of
+			* a hundred finished issues opens on what happened lately; a text or label
+			* search never folds, because a match hidden behind a fold reads as no match.
+			*/
+			const renderGrouped = (columnKey, tasks, compact, archived) => {
+				const buckets = groupByRecency(tasks, (task) => cardTimeline(task, archived).at, now, timeZone);
+				const foldable = !searchActive && tasks.length > 30 && buckets.length > 1;
+				const open = unfolded.includes(columnKey);
+				return buckets.map((bucket) => {
+					const folded = foldable && bucket.group === buckets[buckets.length - 1].group && !open;
+					return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: board_module_css_default.cardGroup,
+						"data-dsh-part": "card-group",
+						"data-group": bucket.group,
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: board_module_css_default.cardGroupHeader,
+							children: [
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t$5(RECENCY_KEY[bucket.group]) }),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: board_module_css_default.cardGroupCount,
+									children: bucket.items.length
+								}),
+								foldable && bucket.group === buckets[buckets.length - 1].group && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: board_module_css_default.linkButton,
+									"data-dsh-part": "card-group-toggle",
+									"aria-expanded": !folded,
+									onClick: () => {
+										setUnfolded((current) => current.includes(columnKey) ? current.filter((entry) => entry !== columnKey) : [...current, columnKey]);
+									},
+									children: folded ? t$5("board.group.expand", { count: String(bucket.items.length) }) : t$5("board.group.collapse")
+								})
+							]
+						}), !folded && bucket.items.map((task) => renderCard(task, compact))]
+					}, bucket.group);
+				});
+			};
 			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 				className: board_module_css_default.board,
 				"data-dsh-taskboard-board": "",
@@ -14069,17 +14873,7 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 								})]
 							}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 								className: board_module_css_default.cards,
-								children: [visible.map((task) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(MemoTaskCard, {
-									task,
-									pending: snapshot.pendingTaskIds.includes(task.id),
-									timeZone: snapshot.host?.scheduler.timeZone,
-									onOpen: openTask,
-									subtaskCount: subtaskCounts.get(task.id) ?? 0,
-									isSubtask: task.parentId !== void 0,
-									subtasksDone: subtaskRollup.get(task.id)?.done ?? 0,
-									subtasksRunning: subtaskRollup.get(task.id)?.running ?? 0,
-									subtasksFailed: subtaskRollup.get(task.id)?.failed ?? 0
-								}, task.id)), visible.length === 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+								children: [renderGrouped(ARCHIVE_COLUMN, visible, false, true), visible.length === 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 									className: board_module_css_default.columnEmpty,
 									children: tagFilter.length > 0 ? t$5("board.tagEmpty") : t$5("archive.empty")
 								})]
@@ -14087,6 +14881,8 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 						}) : COLUMNS.map((column) => {
 							const tasks = visible.filter((task) => task.status === column.status);
 							const isManualDropTarget = MANUAL_STATUSES.includes(column.status);
+							const compact = compactColumns.includes(column.status);
+							const grouped = GROUPED_COLUMNS.includes(column.status);
 							return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
 								className: board_module_css_default.column,
 								"data-status": column.status,
@@ -14117,21 +14913,24 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 											className: board_module_css_default.columnCount,
 											children: tasks.length
+										}),
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+											type: "button",
+											className: board_module_css_default.densityToggle,
+											"data-dsh-part": "density-toggle",
+											"data-active": compact ? "true" : void 0,
+											"aria-pressed": compact,
+											title: compact ? t$5("board.density.comfortable") : t$5("board.density.compact"),
+											"aria-label": compact ? t$5("board.density.comfortable") : t$5("board.density.compact"),
+											onClick: () => {
+												toggleCompact(column.status);
+											},
+											children: compact ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconExpandRows, { size: 13 }) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconCompactRows, { size: 13 })
 										})
 									]
 								}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 									className: board_module_css_default.cards,
-									children: [tasks.map((task) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(MemoTaskCard, {
-										task,
-										pending: snapshot.pendingTaskIds.includes(task.id),
-										timeZone: snapshot.host?.scheduler.timeZone,
-										onOpen: openTask,
-										subtaskCount: subtaskCounts.get(task.id) ?? 0,
-										isSubtask: task.parentId !== void 0,
-										subtasksDone: subtaskRollup.get(task.id)?.done ?? 0,
-										subtasksRunning: subtaskRollup.get(task.id)?.running ?? 0,
-										subtasksFailed: subtaskRollup.get(task.id)?.failed ?? 0
-									}, task.id)), tasks.length === 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+									children: [grouped ? renderGrouped(column.status, tasks, compact, false) : tasks.map((task) => renderCard(task, compact)), tasks.length === 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 										className: board_module_css_default.columnEmpty,
 										children: tagFilter.length > 0 ? t$5("board.tagEmpty") : t$5("board.empty")
 									})]
@@ -14476,6 +15275,51 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 						})
 					]
 				}) : null]
+			});
+		}
+		/** A staged value field. `numeric` only hints the keypad: which drafts a field accepts is decided by its spec. */
+		function ValueField$2(props) {
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: settings_card_module_css_default$3.field,
+				children: [
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: settings_card_module_css_default$3.head,
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("label", {
+							className: settings_card_module_css_default$3.label,
+							htmlFor: props.id,
+							children: props.label
+						}), props.overridden ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+							className: settings_card_module_css_default$3.badges,
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: settings_card_module_css_default$3.badge,
+								children: props.overriddenLabel
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								type: "button",
+								className: settings_card_module_css_default$3.reset,
+								disabled: props.disabled,
+								onClick: props.onReset,
+								children: props.resetLabel
+							})]
+						}) : null]
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+						id: props.id,
+						className: props.invalid ? settings_card_module_css_default$3.inputInvalid : settings_card_module_css_default$3.input,
+						type: "text",
+						...props.numeric === true ? { inputMode: "numeric" } : {},
+						...props.invalid ? { "aria-invalid": true } : {},
+						value: props.text,
+						placeholder: props.placeholder ?? "",
+						disabled: props.disabled,
+						onChange: (event) => {
+							props.onEdit(event.target.value);
+						}
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+						className: props.invalid ? settings_card_module_css_default$3.invalid : settings_card_module_css_default$3.hint,
+						children: props.invalid ? props.invalidLabel : props.hint
+					})
+				]
 			});
 		}
 		const NON_SKIN_BODY_MARKERS$3 = /* @__PURE__ */ new Set(["dshSkinCenter", "dshSidebarCollapsed"]);
@@ -15054,6 +15898,28 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 		/** The depth choices the card offers, derived from the supported range. */
 		const SUBTASK_DEPTH_CHOICES = Array.from({ length: 3 }, (_, index) => String(1 + index));
 		/**
+		* The roster-poll cadence field: a whole number of seconds inside the
+		* supported range, because the Host schema (`sessionPollSeconds`) is numeric.
+		* A draft outside the range blocks the save instead of staging a value the
+		* Host would clamp behind the user's back.
+		*/
+		function sessionPollField() {
+			return {
+				field: "sessionPollSeconds",
+				format: (value) => typeof value === "number" && Number.isInteger(value) ? String(value) : "",
+				parse: (text) => {
+					const trimmed = text.trim();
+					if (trimmed === "") return { kind: "clear" };
+					if (!/^\d+$/.test(trimmed)) return void 0;
+					const seconds = Number(trimmed);
+					return seconds >= 1 && seconds <= 300 ? {
+						kind: "set",
+						value: seconds
+					} : void 0;
+				}
+			};
+		}
+		/**
 		* The depth field: a choice among the supported levels whose draft text is a
 		* number, because the Host schema (`maxSubtaskDepth`) is numeric. A draft
 		* outside the range blocks the save instead of staging a value the Host
@@ -15123,6 +15989,7 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 					booleanField$3("announceToAgent"),
 					booleanField$3("preventIdleSleep"),
 					subtaskDepthField(),
+					sessionPollField(),
 					booleanField$3("goalVerification"),
 					judgeModelField(),
 					judgeEffortField()
@@ -15136,6 +16003,7 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 					announceToAgent: this.form.field("announceToAgent"),
 					preventIdleSleep: this.form.field("preventIdleSleep"),
 					maxSubtaskDepth: this.form.field("maxSubtaskDepth"),
+					sessionPollSeconds: this.form.field("sessionPollSeconds"),
 					goalVerification: this.form.field("goalVerification"),
 					goalVerificationModel: this.form.field("goalVerificationModel"),
 					goalVerificationReasoningEffort: this.form.field("goalVerificationReasoningEffort")
@@ -15336,6 +16204,20 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 									},
 									onReset: () => {
 										props.resetField("preventIdleSleep");
+									}
+								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)(ValueField$2, {
+									id: "settings-task-board-session-poll",
+									label: t("settings.sessionPollSeconds"),
+									hint: t("settings.sessionPollSecondsHint"),
+									numeric: true,
+									...fieldProps,
+									...state.sessionPollSeconds,
+									onEdit: (text) => {
+										props.edit("sessionPollSeconds", text);
+									},
+									onReset: () => {
+										props.resetField("sessionPollSeconds");
 									}
 								}),
 								/* @__PURE__ */ (0, react_jsx_runtime.jsx)(ChoiceField$1, {
@@ -15830,7 +16712,7 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$5() {
 			try {
-				return "0.4.4-dsh.20261003.1";
+				return "0.4.5-dsh.20261007.1";
 			} catch {
 				return;
 			}
@@ -17303,6 +18185,11 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 			if (options.baseBranch !== void 0 && options.baseBranch.trim() !== "") next.baseBranch = options.baseBranch.trim();
 			if (options.prCreationEnabled !== void 0) next.prCreationEnabled = options.prCreationEnabled;
 			if (options.pollingIntervalMs !== void 0 && Number.isFinite(options.pollingIntervalMs) && options.pollingIntervalMs >= 0) next.pollingIntervalMs = Math.floor(options.pollingIntervalMs);
+			if (options.analysisModel !== void 0) {
+				const analysisModel = options.analysisModel.trim();
+				if (analysisModel === "") delete next.analysisModel;
+				else next.analysisModel = analysisModel;
+			}
 			return next;
 		}
 		/**
@@ -17385,6 +18272,96 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 			};
 		}
 		//#endregion
+		//#region ../dsh-task-board-github/src/core/prompt.ts
+		/** Bounds a stored analysis is held to, both when parsed and when normalized. */
+		const ANALYSIS_LIMITS = {
+			goal: 600,
+			item: 300,
+			items: 8,
+			notes: 600
+		};
+		/** Collapse any whitespace run (newlines included) into one space. */
+		function oneLine(text) {
+			return text.replace(/\s+/g, " ").trim();
+		}
+		/** Cap a single-line string at a length, marking the cut. */
+		function capped(text, limit) {
+			return text.length <= limit ? text : text.slice(0, limit - 1).trimEnd() + "…";
+		}
+		/**
+		* Stable 32-bit FNV-1a fingerprint of a string, as a versioned hex token.
+		* Not a security primitive: it only tells "the text the provider generated"
+		* from "a text somebody changed", where an accidental collision costs one
+		* missed regeneration.
+		* @param text - the text to fingerprint.
+		* @returns the fingerprint token.
+		*/
+		function fingerprint(text) {
+			let hash = 2166136261;
+			for (let index = 0; index < text.length; index += 1) {
+				hash ^= text.charCodeAt(index);
+				hash = Math.imul(hash, 16777619) >>> 0;
+			}
+			return "f1:" + hash.toString(16).padStart(8, "0");
+		}
+		/**
+		* Fingerprint of the issue content an analysis was written from. An analysis
+		* whose source fingerprint differs from the issue's current one is stale and is
+		* left out of the prompt.
+		* @param title - issue title.
+		* @param body - issue body.
+		* @returns the source fingerprint.
+		*/
+		function issueSourceHash(title, body) {
+			return fingerprint(title.trim() + "\0" + body.trim());
+		}
+		/**
+		* The prompt a card synchronized before the template existed was given: the
+		* issue body, or the title when the body was empty. A card still carrying
+		* exactly that text was never edited by a person and may be upgraded.
+		* @param title - issue title.
+		* @param body - issue body.
+		* @returns the legacy prompt text.
+		*/
+		function legacyIssuePrompt(title, body) {
+			const trimmedBody = body.trim();
+			return trimmedBody !== "" ? trimmedBody : title.trim();
+		}
+		/**
+		* Whether a card's current prompt was changed by somebody after the provider
+		* last generated it.
+		* @param prompt - the card's current prompt.
+		* @param stored - the fingerprint stored with the card, when there is one.
+		* @param legacy - the remote title and body last synchronized, for cards that predate fingerprints.
+		* @returns true when the prompt must be kept as it is.
+		*/
+		function isPromptEdited(prompt, stored, legacy) {
+			if (stored !== void 0) return fingerprint(prompt) !== stored;
+			if (legacy.title === void 0 && legacy.body === void 0) return false;
+			return prompt !== legacyIssuePrompt(legacy.title ?? "", legacy.body ?? "");
+		}
+		/**
+		* Bound and repair an analysis read from a model reply or a stored payload.
+		* @param value - candidate analysis.
+		* @returns the analysis, or undefined when it carries nothing usable.
+		*/
+		function normalizeIssueAnalysis(value) {
+			if (typeof value !== "object" || value === null || Array.isArray(value)) return void 0;
+			const raw = value;
+			const text = (entry, limit) => typeof entry === "string" ? capped(oneLine(entry), limit) : "";
+			const list = (entry) => Array.isArray(entry) ? entry.map((item) => text(item, ANALYSIS_LIMITS.item)).filter((item) => item !== "").slice(0, ANALYSIS_LIMITS.items) : [];
+			const goal = text(raw.goal, ANALYSIS_LIMITS.goal);
+			if (goal === "") return void 0;
+			const notes = text(raw.notes, ANALYSIS_LIMITS.notes);
+			return {
+				goal,
+				steps: list(raw.steps),
+				acceptance: list(raw.acceptance),
+				needsCodeChange: raw.needsCodeChange !== false,
+				...notes === "" ? {} : { notes }
+			};
+		}
+		//#endregion
 		//#region ../dsh-task-board-github/src/core/types.ts
 		/**
 		* Pure domain types and validation for the GitHub task-board integration.
@@ -17447,6 +18424,7 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 				...typeof gh.pullRequest.baseBranch === "string" && gh.pullRequest.baseBranch !== "" ? { baseBranch: gh.pullRequest.baseBranch } : {},
 				...typeof gh.pullRequest.mergedAt === "number" && Number.isFinite(gh.pullRequest.mergedAt) ? { mergedAt: gh.pullRequest.mergedAt } : {}
 			};
+			const analysis = normalizeStoredAnalysis(gh.analysis);
 			return {
 				provider: "github",
 				owner: gh.owner.trim(),
@@ -17462,7 +18440,31 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 				...typeof gh.lastRemoteUpdatedAt === "number" && Number.isFinite(gh.lastRemoteUpdatedAt) ? { lastRemoteUpdatedAt: gh.lastRemoteUpdatedAt } : {},
 				...typeof gh.lastSyncError === "string" && gh.lastSyncError !== "" ? { lastSyncError: gh.lastSyncError } : {},
 				...pullRequest !== void 0 ? { pullRequest } : {},
-				...gh.deactivated === true ? { deactivated: true } : {}
+				...gh.deactivated === true ? { deactivated: true } : {},
+				...typeof gh.promptHash === "string" && gh.promptHash !== "" ? { promptHash: gh.promptHash } : {},
+				...analysis !== void 0 ? { analysis } : {},
+				...typeof gh.analysisPendingSince === "number" && Number.isFinite(gh.analysisPendingSince) ? { analysisPendingSince: gh.analysisPendingSince } : {},
+				...typeof gh.analysisError === "string" && gh.analysisError !== "" ? { analysisError: gh.analysisError } : {}
+			};
+		}
+		/**
+		* Repair one stored analysis: the analysis fields are re-bounded, and the
+		* provenance fields must all be present or the whole entry reads as absent.
+		* @param value - candidate stored analysis.
+		* @returns the repaired analysis, or undefined.
+		*/
+		function normalizeStoredAnalysis(value) {
+			const analysis = normalizeIssueAnalysis(value);
+			if (analysis === void 0) return void 0;
+			const raw = value;
+			if (typeof raw.sourceHash !== "string" || raw.sourceHash === "") return void 0;
+			if (typeof raw.model !== "string" || raw.model === "") return void 0;
+			if (typeof raw.generatedAt !== "number" || !Number.isFinite(raw.generatedAt)) return void 0;
+			return {
+				...analysis,
+				sourceHash: raw.sourceHash,
+				model: raw.model,
+				generatedAt: raw.generatedAt
 			};
 		}
 		/**
@@ -17522,7 +18524,8 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 		* Prefixes: `settings.*` is the plugin card (its shared chrome plus this
 		* extension's own switches), `detail.*` is the task-detail seat, `summary.*`
 		* is the repository/credential summary shown by the settings seat and the card,
-		* and `common.*` is shared button copy.
+		* `prompt.*` is the execution-prompt panel of the task-detail seat, and
+		* `common.*` is shared button copy.
 		*/
 		/** Extension copy, key source of truth. */
 		const zh$9 = {
@@ -17549,6 +18552,10 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 			"settings.unsaved": "未保存",
 			"settings.saveFailed": "部署未接受这些值，已保留供你修改。",
 			"setup.apiUnavailable": "无法访问本机 Host 配置接口：{error}",
+			"setup.healthOk": "后台同步：最近一次成功同步于 {at}。",
+			"setup.healthStale": "后台同步：已 {minutes} 分钟没有成功同步（配置看起来正常，但同步实际已停）。",
+			"setup.healthNever": "后台同步：本次启动以来还没有成功同步过一次。",
+			"setup.healthErrors": "最近一次同步报告了 {count} 条错误，详情见宿主日志（dsh-task-board-github）。",
 			"setup.credentialConfigured": "Host 凭据：已配置（{name}，来源 {source}）",
 			"setup.credentialMissing": "Host 凭据：未配置（可直接在下方粘贴 GitHub Token，存到本机凭据库 {name}）",
 			"setup.credentialSourceUnknown": "未知",
@@ -17588,6 +18595,7 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 			"summary.credentialReady": "Host 凭据：有效",
 			"summary.credentialMissing": "Host 凭据：未检测到（请设置 GITHUB_TOKEN 环境变量，或用 tokenEnv 指定变量名）",
 			"summary.notRunning": "扩展当前未运行：打开开关后才会显示同步状态。",
+			"card.openIssue": "在 GitHub 打开 {reference}",
 			"detail.title": "GitHub Issue",
 			"detail.state.open": "开启",
 			"detail.state.closed": "已关闭",
@@ -17610,6 +18618,27 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 			"detail.linkPrTitle": "关联已有 Pull Request",
 			"detail.prNumberInput": "PR 编号",
 			"detail.deactivated": "该 Issue 在 GitHub 上已移除包含标签，已在看板停用。",
+			"prompt.title": "执行 Prompt",
+			"prompt.templateHint": "执行 Prompt 由模板生成：issue 头信息、执行要求与回写规则固定，issue 原文原样附在来源声明里。AI 分析是可选的一段，只补充目标、步骤与完成标准。",
+			"prompt.edited": "执行 Prompt 已被手动修改：同步不再覆盖它；重新生成需要确认覆盖。",
+			"prompt.frozen": "卡片已开始执行，执行 Prompt 已冻结。",
+			"prompt.analysisNone": "尚未生成 AI 分析。",
+			"prompt.analysisFresh": "AI 分析由 {model} 生成于 {time}，已写入执行 Prompt。",
+			"prompt.analysisStale": "issue 已在 AI 分析之后更新：旧分析已从执行 Prompt 中移除，可重新生成。",
+			"prompt.analysisPending": "正在生成 AI 分析…",
+			"prompt.analysisError": "AI 分析失败：{error}",
+			"prompt.noCodeChange": "模型判断该 issue 不需要改代码（通知或讨论类），可考虑移到待规划，避免执行时为推进目标制造改动。",
+			"prompt.moveBacklog": "移到待规划",
+			"prompt.modelLabel": "分析模型",
+			"prompt.modelPlaceholder": "provider/model，留空则用仓库设置、卡片模型或宿主默认",
+			"prompt.generate": "AI 生成分析",
+			"prompt.regenerate": "重新生成",
+			"prompt.overwrite": "覆盖并重新生成",
+			"prompt.clear": "移除 AI 分析",
+			"prompt.goal": "目标",
+			"prompt.steps": "建议步骤",
+			"prompt.acceptance": "完成标准",
+			"prompt.notes": "备注",
 			"common.cancel": "取消"
 		};
 		/** English counterpart; the key set mirrors {@link zh} exactly. */
@@ -17637,6 +18666,10 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 			"settings.unsaved": "Unsaved",
 			"settings.saveFailed": "The deployment did not accept these values; they were left for you to correct.",
 			"setup.apiUnavailable": "Cannot reach the host configuration API: {error}",
+			"setup.healthOk": "Background sync: last reached GitHub at {at}.",
+			"setup.healthStale": "Background sync: no successful sync for {minutes} minutes (the configuration looks right, but synchronization has stopped).",
+			"setup.healthNever": "Background sync: nothing has synced successfully since this host started.",
+			"setup.healthErrors": "The last sync reported {count} error(s); see the host log (dsh-task-board-github).",
 			"setup.credentialConfigured": "Host credential: configured ({name}, source {source})",
 			"setup.credentialMissing": "Host credential: not configured (paste a GitHub token below; it is stored in the local credential store as {name})",
 			"setup.credentialSourceUnknown": "unknown",
@@ -17676,6 +18709,7 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 			"summary.credentialReady": "Host credential: Valid",
 			"summary.credentialMissing": "Host credential: None detected (set the GITHUB_TOKEN environment variable, or name another one with tokenEnv)",
 			"summary.notRunning": "The extension is not running: its sync status appears once the switch is on.",
+			"card.openIssue": "Open {reference} on GitHub",
 			"detail.title": "GitHub Issue",
 			"detail.state.open": "Open",
 			"detail.state.closed": "Closed",
@@ -17698,6 +18732,27 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 			"detail.linkPrTitle": "Link Existing Pull Request",
 			"detail.prNumberInput": "PR Number",
 			"detail.deactivated": "Inclusion label was removed on GitHub; item is deactivated on the board.",
+			"prompt.title": "Execution prompt",
+			"prompt.templateHint": "The execution prompt is generated from a template: the issue header, the workflow and the write-back rules are fixed, and the issue body is appended verbatim inside a provenance wrap. The AI analysis is an optional section that only adds the goal, steps and completion criteria.",
+			"prompt.edited": "The execution prompt was edited by hand: synchronization no longer overwrites it, and regenerating needs a confirmation.",
+			"prompt.frozen": "The card has started executing; its execution prompt is frozen.",
+			"prompt.analysisNone": "No AI analysis yet.",
+			"prompt.analysisFresh": "AI analysis written by {model} at {time} is part of the execution prompt.",
+			"prompt.analysisStale": "The issue changed after the AI analysis: the old analysis was left out of the execution prompt. Generate it again to refresh it.",
+			"prompt.analysisPending": "Generating the AI analysis…",
+			"prompt.analysisError": "AI analysis failed: {error}",
+			"prompt.noCodeChange": "The model judged that this issue needs no code change (a notice or a discussion). Consider moving it to the backlog so a run does not invent changes to finish a goal.",
+			"prompt.moveBacklog": "Move to backlog",
+			"prompt.modelLabel": "Analysis model",
+			"prompt.modelPlaceholder": "provider/model; empty uses the repository setting, the card model or the host default",
+			"prompt.generate": "Generate AI analysis",
+			"prompt.regenerate": "Regenerate",
+			"prompt.overwrite": "Overwrite and regenerate",
+			"prompt.clear": "Remove AI analysis",
+			"prompt.goal": "Goal",
+			"prompt.steps": "Suggested steps",
+			"prompt.acceptance": "Completion criteria",
+			"prompt.notes": "Notes",
 			"common.cancel": "Cancel"
 		};
 		/** The dictionary this module falls back to when no runtime seat is wired. */
@@ -17733,7 +18788,7 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 		}
 		//#endregion
 		//#region \0dsh-css:packages/dsh-task-board-github/src/client/github.module.css.mjs
-		const css$11 = ".SUUxSG_detailSection{flex-direction:column;gap:6px;display:flex}.SUUxSG_detailSection h4{color:var(--dsw-alias-label-tertiary);text-transform:none;margin:0;font-size:12px;font-weight:700}.SUUxSG_detailText{color:var(--dsw-alias-label-primary);white-space:pre-wrap;overflow-wrap:anywhere;margin:0;font-size:13px;line-height:1.55}.SUUxSG_detailMeta{color:var(--dsw-alias-label-tertiary);margin-left:auto;font-size:11px}.SUUxSG_cardTags{flex-wrap:wrap;gap:4px;display:flex}.SUUxSG_cardTag{border:1px solid var(--dsh-task-tag-border);background:var(--dsh-task-tag-fill);max-width:100%;color:var(--dsw-alias-label-primary);text-overflow:ellipsis;white-space:nowrap;border-radius:999px;padding:0 7px;font-size:10px;line-height:16px;overflow:hidden}.SUUxSG_cardSchedule{white-space:nowrap;min-width:0;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-interactive-bg-hover);border-radius:999px;flex:none;padding:2px 6px;font-size:12px;line-height:1}.SUUxSG_statusBadge{border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);border-radius:999px;flex:none;padding:2px 10px;font-size:12px}.SUUxSG_statusBadge[data-status=running]{color:var(--dsw-alias-state-warn-primary);border-color:var(--dsw-alias-state-warn-primary)}.SUUxSG_statusBadge[data-status=done]{color:var(--dsw-alias-state-success-primary);border-color:var(--dsw-alias-state-success-primary)}.SUUxSG_statusBadge[data-status=failed]{color:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary)}.SUUxSG_moveRow{flex-wrap:wrap;gap:8px;display:flex}.SUUxSG_formError{color:var(--dsw-alias-state-error-primary);margin:0;font-size:12px}.SUUxSG_field{flex-direction:column;gap:5px;display:flex}.SUUxSG_fieldLabel{color:var(--dsw-alias-label-secondary);font-size:12px;font-weight:600}.SUUxSG_input{color:var(--dsw-alias-label-primary);background:var(--dsw-specific-input-major);border:1px solid var(--dsw-alias-border-l2);resize:vertical;border-radius:8px;outline:none;padding:7px 10px;font-family:inherit;font-size:13px}.SUUxSG_input:focus{border-color:var(--dsw-alias-state-business-primary)}.SUUxSG_input::placeholder{color:var(--dsw-alias-label-tertiary)}.SUUxSG_scheduleToggle{color:var(--dsw-alias-label-primary);cursor:pointer;user-select:none;align-items:center;gap:8px;font-size:13px;display:flex}.SUUxSG_scheduleToggle input{accent-color:var(--dsw-alias-state-business-primary)}.SUUxSG_linkButton{color:var(--dsw-alias-state-business-primary);cursor:pointer;white-space:nowrap;background:0 0;border:none;padding:0;font-size:12px}.SUUxSG_linkButton:hover{text-decoration:underline}.SUUxSG_primaryButton{color:var(--dsw-alias-label-primary-foreground);background:var(--dsw-alias-button-primary-fill);cursor:pointer;white-space:nowrap;border:none;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600}.SUUxSG_primaryButton:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}.SUUxSG_primaryButton:disabled{opacity:.5;cursor:default}.SUUxSG_ghostButton{color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l2);cursor:pointer;white-space:nowrap;background:0 0;border-radius:8px;padding:5px 12px;font-size:12px}.SUUxSG_ghostButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.SUUxSG_ghostButton:disabled{opacity:.45;cursor:default}.SUUxSG_primaryButton:focus-visible,.SUUxSG_ghostButton:focus-visible,.SUUxSG_linkButton:focus-visible,.SUUxSG_input:focus-visible,.SUUxSG_scheduleToggle input:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}.SUUxSG_primaryButton,.SUUxSG_ghostButton,.SUUxSG_linkButton,.SUUxSG_input,.SUUxSG_scheduleToggle input{transition:background-color .12s,color .12s,border-color .12s,outline-color .12s,box-shadow .12s,transform .12s}.SUUxSG_primaryButton:active:not(:disabled),.SUUxSG_ghostButton:active:not(:disabled),.SUUxSG_linkButton:active:not(:disabled){transform:translateY(1px)}.SUUxSG_modalBackdrop{z-index:1300;background:var(--dsw-alias-bg-mask-1);justify-content:center;align-items:center;display:flex;position:fixed;inset:0}.SUUxSG_modal{background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);width:min(520px,100vw - 48px);max-height:calc(100vh - 96px);box-shadow:var(--dsw-shadow-lv3);color:var(--dsw-alias-label-primary);border-radius:14px;flex-direction:column;gap:10px;padding:18px;display:flex;overflow:hidden}.SUUxSG_modalTitle{margin:0;font-size:15px;font-weight:700}.SUUxSG_modalBody{flex-direction:column;gap:8px;min-height:0;display:flex;overflow-y:auto}.SUUxSG_modalBody>*{flex:none}.SUUxSG_modalFooter{justify-content:flex-end;gap:10px;margin-top:4px;display:flex}.SUUxSG_sectionHint{color:var(--dsw-alias-label-secondary);margin:4px 0;font-size:12px;line-height:1.5}.SUUxSG_setupPanel{border-top:1px solid var(--dsw-alias-separator-primary);margin-top:16px;padding-top:12px}.SUUxSG_settingsSummaryTitle{margin:0 0 8px;font-size:13px;font-weight:600}.SUUxSG_setupSection{margin-top:10px}.SUUxSG_setupLine{margin:4px 0;font-size:12px}.SUUxSG_setupHint{opacity:.8;margin:4px 0;font-size:12px}.SUUxSG_setupRow{flex-wrap:wrap;align-items:center;gap:8px;margin:6px 0;display:flex}.SUUxSG_setupRow .SUUxSG_input{flex:220px;min-width:0}.SUUxSG_setupLabelInput{flex:0 140px}.SUUxSG_setupRepository{overflow-wrap:anywhere;flex:220px;align-items:center;gap:6px;min-width:0;font-size:12px;display:inline-flex}.SUUxSG_setupReport{margin-top:4px}@media (width<=720px){.SUUxSG_input{box-sizing:border-box;font-size:16px}.SUUxSG_modalBackdrop{justify-content:stretch;align-items:stretch;width:100vw;height:100dvh}.SUUxSG_modal{box-sizing:border-box;width:100vw;height:100dvh;max-height:none;padding-top:max(16px, env(safe-area-inset-top));padding-right:max(16px, env(safe-area-inset-right));padding-bottom:max(16px, env(safe-area-inset-bottom));padding-left:max(16px, env(safe-area-inset-left));border:0;border-radius:0}.SUUxSG_modalFooter{z-index:1;background:var(--dsw-alias-bg-base);flex-wrap:wrap;padding-top:8px;position:sticky;bottom:0}.SUUxSG_modalFooter>button{flex:120px}}";
+		const css$11 = ".SUUxSG_detailSection{flex-direction:column;gap:6px;display:flex}.SUUxSG_detailSection h4{color:var(--dsw-alias-label-tertiary);text-transform:none;margin:0;font-size:12px;font-weight:700}.SUUxSG_detailText{color:var(--dsw-alias-label-primary);white-space:pre-wrap;overflow-wrap:anywhere;margin:0;font-size:13px;line-height:1.55}.SUUxSG_detailMeta{color:var(--dsw-alias-label-tertiary);margin-left:auto;font-size:11px}.SUUxSG_cardTags{flex-wrap:wrap;gap:4px;display:flex}.SUUxSG_cardTag{border:1px solid var(--dsh-task-tag-border);background:var(--dsh-task-tag-fill);max-width:100%;color:var(--dsw-alias-label-primary);text-overflow:ellipsis;white-space:nowrap;border-radius:999px;padding:0 7px;font-size:10px;line-height:16px;overflow:hidden}.SUUxSG_cardSchedule{white-space:nowrap;min-width:0;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-interactive-bg-hover);border-radius:999px;flex:none;align-self:flex-start;align-items:center;padding:2px 6px;font-size:12px;line-height:1;display:inline-flex}.SUUxSG_cardLink{cursor:pointer;text-decoration:none}.SUUxSG_cardLink:hover{color:var(--dsw-alias-label-primary);text-decoration:underline}.SUUxSG_cardLink:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}.SUUxSG_statusBadge{border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);border-radius:999px;flex:none;padding:2px 10px;font-size:12px}.SUUxSG_statusBadge[data-status=running]{color:var(--dsw-alias-state-warn-primary);border-color:var(--dsw-alias-state-warn-primary)}.SUUxSG_statusBadge[data-status=done]{color:var(--dsw-alias-state-success-primary);border-color:var(--dsw-alias-state-success-primary)}.SUUxSG_statusBadge[data-status=failed]{color:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary)}.SUUxSG_moveRow{flex-wrap:wrap;gap:8px;display:flex}.SUUxSG_formError{color:var(--dsw-alias-state-error-primary);margin:0;font-size:12px}.SUUxSG_field{flex-direction:column;gap:5px;display:flex}.SUUxSG_fieldLabel{color:var(--dsw-alias-label-secondary);font-size:12px;font-weight:600}.SUUxSG_input{color:var(--dsw-alias-label-primary);background:var(--dsw-specific-input-major);border:1px solid var(--dsw-alias-border-l2);resize:vertical;border-radius:8px;outline:none;padding:7px 10px;font-family:inherit;font-size:13px}.SUUxSG_input:focus{border-color:var(--dsw-alias-state-business-primary)}.SUUxSG_input::placeholder{color:var(--dsw-alias-label-tertiary)}.SUUxSG_scheduleToggle{color:var(--dsw-alias-label-primary);cursor:pointer;user-select:none;align-items:center;gap:8px;font-size:13px;display:flex}.SUUxSG_scheduleToggle input{accent-color:var(--dsw-alias-state-business-primary)}.SUUxSG_linkButton{color:var(--dsw-alias-state-business-primary);cursor:pointer;white-space:nowrap;background:0 0;border:none;padding:0;font-size:12px}.SUUxSG_linkButton:hover{text-decoration:underline}.SUUxSG_primaryButton{color:var(--dsw-alias-label-primary-foreground);background:var(--dsw-alias-button-primary-fill);cursor:pointer;white-space:nowrap;border:none;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600}.SUUxSG_primaryButton:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}.SUUxSG_primaryButton:disabled{opacity:.5;cursor:default}.SUUxSG_ghostButton{color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l2);cursor:pointer;white-space:nowrap;background:0 0;border-radius:8px;padding:5px 12px;font-size:12px}.SUUxSG_ghostButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.SUUxSG_ghostButton:disabled{opacity:.45;cursor:default}.SUUxSG_primaryButton:focus-visible,.SUUxSG_ghostButton:focus-visible,.SUUxSG_linkButton:focus-visible,.SUUxSG_input:focus-visible,.SUUxSG_scheduleToggle input:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}.SUUxSG_primaryButton,.SUUxSG_ghostButton,.SUUxSG_linkButton,.SUUxSG_input,.SUUxSG_scheduleToggle input{transition:background-color .12s,color .12s,border-color .12s,outline-color .12s,box-shadow .12s,transform .12s}.SUUxSG_primaryButton:active:not(:disabled),.SUUxSG_ghostButton:active:not(:disabled),.SUUxSG_linkButton:active:not(:disabled){transform:translateY(1px)}.SUUxSG_modalBackdrop{z-index:1300;background:var(--dsw-alias-bg-mask-1);justify-content:center;align-items:center;display:flex;position:fixed;inset:0}.SUUxSG_modal{background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);width:min(520px,100vw - 48px);max-height:calc(100vh - 96px);box-shadow:var(--dsw-shadow-lv3);color:var(--dsw-alias-label-primary);border-radius:14px;flex-direction:column;gap:10px;padding:18px;display:flex;overflow:hidden}.SUUxSG_modalTitle{margin:0;font-size:15px;font-weight:700}.SUUxSG_modalBody{flex-direction:column;gap:8px;min-height:0;display:flex;overflow-y:auto}.SUUxSG_modalBody>*{flex:none}.SUUxSG_modalFooter{justify-content:flex-end;gap:10px;margin-top:4px;display:flex}.SUUxSG_sectionHint{color:var(--dsw-alias-label-secondary);margin:4px 0;font-size:12px;line-height:1.5}.SUUxSG_setupPanel{border-top:1px solid var(--dsw-alias-separator-primary);margin-top:16px;padding-top:12px}.SUUxSG_settingsSummaryTitle{margin:0 0 8px;font-size:13px;font-weight:600}.SUUxSG_setupSection{margin-top:10px}.SUUxSG_setupLine{margin:4px 0;font-size:12px}.SUUxSG_setupHint{opacity:.8;margin:4px 0;font-size:12px}.SUUxSG_setupRow{flex-wrap:wrap;align-items:center;gap:8px;margin:6px 0;display:flex}.SUUxSG_setupRow .SUUxSG_input{flex:220px;min-width:0}.SUUxSG_setupLabelInput{flex:0 140px}.SUUxSG_setupRepository{overflow-wrap:anywhere;flex:220px;align-items:center;gap:6px;min-width:0;font-size:12px;display:inline-flex}.SUUxSG_setupReport{margin-top:4px}@media (width<=720px){.SUUxSG_input{box-sizing:border-box;font-size:16px}.SUUxSG_modalBackdrop{justify-content:stretch;align-items:stretch;width:100vw;height:100dvh}.SUUxSG_modal{box-sizing:border-box;width:100vw;height:100dvh;max-height:none;padding-top:max(16px, env(safe-area-inset-top));padding-right:max(16px, env(safe-area-inset-right));padding-bottom:max(16px, env(safe-area-inset-bottom));padding-left:max(16px, env(safe-area-inset-left));border:0;border-radius:0}.SUUxSG_modalFooter{z-index:1;background:var(--dsw-alias-bg-base);flex-wrap:wrap;padding-top:8px;position:sticky;bottom:0}.SUUxSG_modalFooter>button{flex:120px}}.SUUxSG_promptPanel{border-top:1px solid var(--dsh-task-tag-border);flex-direction:column;gap:6px;margin-top:10px;padding-top:8px;display:flex}.SUUxSG_promptPanel .SUUxSG_detailMeta{margin:0;line-height:1.5}.SUUxSG_promptAnalysis{border:1px solid var(--dsh-task-tag-border);background:var(--dsh-task-tag-fill);border-radius:8px;flex-direction:column;gap:4px;padding:8px;display:flex}.SUUxSG_promptList{color:var(--dsw-alias-label-primary);overflow-wrap:anywhere;margin:0;padding-left:20px;font-size:13px;line-height:1.55}.SUUxSG_promptNotice{flex-wrap:wrap;align-items:center;gap:6px;margin-top:4px;display:flex}";
 		const tagId$11 = "@linxin666/dsh-web-all/packages/dsh-task-board-github/src/client/github.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$11) + "]") === null) {
 			const tag = document.createElement("style");
@@ -17743,6 +18798,7 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 			document.head.appendChild(tag);
 		}
 		var github_module_css_default = {
+			"cardLink": "SUUxSG_cardLink",
 			"cardSchedule": "SUUxSG_cardSchedule",
 			"cardTag": "SUUxSG_cardTag",
 			"cardTags": "SUUxSG_cardTags",
@@ -17762,6 +18818,10 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 			"modalTitle": "SUUxSG_modalTitle",
 			"moveRow": "SUUxSG_moveRow",
 			"primaryButton": "SUUxSG_primaryButton",
+			"promptAnalysis": "SUUxSG_promptAnalysis",
+			"promptList": "SUUxSG_promptList",
+			"promptNotice": "SUUxSG_promptNotice",
+			"promptPanel": "SUUxSG_promptPanel",
 			"scheduleToggle": "SUUxSG_scheduleToggle",
 			"sectionHint": "SUUxSG_sectionHint",
 			"settingsSummaryTitle": "SUUxSG_settingsSummaryTitle",
@@ -17775,6 +18835,207 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 			"setupSection": "SUUxSG_setupSection",
 			"statusBadge": "SUUxSG_statusBadge"
 		};
+		//#endregion
+		//#region ../dsh-task-board-github/src/client/github/prompt-panel.tsx
+		/**
+		* The execution-prompt panel of the GitHub task-detail seat.
+		*
+		* It shows how the card's prompt was built — templated, edited by hand, or
+		* frozen by an execution — and drives the optional model analysis: start one
+		* (with an optional model route), regenerate a stale one, overwrite a prompt
+		* somebody edited after an explicit confirmation, or drop the analysis. The
+		* model call runs on the host in the background; this panel only dispatches
+		* the request and then renders the progress the host writes back onto the
+		* card, so a reload or a second window shows the same state.
+		*
+		* @module dsh-task-board-github/client/github/prompt-panel
+		*/
+		/**
+		* Derive the panel state from a card and its provider payload.
+		* @param task - the card.
+		* @param metadata - its GitHub payload.
+		* @returns the panel state.
+		*/
+		function promptPanelState(task, metadata) {
+			const analysis = metadata.analysis === void 0 ? "none" : metadata.analysis.sourceHash === issueSourceHash(metadata.remoteTitle ?? "", metadata.remoteBody ?? "") ? "fresh" : "stale";
+			return {
+				frozen: task.executions.length > 0 || task.archivedAt !== void 0,
+				edited: isPromptEdited(task.prompt, metadata.promptHash, {
+					...metadata.remoteTitle === void 0 ? {} : { title: metadata.remoteTitle },
+					...metadata.remoteBody === void 0 ? {} : { body: metadata.remoteBody }
+				}),
+				pending: metadata.analysisPendingSince !== void 0,
+				analysis
+			};
+		}
+		/** Report a dispatch failure the way the action channel phrased it. */
+		function messageOf$2(error) {
+			return error instanceof Error ? error.message : String(error);
+		}
+		/** The execution-prompt panel. */
+		function GitHubPromptPanel({ task, metadata, dispatch }) {
+			const [model, setModel] = (0, react.useState)("");
+			const [busy, setBusy] = (0, react.useState)(false);
+			const [error, setError] = (0, react.useState)();
+			const state = promptPanelState(task, metadata);
+			const analysis = metadata.analysis;
+			const send = async (action, payload = {}) => {
+				setBusy(true);
+				setError(void 0);
+				try {
+					await dispatch({
+						extensionId: GITHUB_EXTENSION_ID,
+						action,
+						taskId: task.id,
+						payload
+					});
+				} catch (cause) {
+					setError(messageOf$2(cause));
+				} finally {
+					setBusy(false);
+				}
+			};
+			const disabled = busy || state.pending || state.frozen;
+			const generateLabel = state.edited ? t$4("prompt.overwrite") : state.analysis === "none" ? t$4("prompt.generate") : t$4("prompt.regenerate");
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: github_module_css_default.promptPanel,
+				"data-dsh-part": "github-prompt",
+				children: [
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+						className: github_module_css_default.fieldLabel,
+						children: t$4("prompt.title")
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+						className: github_module_css_default.detailMeta,
+						children: t$4("prompt.templateHint")
+					}),
+					state.frozen && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+						className: github_module_css_default.detailMeta,
+						children: t$4("prompt.frozen")
+					}),
+					!state.frozen && state.edited && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+						className: github_module_css_default.detailMeta,
+						"data-prompt-state": "edited",
+						children: t$4("prompt.edited")
+					}),
+					state.pending ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+						className: github_module_css_default.detailMeta,
+						"data-prompt-state": "pending",
+						children: t$4("prompt.analysisPending")
+					}) : state.analysis === "none" ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+						className: github_module_css_default.detailMeta,
+						children: t$4("prompt.analysisNone")
+					}) : state.analysis === "stale" ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+						className: github_module_css_default.detailMeta,
+						"data-prompt-state": "stale",
+						children: t$4("prompt.analysisStale")
+					}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+						className: github_module_css_default.detailMeta,
+						"data-prompt-state": "fresh",
+						children: t$4("prompt.analysisFresh", {
+							model: analysis?.model ?? "",
+							time: formatHostTimestamp(analysis?.generatedAt ?? 0)
+						})
+					}),
+					analysis !== void 0 && state.analysis === "fresh" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: github_module_css_default.promptAnalysis,
+						"data-dsh-part": "github-analysis",
+						children: [
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("p", {
+								className: github_module_css_default.detailText,
+								children: [
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("strong", { children: t$4("prompt.goal") }),
+									": ",
+									analysis.goal
+								]
+							}),
+							analysis.steps.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+								className: github_module_css_default.detailText,
+								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("strong", { children: t$4("prompt.steps") })
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("ol", {
+								className: github_module_css_default.promptList,
+								children: analysis.steps.map((step, index) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("li", { children: step }, index))
+							})] }),
+							analysis.acceptance.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+								className: github_module_css_default.detailText,
+								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("strong", { children: t$4("prompt.acceptance") })
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
+								className: github_module_css_default.promptList,
+								children: analysis.acceptance.map((item, index) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("li", { children: item }, index))
+							})] }),
+							analysis.notes !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("p", {
+								className: github_module_css_default.detailText,
+								children: [
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("strong", { children: t$4("prompt.notes") }),
+									": ",
+									analysis.notes
+								]
+							}),
+							!analysis.needsCodeChange && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: github_module_css_default.promptNotice,
+								"data-prompt-state": "no-code-change",
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+									className: github_module_css_default.detailText,
+									children: t$4("prompt.noCodeChange")
+								}), task.status !== "backlog" && !state.frozen && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: github_module_css_default.ghostButton,
+									disabled: busy,
+									onClick: () => {
+										send("move-backlog");
+									},
+									children: t$4("prompt.moveBacklog")
+								})]
+							})
+						]
+					}),
+					metadata.analysisError !== void 0 && !state.pending && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+						className: github_module_css_default.formError,
+						children: t$4("prompt.analysisError", { error: metadata.analysisError })
+					}),
+					error !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+						className: github_module_css_default.formError,
+						children: error
+					}),
+					!state.frozen && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+						className: github_module_css_default.field,
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: github_module_css_default.fieldLabel,
+							children: t$4("prompt.modelLabel")
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+							type: "text",
+							className: github_module_css_default.input,
+							value: model,
+							placeholder: t$4("prompt.modelPlaceholder"),
+							onChange: (event) => setModel(event.target.value),
+							disabled
+						})]
+					}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: github_module_css_default.moveRow,
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							type: "button",
+							className: github_module_css_default.ghostButton,
+							disabled,
+							onClick: () => {
+								send("analyze", {
+									...model.trim() === "" ? {} : { model: model.trim() },
+									...state.edited ? { overwrite: true } : {}
+								});
+							},
+							children: state.pending ? t$4("prompt.analysisPending") : generateLabel
+						}), analysis !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							type: "button",
+							className: github_module_css_default.ghostButton,
+							disabled,
+							onClick: () => {
+								send("clear-analysis", state.edited ? { overwrite: true } : {});
+							},
+							children: t$4("prompt.clear")
+						})]
+					})] })
+				]
+			});
+		}
 		//#endregion
 		//#region ../dsh-task-board-github/src/client/github/sections.tsx
 		/**
@@ -18178,6 +19439,11 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 							children: t$4("detail.linkPr")
 						})] })]
 					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)(GitHubPromptPanel, {
+						task,
+						metadata,
+						dispatch
+					}),
 					showCreatePr && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(CreatePrModal, {
 						dispatch,
 						metadata,
@@ -18192,15 +19458,41 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 				]
 			});
 		}
-		/** The card-decoration seat: a compact issue reference on linked cards. */
+		/** Only an http(s) issue URL becomes a link; anything else stays plain text. */
+		function safeIssueHref(value) {
+			try {
+				const url = new URL(value);
+				return url.protocol === "https:" || url.protocol === "http:" ? url.href : void 0;
+			} catch {
+				return;
+			}
+		}
+		/**
+		* The card-decoration seat: a compact issue reference on linked cards. It
+		* renders as an inline chip in the card's meta row and links to the issue in a
+		* new tab; the board ignores clicks that land on a link, so following the
+		* issue never also opens the task detail.
+		*/
 		function GitHubCardDecoration({ task }) {
 			const metadata = readTaskGitHubMetadata(task);
 			if (metadata === void 0) return null;
-			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+			const reference = `${metadata.owner}/${metadata.repository}#${String(metadata.issueNumber)}`;
+			const href = safeIssueHref(metadata.issueUrl);
+			const label = `#${String(metadata.issueNumber)}`;
+			if (href === void 0) return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 				className: github_module_css_default.cardSchedule,
 				"data-dsh-part": "github-badge",
-				title: `${metadata.owner}/${metadata.repository}#${String(metadata.issueNumber)}`,
-				children: ["#", metadata.issueNumber]
+				title: reference,
+				children: label
+			});
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("a", {
+				className: `${github_module_css_default.cardSchedule} ${github_module_css_default.cardLink}`,
+				"data-dsh-part": "github-badge",
+				href,
+				target: "_blank",
+				rel: "noopener noreferrer",
+				title: t$4("card.openIssue", { reference }),
+				children: label
 			});
 		}
 		//#endregion
@@ -18429,6 +19721,18 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 					statusError !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
 						className: github_module_css_default.formError,
 						children: t("setup.apiUnavailable", { error: statusError })
+					}),
+					status?.health !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: github_module_css_default.setupSection,
+						"data-dsh-part": "github-sync-health",
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+							className: github_module_css_default.setupLine,
+							"data-dsh-stale": status.health.staleSince !== void 0 ? "true" : void 0,
+							children: status.health.staleSince !== void 0 && status.health.lastSyncAt !== void 0 ? t("setup.healthStale", { minutes: String(Math.floor((Date.now() - status.health.lastSyncAt) / 6e4)) }) : status.health.lastSyncAt !== void 0 ? t("setup.healthOk", { at: new Date(status.health.lastSyncAt).toLocaleTimeString() }) : t("setup.healthNever")
+						}), status.health.lastErrors.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+							className: github_module_css_default.formError,
+							children: t("setup.healthErrors", { count: String(status.health.lastErrors.length) })
+						})]
 					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 						className: github_module_css_default.setupSection,
@@ -18807,16 +20111,34 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 				if (!response.ok || body.ok === false) throw new Error(typeof body.error === "string" && body.error !== "" ? body.error : "the Host refused the request (" + String(response.status) + ")");
 				return body;
 			};
-			const asSummary = (body) => {
+			/** Parse the host's sync-health block, dropping it when absent or malformed. */
+			const asHealth = (value) => {
+				if (typeof value !== "object" || value === null) return void 0;
+				const row = value;
+				if (typeof row.running !== "boolean" || typeof row.inFlight !== "boolean") return void 0;
 				return {
-					credential: (typeof body.credential === "object" && body.credential !== null ? body.credential : void 0) ?? {
+					running: row.running,
+					inFlight: row.inFlight,
+					...typeof row.lastSyncAt === "number" ? { lastSyncAt: row.lastSyncAt } : {},
+					lastErrors: Array.isArray(row.lastErrors) ? row.lastErrors.filter((item) => typeof item === "string") : [],
+					consecutiveEmptySyncs: typeof row.consecutiveEmptySyncs === "number" ? row.consecutiveEmptySyncs : 0,
+					...typeof row.staleSince === "number" ? { staleSince: row.staleSince } : {},
+					...typeof row.staleAfterMs === "number" ? { staleAfterMs: row.staleAfterMs } : {}
+				};
+			};
+			const asSummary = (body) => {
+				const credential = typeof body.credential === "object" && body.credential !== null ? body.credential : void 0;
+				const health = asHealth(body.health);
+				return {
+					credential: credential ?? {
 						configured: false,
 						writable: false,
 						envName: "GITHUB_TOKEN"
 					},
 					repositories: Array.isArray(body.repositories) ? body.repositories : [],
 					running: body.running === true,
-					settingsWritable: body.settingsWritable === true
+					settingsWritable: body.settingsWritable === true,
+					...health === void 0 ? {} : { health }
 				};
 			};
 			return {
@@ -20973,7 +22295,7 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$4() {
 			try {
-				return "0.4.4-dsh.20261003.1";
+				return "0.4.5-dsh.20261007.1";
 			} catch {
 				return;
 			}
@@ -22612,8 +23934,6 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 		const zh$7 = {
 			"entry.label": "远程访问",
 			"mobile.whale.open": "打开侧边栏",
-			"mobile.composer.pickModel": "选择模型",
-			"mobile.composer.pickEffort": "选择推理等级",
 			"title": "远程访问",
 			"subtitle": "通过手机或另一台电脑配对，远程使用同一份 Web 界面（官方界面 + 移动端适配）",
 			"card.title": "设备配对",
@@ -22734,8 +24054,6 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 		const en$7 = {
 			"entry.label": "Remote access",
 			"mobile.whale.open": "Open sidebar",
-			"mobile.composer.pickModel": "Pick model",
-			"mobile.composer.pickEffort": "Pick reasoning effort",
 			"title": "Remote access",
 			"subtitle": "Pair a phone or another computer to share the same Web GUI (official UI + mobile adaptation)",
 			"card.title": "Pair a device",
@@ -23472,7 +24790,7 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$3() {
 			try {
-				return "0.4.4-dsh.20261003.1";
+				return "0.4.5-dsh.20261007.1";
 			} catch {
 				return;
 			}
@@ -23558,12 +24876,6 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 		const STYLE_SELECTOR = `style[data-plugin-css="${ADAPT_CSS_ID}"]`;
 		/** Whale button id. */
 		const WHALE_ID = "dshRemoteWhale";
-		/** Compact picker: synthesized model button id. */
-		const MODEL_BTN_ID = "dshRemoteModelPick";
-		/** Compact picker: synthesized effort button id. */
-		const EFFORT_BTN_ID = "dshRemoteEffortPick";
-		/** Body class while the compact picker buttons are wired. */
-		const COMPACT_CLASS = "dsh-remote-compact-picker";
 		/** Body class while the header actions are seated in the tabs row. */
 		const HEADER_SEATED_CLASS = "dsh-remote-header-seated";
 		/**
@@ -23572,16 +24884,6 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 		* reserving the space with padding.
 		*/
 		const HEADER_RESERVE_VAR = "--dsh-remote-header-actions-reserve";
-		/** Locale-dependent fast path for the official picker cells (zh/en). */
-		const PICKER_CELL_PATTERN = {
-			model: /模型|Model/,
-			effort: /推理等级|Reasoning|Effort/i
-		};
-		/** Position of each drill cell among the sheet's chevron cells. */
-		const DRILL_INDEX = {
-			model: 0,
-			effort: 1
-		};
 		/**
 		* The official application frame. The layout column classes are the anchor:
 		* `_frame` is shared by unrelated official components (the chat turn rail,
@@ -23648,7 +24950,7 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 			"[class$=\"_composerSeat\"] [class$=\"_row\"]{flex-wrap:wrap;row-gap:0;padding:2px 8px 1px;position:relative}",
 			"[class$=\"_composerSeat\"] [class$=\"_add\"]{position:absolute;left:8px;top:50%;transform:translateY(-50%)}",
 			"[class$=\"_composerSeat\"] [class$=\"_modes\"]{min-width:0;padding-left:38px}",
-			"[class$=\"_composerSeat\"] [class$=\"_trailing\"]{flex-basis:100%;position:relative;min-height:32px;justify-content:flex-start;padding-left:38px;padding-right:78px}",
+			"[class$=\"_composerSeat\"] [class$=\"_trailing\"]{box-sizing:border-box;flex-basis:100%;position:relative;min-height:32px;justify-content:flex-start;padding-left:38px;padding-right:78px}",
 			"[class$=\"_composerSeat\"] [class$=\"_trailing\"] *{font-size:12px}",
 			"[class$=\"_composerSeat\"] [class$=\"_modes\"] [class$=\"_trigger\"]{height:24px;min-height:24px;font-size:12px}",
 			"[class$=\"_composerSeat\"] [class$=\"_trailing\"] [class$=\"_trigger\"]{height:24px;min-height:24px;font-size:11px}",
@@ -23657,12 +24959,6 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 			"[class$=\"_composerSeat\"]{transform:none !important}",
 			"[class$=\"_composerSeat\"] [class$=\"_menu\"]{position:fixed !important;left:8px !important;right:8px !important;top:auto !important;bottom:calc(8px + env(safe-area-inset-bottom)) !important;width:auto !important;max-width:none !important;max-height:70dvh !important;overflow-y:auto !important;z-index:2147482000}",
 			"[class$=\"_composerSeat\"] [class$=\"_menu\"] [class$=\"_cell\"]{height:44px;min-height:44px;font-size:13px}",
-			`body.${COMPACT_CLASS} [class$="_composerSeat"] [class$="_trailing"] [class$="_trigger"]:has([class$="_triggerEffort"]){display:none}`,
-			`body.${COMPACT_CLASS} [class$="_composerSeat"] [class$="_trailing"]{flex-basis:auto;position:static;min-height:0;padding:0;width:0}`,
-			`body.${COMPACT_CLASS} [class$="_composerSeat"] [class$="_trailing"] > [class$="_root"]:has([class$="_track"]){right:44px}`,
-			`#${MODEL_BTN_ID},#${EFFORT_BTN_ID}{width:26px;height:32px;min-width:26px;padding:0;border-radius:9px;background:var(--dsw-alias-bg-module-platform);border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary);display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;margin-left:4px}`,
-			`#${MODEL_BTN_ID} svg,#${EFFORT_BTN_ID} svg{width:16px;height:16px;display:block}`,
-			`#${MODEL_BTN_ID}:active,#${EFFORT_BTN_ID}:active{opacity:.7}`,
 			"[class$=\"_composerSeat\"] [data-slot=\"conversation.composer.dock\"] [class$=\"_root\"]{font-size:10px;white-space:normal;word-break:break-word;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;text-align:left;line-height:13px;letter-spacing:-0.2px;padding-left:0;padding-right:0}",
 			"[class$=\"_scrollBody\"] [class$=\"_root\"]{font-size:13px}",
 			"[class*=\"_bubble\"][role=\"tooltip\"]{display:none}",
@@ -23689,10 +24985,6 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 			`body.${ACTIVE_CLASS} [class$="_overlay"] [class$="_panel"] [class$="_navLabel"]{font-size:13px}`,
 			`body.${ACTIVE_CLASS} [class$="_overlay"] [class$="_panel"] [class$="_content"]{flex:1;min-height:0}`
 		];
-		/** Cube glyph for the compact model button (a plain box outline). */
-		const CUBE_ICON = "<path d=\"M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z\"/><path d=\"m3.3 7 8.7 5 8.7-5\"/><path d=\"M12 22V12\"/>";
-		/** Level glyph for the compact effort button (three rising bars). */
-		const LEVELS_ICON = "<path d=\"M4 6h16\"/><path d=\"M7 12h10\"/><path d=\"M10 18h4\"/>";
 		/** The DeepSeek fish glyph (the official brand mark path). */
 		const FISH_PATH = "M22.9168 1.43018C22.6713 1.31018 22.5658 1.53918 22.4223 1.65519C22.3733 1.69269 22.3318 1.74169 22.2903 1.78669C21.9317 2.1697 21.5127 2.42121 20.9657 2.39121C20.1657 2.34621 19.4827 2.59771 18.8787 3.20973C18.7502 2.45521 18.3236 2.0047 17.6746 1.71569C17.3351 1.56568 16.9916 1.41518 16.7536 1.08867C16.5876 0.856163 16.5421 0.597155 16.4591 0.341647C16.4061 0.187643 16.3536 0.0301382 16.1761 0.00363739C15.9836 -0.0263635 15.9081 0.135141 15.8326 0.270145C15.5306 0.822162 15.4136 1.43018 15.4251 2.0462C15.4516 3.43174 16.0366 4.53527 17.1991 5.3203C17.3311 5.4103 17.3651 5.5003 17.3236 5.63181C17.2441 5.90231 17.1501 6.16482 17.0671 6.43533C17.0141 6.60784 16.9351 6.64584 16.7501 6.57033C16.1121 6.30383 15.5611 5.90931 15.074 5.4328C14.2475 4.63328 13.5 3.75075 12.568 3.05973C12.349 2.89822 12.13 2.74822 11.9034 2.60522C10.9524 1.68169 12.028 0.923165 12.277 0.833162C12.5375 0.739159 12.3675 0.41615 11.5259 0.42015C10.6844 0.42365 9.91439 0.705658 8.93286 1.08117C8.78935 1.13767 8.63835 1.17867 8.48384 1.21267C7.59332 1.04367 6.66829 1.00617 5.70226 1.11517C3.88321 1.31768 2.43016 2.1777 1.36213 3.64575C0.0790928 5.4103 -0.222916 7.41536 0.146595 9.50642C0.535106 11.7105 1.66014 13.535 3.38869 14.9616C5.18125 16.4406 7.24581 17.1657 9.60138 17.0266C11.0319 16.9441 12.6245 16.7526 14.421 15.2321C14.874 15.4576 15.3496 15.5476 16.1381 15.6151C16.7456 15.6716 17.3306 15.5851 17.7836 15.4911C18.4931 15.3411 18.4441 14.6841 18.1876 14.5636C16.1081 13.595 16.5646 13.9891 16.1496 13.67C17.2061 12.42 18.8202 10.1979 19.3182 7.17235C19.3672 6.83834 19.4297 6.36783 19.4222 6.09732C19.4182 5.93231 19.4562 5.86831 19.6447 5.84931C20.1657 5.78931 20.6712 5.64681 21.1357 5.3913C22.4833 4.65528 23.0268 3.44624 23.1548 1.9972C23.1738 1.77569 23.1508 1.54668 22.9168 1.43018Z";
 		/**
@@ -23777,7 +25069,6 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 				active = false;
 				unseatHeaderActions();
 				restoreRowDrag();
-				removeCompactPicker();
 				document.body.classList.remove(ACTIVE_CLASS);
 				document.body.classList.remove(RAIL_HIDDEN_CLASS);
 				document.querySelector(`style[data-plugin-css="${ADAPT_CSS_ID}"]`)?.remove();
@@ -23835,79 +25126,6 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 					window.clearInterval(whaleTimer);
 					whaleTimer = null;
 				}
-			}
-			/**
-			* Compact picker (v79): a phone row cannot fit the desktop text triggers,
-			* so the model/effort entries become two icon buttons in the trailing
-			* row. Both forward to the official picker trigger (its menu renders as
-			* the bottom sheet) and then drill straight into the asked cell — model
-			* list or effort list — so one tap lands on the list, matching the
-			* cube-model / brain-effort mapping. The official context ring next to
-			* the send button keeps its own semantics untouched.
-			*/
-			function removeCompactPicker() {
-				document.body.classList.remove(COMPACT_CLASS);
-				document.getElementById(MODEL_BTN_ID)?.remove();
-				document.getElementById(EFFORT_BTN_ID)?.remove();
-			}
-			function drillIntoPicker(kind) {
-				const trigger = document.querySelector("[class$=\"_composerSeat\"] [class$=\"_trailing\"] [class$=\"_trigger\"]:has([class$=\"_triggerEffort\"])");
-				if (trigger === null) return;
-				trigger.click();
-				let tries = 0;
-				const tapCell = () => {
-					tries += 1;
-					const cells = Array.from(document.querySelectorAll("[class$=\"_composerSeat\"] [class$=\"_menu\"] [class$=\"_cell\"]"));
-					const byLabel = cells.find((c) => PICKER_CELL_PATTERN[kind].test(c.textContent ?? ""));
-					const drillable = cells.filter((c) => c.querySelector("[class*=\"_cellChevron\"], [class*=\"_chevron\"]"));
-					const cell = byLabel ?? drillable[DRILL_INDEX[kind]];
-					if (cell !== void 0) {
-						cell.click();
-						return;
-					}
-					if (tries < 8) window.setTimeout(tapCell, 150);
-				};
-				window.setTimeout(tapCell, 150);
-			}
-			function makeCompactButton(id, title, icon, kind) {
-				const btn = document.createElement("button");
-				btn.id = id;
-				btn.type = "button";
-				btn.dataset.dshPlugin = "remote-web-ui";
-				btn.title = title;
-				btn.setAttribute("aria-label", title);
-				btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icon}</svg>`;
-				btn.addEventListener("click", () => {
-					drillIntoPicker(kind);
-				});
-				return btn;
-			}
-			function syncCompactPicker() {
-				if (!active) return;
-				const tools = nodeOf("[class$=\"_composerSeat\"] [class$=\"_tools\"]");
-				const trigger = tools?.parentElement?.querySelector("[class$=\"_triggerEffort\"]")?.parentElement;
-				if (tools === null || trigger === null) {
-					removeCompactPicker();
-					return;
-				}
-				if (document.getElementById(MODEL_BTN_ID) === null) tools.appendChild(makeCompactButton(MODEL_BTN_ID, surfaceText("mobile.composer.pickModel", "Pick model"), CUBE_ICON, "model"));
-				if (document.getElementById(EFFORT_BTN_ID) === null) tools.appendChild(makeCompactButton(EFFORT_BTN_ID, surfaceText("mobile.composer.pickEffort", "Pick reasoning effort"), LEVELS_ICON, "effort"));
-				for (const [id, key, fallback] of [[
-					MODEL_BTN_ID,
-					"mobile.composer.pickModel",
-					"Pick model"
-				], [
-					EFFORT_BTN_ID,
-					"mobile.composer.pickEffort",
-					"Pick reasoning effort"
-				]]) {
-					const btn = document.getElementById(id);
-					if (btn === null) continue;
-					const label = surfaceText(key, fallback);
-					btn.title = label;
-					btn.setAttribute("aria-label", label);
-				}
-				document.body.classList.add(COMPACT_CLASS);
 			}
 			/**
 			* The official sidebar toggle in the logo row. The row's own `_toggle` class
@@ -24198,7 +25416,6 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 				disableRowDrag();
 				seatHeaderActions();
 				alignActionsText();
-				syncCompactPicker();
 			}
 			function seatHeaderActions() {
 				if (!active) return;
@@ -25761,7 +26978,7 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$2() {
 			try {
-				return "0.4.4-dsh.20261003.1";
+				return "0.4.5-dsh.20261007.1";
 			} catch {
 				return;
 			}
@@ -42315,7 +43532,7 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion$1() {
 			try {
-				return "0.4.4-dsh.20261003.1";
+				return "0.4.5-dsh.20261007.1";
 			} catch {
 				return;
 			}
@@ -44803,6 +46020,9 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 			"list.invokable": "可调用：{marks}",
 			"list.invokableTooltip": "模型可自动调用该技能；手动 /skill 指令不受影响",
 			"list.linked": "软链接",
+			"list.noFile": "无本地文件",
+			"list.noFileTooltip": "该技能由插件在运行时注册或随包提供，没有可编辑的 SKILL.md 文件",
+			"list.noFileHint": "该技能没有本地 SKILL.md 文件，无法在此启用/禁用、编辑或删除。",
 			"list.mark.model": "模型",
 			"list.mark.user": "用户",
 			"provider.filesystem": "文件系统",
@@ -44874,6 +46094,9 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 			"list.invokable": "Invokable: {marks}",
 			"list.invokableTooltip": "The model can invoke this skill automatically; manual /skill commands remain available",
 			"list.linked": "symlinked",
+			"list.noFile": "No local file",
+			"list.noFileTooltip": "This skill is registered at runtime or shipped by a plugin, so it has no editable SKILL.md file",
+			"list.noFileHint": "This skill has no local SKILL.md file, so it cannot be enabled/disabled, edited, or deleted here.",
 			"list.mark.model": "model",
 			"list.mark.user": "user",
 			"provider.filesystem": "Filesystem",
@@ -45455,6 +46678,11 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 								className: panel_module_css_default.badge,
 								children: tt("list.linked")
 							}),
+							skill.path === void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: panel_module_css_default.badge,
+								title: tt("list.noFileTooltip"),
+								children: tt("list.noFile")
+							}),
 							(skill.modelInvocable || skill.userInvocable) && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 								className: `${panel_module_css_default.badge} ${panel_module_css_default.badgeInvokable}`,
 								title: tt("list.invokableTooltip"),
@@ -45508,6 +46736,10 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 					skill.path !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 						className: panel_module_css_default.skillPath,
 						children: skill.path
+					}),
+					skill.path === void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+						className: panel_module_css_default.skillWhen,
+						children: tt("list.noFileHint")
 					}),
 					error !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
 						className: panel_module_css_default.banner,
@@ -45829,7 +47061,7 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 		/** The building package's version, when the bundle carries it. */
 		function bakedVersion() {
 			try {
-				return "0.4.4-dsh.20261003.1";
+				return "0.4.5-dsh.20261007.1";
 			} catch {
 				return;
 			}
@@ -46000,6 +47232,13 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 			"usage.current": "当前",
 			"usage.today": "今日用量",
 			"usage.today.cost": "今日消费（估算）",
+			"usage.day.label": "查看日期",
+			"usage.day.today": "今日",
+			"usage.day.title": "{date} 用量",
+			"usage.day.cost": "当日消费（估算）",
+			"usage.day.empty": "该日没有用量记录",
+			"usage.day.loading": "正在加载该日用量…",
+			"usage.day.error": "该日用量加载失败：{error}",
 			"usage.peak.on": "DeepSeek 高峰时段：计价 ×2，{time} 结束",
 			"usage.peak.off": "DeepSeek 空闲时段：计价为高峰一半，{time} 进入高峰",
 			"usage.calls": "{n} 次调用",
@@ -46034,6 +47273,7 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 			"usage.bank.spend.observed": "官方余额实测花费 ¥{cost}（自 {since} 起）",
 			"usage.bank.spend.estimated": "消费估算：约 ¥{cost}",
 			"usage.bank.window": "统计窗口 {from} ~ {to}",
+			"usage.bank.windowAll": "全部保留期",
 			"usage.bank.save": "保存图片",
 			"usage.bank.share": "分享",
 			"usage.bank.drawError": "票券生成失败：{error}",
@@ -46058,6 +47298,13 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 			"usage.current": "Current",
 			"usage.today": "Today",
 			"usage.today.cost": "Today spend (estimated)",
+			"usage.day.label": "Day",
+			"usage.day.today": "Today",
+			"usage.day.title": "Usage · {date}",
+			"usage.day.cost": "Day spend (estimated)",
+			"usage.day.empty": "No usage recorded on this day",
+			"usage.day.loading": "Loading that day…",
+			"usage.day.error": "Failed to load that day: {error}",
 			"usage.peak.on": "DeepSeek peak hours: 2x pricing, ends {time}",
 			"usage.peak.off": "DeepSeek off-peak: half of peak pricing, peak returns {time}",
 			"usage.calls": "{n} calls",
@@ -46092,6 +47339,7 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 			"usage.bank.spend.observed": "Spent ¥{cost} observed on the official balance (watching since {since})",
 			"usage.bank.spend.estimated": "Estimated spend: about ¥{cost}",
 			"usage.bank.window": "Window {from} - {to}",
+			"usage.bank.windowAll": "All retained days",
 			"usage.bank.save": "Save image",
 			"usage.bank.share": "Share",
 			"usage.bank.drawError": "Failed to render the voucher: {error}",
@@ -46117,7 +47365,7 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 		}
 		//#endregion
 		//#region \0dsh-css:packages/dsh-usage/src/client/usage.module.css.mjs
-		const css$2 = ".cvtkAW_section{color:inherit;flex-direction:column;gap:16px;display:flex}.cvtkAW_header{justify-content:space-between;align-items:center;gap:12px;display:flex}.cvtkAW_currentProvider{opacity:.75;font-size:13px}.cvtkAW_refreshBtn{appearance:none;color:inherit;font:inherit;cursor:pointer;opacity:.85;background:0 0;border:1px solid;border-radius:8px;padding:4px 12px;font-size:12px;transition:opacity .12s,background-color .12s}.cvtkAW_refreshBtn:hover:not(:disabled){opacity:1;background:color-mix(in srgb, currentColor 8%, transparent)}.cvtkAW_refreshBtn:disabled{cursor:default;opacity:.5}.cvtkAW_refreshBtn:focus-visible{box-shadow:0 0 0 2px color-mix(in srgb, currentColor 45%, transparent);outline:none}.cvtkAW_tabs{border-bottom:1px solid color-mix(in srgb, currentColor 14%, transparent);gap:4px;display:flex}.cvtkAW_tab{appearance:none;color:inherit;font:inherit;cursor:pointer;opacity:.65;background:0 0;border:none;border-bottom:2px solid #0000;margin-bottom:-1px;padding:6px 14px;font-size:13px}.cvtkAW_tab:hover{opacity:.9}.cvtkAW_tab:focus-visible{box-shadow:0 0 0 2px color-mix(in srgb, currentColor 45%, transparent);outline:none}.cvtkAW_tabActive{opacity:1;border-bottom-color:currentColor;font-weight:600}.cvtkAW_card{border:1px solid color-mix(in srgb, currentColor 14%, transparent);border-radius:12px;flex-direction:column;gap:10px;padding:14px 16px;display:flex}.cvtkAW_cardTitle{letter-spacing:.04em;text-transform:uppercase;opacity:.6;font-size:12px;font-weight:600}.cvtkAW_statRow{flex-wrap:wrap;gap:18px;display:flex}.cvtkAW_stat{flex-direction:column;gap:2px;display:flex}.cvtkAW_statValue{font-variant-numeric:tabular-nums;font-size:18px;font-weight:600}.cvtkAW_statLabel{opacity:.6;font-size:11px}.cvtkAW_providerRow{border-top:1px solid color-mix(in srgb, currentColor 8%, transparent);justify-content:space-between;align-items:center;gap:12px;padding:6px 0;font-size:13px;display:flex}.cvtkAW_providerRow:first-of-type{border-top:none}.cvtkAW_providerName{align-items:center;gap:8px;min-width:0;display:flex}.cvtkAW_providerTokens{font-variant-numeric:tabular-nums;opacity:.75;white-space:nowrap}.cvtkAW_providerBalance{font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:600}.cvtkAW_currentBadge{border:1px solid color-mix(in srgb, currentColor 35%, transparent);opacity:.8;border-radius:999px;flex:none;padding:1px 7px;font-size:10px;font-weight:600}.cvtkAW_chart{flex-direction:column;gap:12px;display:flex}.cvtkAW_chartProvider{flex-direction:column;gap:4px;display:flex}.cvtkAW_chartHead{justify-content:space-between;align-items:baseline;gap:10px;font-size:13px;display:flex}.cvtkAW_chartTokens{font-variant-numeric:tabular-nums;opacity:.65;white-space:nowrap;font-size:11px}.cvtkAW_chartBar{background:color-mix(in srgb, currentColor 8%, transparent);border-radius:999px;height:8px;display:block;overflow:hidden}.cvtkAW_chartFill{background:color-mix(in srgb, currentColor 55%, transparent);border-radius:999px;height:100%;transition:width .3s;display:block}.cvtkAW_chartModel{opacity:.8;grid-template-columns:minmax(80px,180px) 1fr auto;align-items:center;gap:8px;padding-left:14px;font-size:11px;display:grid}.cvtkAW_chartModelName{text-overflow:ellipsis;white-space:nowrap;opacity:.8;overflow:hidden}.cvtkAW_chartModelBar{background:color-mix(in srgb, currentColor 6%, transparent);border-radius:999px;height:4px;display:block;overflow:hidden}.cvtkAW_chartModelFill{background:color-mix(in srgb, currentColor 35%, transparent);border-radius:999px;height:100%;transition:width .3s;display:block}.cvtkAW_trendAxis{opacity:.5;font-variant-numeric:tabular-nums;justify-content:space-between;font-size:10px;display:flex}.cvtkAW_muted{opacity:.6;font-size:12px}.cvtkAW_voucherPreview canvas{border-radius:8px;width:100%;height:auto;display:block}.cvtkAW_buttonRow{gap:8px;display:flex}.cvtkAW_errorLine{opacity:.75;font-size:12px}.cvtkAW_planCard{flex-direction:column;gap:8px;display:flex}.cvtkAW_planHead{justify-content:space-between;align-items:baseline;gap:10px;display:flex}.cvtkAW_planName{font-size:14px;font-weight:600}.cvtkAW_windowRow{flex-direction:column;gap:4px;display:flex}.cvtkAW_windowLabel{opacity:.8;font-variant-numeric:tabular-nums;justify-content:space-between;font-size:12px;display:flex}.cvtkAW_bar{background:color-mix(in srgb, currentColor 10%, transparent);border-radius:999px;height:6px;overflow:hidden}.cvtkAW_barFill{background:color-mix(in srgb, currentColor 55%, transparent);border-radius:999px;height:100%;transition:width .3s}.cvtkAW_barWarn{background:#d97706}.cvtkAW_barLow{background:#dc2626}.cvtkAW_resetLine{opacity:.55;font-variant-numeric:tabular-nums;font-size:11px}.cvtkAW_settingsGrid{flex-wrap:wrap;align-items:center;gap:16px;display:flex}.cvtkAW_settingItem{align-items:center;gap:8px;font-size:13px;display:flex}.cvtkAW_settingItem input[type=checkbox]{accent-color:currentColor}.cvtkAW_settingItem input[type=number]{border:1px solid color-mix(in srgb, currentColor 25%, transparent);width:90px;color:inherit;font:inherit;background:0 0;border-radius:6px;padding:3px 8px;font-size:13px}.cvtkAW_settingItem select{border:1px solid color-mix(in srgb, currentColor 25%, transparent);color:inherit;font:inherit;background:0 0;border-radius:6px;padding:3px 8px;font-size:13px}.cvtkAW_settingItem input:focus-visible,.cvtkAW_settingItem select:focus-visible{box-shadow:0 0 0 2px color-mix(in srgb, currentColor 45%, transparent);outline:none}.cvtkAW_footCard{box-sizing:border-box;background:color-mix(in srgb, currentColor 4%, transparent);width:100%;color:inherit;border:none;border-radius:12px;margin:2px 0 4px;transition:background-color .12s;position:relative}.cvtkAW_footCard:hover{background:var(--dsw-alias-interactive-bg-hover)}.cvtkAW_footCardCollapsed{background:0 0}.cvtkAW_footMain{appearance:none;box-sizing:border-box;width:100%;color:inherit;font:inherit;text-align:left;cursor:pointer;background:0 0;border:none;border-radius:12px;flex-direction:column;gap:4px;padding:8px;display:flex}.cvtkAW_footMain:focus-visible{box-shadow:0 0 0 2px color-mix(in srgb, currentColor 45%, transparent);outline:none}.cvtkAW_footToggle{appearance:none;width:20px;height:20px;color:inherit;cursor:pointer;opacity:.55;background:0 0;border:none;border-radius:6px;justify-content:center;align-items:center;padding:0;transition:opacity .12s,background-color .12s;display:inline-flex;position:absolute;top:6px;right:6px}.cvtkAW_footCard:hover .cvtkAW_footToggle{opacity:.8}.cvtkAW_footToggle:hover{opacity:1;background:color-mix(in srgb, currentColor 10%, transparent)}.cvtkAW_footToggle:focus-visible{box-shadow:0 0 0 2px color-mix(in srgb, currentColor 45%, transparent);outline:none}.cvtkAW_footToggle svg{display:block}.cvtkAW_footHead{justify-content:space-between;align-items:baseline;gap:8px;display:flex}.cvtkAW_footTitle{opacity:.65;white-space:nowrap;align-items:center;gap:6px;min-width:0;font-size:12px;display:inline-flex}.cvtkAW_footTitle svg{flex:none;display:block}.cvtkAW_footValue{font-variant-numeric:tabular-nums;white-space:nowrap;margin-right:18px;font-size:15px;font-weight:600}.cvtkAW_footLine{opacity:.7;font-variant-numeric:tabular-nums;text-overflow:ellipsis;white-space:nowrap;font-size:11px;overflow:hidden}.cvtkAW_footMeta{opacity:.5;font-variant-numeric:tabular-nums;font-size:10px}.cvtkAW_footCardCollapsed .cvtkAW_footMain{min-height:36px;padding:7px 8px}.cvtkAW_footStrip{white-space:nowrap;align-items:center;gap:6px;padding-right:20px;font-size:12px;display:flex;overflow:hidden}.cvtkAW_footStrip svg{opacity:.65;flex:none;display:block}.cvtkAW_footStripProvider{text-overflow:ellipsis;flex:none;max-width:45%;font-weight:500;overflow:hidden}.cvtkAW_footStripLabel{opacity:.65;text-overflow:ellipsis;overflow:hidden}.cvtkAW_footStripValue{font-variant-numeric:tabular-nums;margin-left:auto;font-weight:600}[data-dsh-frame][data-sidebar-collapsed] .cvtkAW_footCard,[data-sidebar-collapsed] .cvtkAW_footCard{display:none}";
+		const css$2 = ".cvtkAW_section{color:inherit;flex-direction:column;gap:16px;display:flex}.cvtkAW_header{justify-content:space-between;align-items:center;gap:12px;display:flex}.cvtkAW_currentProvider{opacity:.75;font-size:13px}.cvtkAW_refreshBtn{appearance:none;color:inherit;font:inherit;cursor:pointer;opacity:.85;background:0 0;border:1px solid;border-radius:8px;padding:4px 12px;font-size:12px;transition:opacity .12s,background-color .12s}.cvtkAW_refreshBtn:hover:not(:disabled){opacity:1;background:color-mix(in srgb, currentColor 8%, transparent)}.cvtkAW_refreshBtn:disabled{cursor:default;opacity:.5}.cvtkAW_refreshBtn:focus-visible{box-shadow:0 0 0 2px color-mix(in srgb, currentColor 45%, transparent);outline:none}.cvtkAW_tabs{border-bottom:1px solid color-mix(in srgb, currentColor 14%, transparent);gap:4px;display:flex}.cvtkAW_tab{appearance:none;color:inherit;font:inherit;cursor:pointer;opacity:.65;background:0 0;border:none;border-bottom:2px solid #0000;margin-bottom:-1px;padding:6px 14px;font-size:13px}.cvtkAW_tab:hover{opacity:.9}.cvtkAW_tab:focus-visible{box-shadow:0 0 0 2px color-mix(in srgb, currentColor 45%, transparent);outline:none}.cvtkAW_tabActive{opacity:1;border-bottom-color:currentColor;font-weight:600}.cvtkAW_card{border:1px solid color-mix(in srgb, currentColor 14%, transparent);border-radius:12px;flex-direction:column;gap:10px;padding:14px 16px;display:flex}.cvtkAW_cardTitle{letter-spacing:.04em;text-transform:uppercase;opacity:.6;font-size:12px;font-weight:600}.cvtkAW_dayPicker{align-items:center;gap:8px;display:flex}.cvtkAW_dayPickerLabel{opacity:.6;font-size:11px}.cvtkAW_daySelect{border:1px solid color-mix(in srgb, currentColor 25%, transparent);color:inherit;font:inherit;font-variant-numeric:tabular-nums;background:0 0;border-radius:6px;padding:3px 8px;font-size:12px}.cvtkAW_daySelect:focus-visible{box-shadow:0 0 0 2px color-mix(in srgb, currentColor 45%, transparent);outline:none}.cvtkAW_daySelect option,.cvtkAW_settingItem select option{background-color:var(--dsw-alias-bg-multi-select,Canvas);color:var(--dsw-alias-label-primary,CanvasText)}.cvtkAW_statRow{flex-wrap:wrap;gap:18px;display:flex}.cvtkAW_stat{flex-direction:column;gap:2px;display:flex}.cvtkAW_statValue{font-variant-numeric:tabular-nums;font-size:18px;font-weight:600}.cvtkAW_statLabel{opacity:.6;font-size:11px}.cvtkAW_providerRow{border-top:1px solid color-mix(in srgb, currentColor 8%, transparent);flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px;padding:6px 0;font-size:13px;display:flex}.cvtkAW_providerRow:first-of-type{border-top:none}.cvtkAW_providerName{align-items:center;gap:8px;min-width:0;display:flex}.cvtkAW_providerTokens{font-variant-numeric:tabular-nums;opacity:.75;white-space:nowrap}.cvtkAW_providerBalance{font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:600}.cvtkAW_currentBadge{border:1px solid color-mix(in srgb, currentColor 35%, transparent);opacity:.8;border-radius:999px;flex:none;padding:1px 7px;font-size:10px;font-weight:600}.cvtkAW_chart{flex-direction:column;gap:12px;display:flex}.cvtkAW_chartProvider{flex-direction:column;gap:4px;display:flex}.cvtkAW_chartHead{justify-content:space-between;align-items:baseline;gap:10px;font-size:13px;display:flex}.cvtkAW_chartTokens{font-variant-numeric:tabular-nums;opacity:.65;white-space:nowrap;font-size:11px}.cvtkAW_chartBar{background:color-mix(in srgb, currentColor 8%, transparent);border-radius:999px;height:8px;display:block;overflow:hidden}.cvtkAW_chartFill{background:color-mix(in srgb, currentColor 55%, transparent);border-radius:999px;height:100%;transition:width .3s;display:block}.cvtkAW_chartModel{opacity:.8;grid-template-columns:minmax(80px,180px) 1fr auto;align-items:center;gap:8px;padding-left:14px;font-size:11px;display:grid}.cvtkAW_chartModelName{text-overflow:ellipsis;white-space:nowrap;opacity:.8;overflow:hidden}.cvtkAW_chartModelBar{background:color-mix(in srgb, currentColor 6%, transparent);border-radius:999px;height:4px;display:block;overflow:hidden}.cvtkAW_chartModelFill{background:color-mix(in srgb, currentColor 35%, transparent);border-radius:999px;height:100%;transition:width .3s;display:block}.cvtkAW_trendAxis{opacity:.5;font-variant-numeric:tabular-nums;justify-content:space-between;font-size:10px;display:flex}.cvtkAW_muted{opacity:.6;font-size:12px}.cvtkAW_voucherPreview canvas{border-radius:8px;width:100%;height:auto;display:block}.cvtkAW_buttonRow{gap:8px;display:flex}.cvtkAW_errorLine{opacity:.75;font-size:12px}.cvtkAW_planCard{flex-direction:column;gap:8px;display:flex}.cvtkAW_planHead{justify-content:space-between;align-items:baseline;gap:10px;display:flex}.cvtkAW_planName{font-size:14px;font-weight:600}.cvtkAW_windowRow{flex-direction:column;gap:4px;display:flex}.cvtkAW_windowLabel{opacity:.8;font-variant-numeric:tabular-nums;justify-content:space-between;font-size:12px;display:flex}.cvtkAW_bar{background:color-mix(in srgb, currentColor 10%, transparent);border-radius:999px;height:6px;overflow:hidden}.cvtkAW_barFill{background:color-mix(in srgb, currentColor 55%, transparent);border-radius:999px;height:100%;transition:width .3s}.cvtkAW_barWarn{background:#d97706}.cvtkAW_barLow{background:#dc2626}.cvtkAW_resetLine{opacity:.55;font-variant-numeric:tabular-nums;font-size:11px}.cvtkAW_settingsGrid{flex-wrap:wrap;align-items:center;gap:16px;display:flex}.cvtkAW_settingItem{align-items:center;gap:8px;font-size:13px;display:flex}.cvtkAW_settingItem input[type=checkbox]{accent-color:currentColor}.cvtkAW_settingItem input[type=number]{border:1px solid color-mix(in srgb, currentColor 25%, transparent);width:90px;color:inherit;font:inherit;background:0 0;border-radius:6px;padding:3px 8px;font-size:13px}.cvtkAW_settingItem select{border:1px solid color-mix(in srgb, currentColor 25%, transparent);color:inherit;font:inherit;background:0 0;border-radius:6px;padding:3px 8px;font-size:13px}.cvtkAW_settingItem input:focus-visible,.cvtkAW_settingItem select:focus-visible{box-shadow:0 0 0 2px color-mix(in srgb, currentColor 45%, transparent);outline:none}.cvtkAW_footCard{box-sizing:border-box;background:color-mix(in srgb, currentColor 4%, transparent);width:100%;color:inherit;border:none;border-radius:12px;margin:2px 0 4px;transition:background-color .12s;position:relative}.cvtkAW_footCard:hover{background:var(--dsw-alias-interactive-bg-hover)}.cvtkAW_footCardCollapsed{background:0 0}.cvtkAW_footMain{appearance:none;box-sizing:border-box;width:100%;color:inherit;font:inherit;text-align:left;cursor:pointer;background:0 0;border:none;border-radius:12px;flex-direction:column;gap:4px;padding:8px;display:flex}.cvtkAW_footMain:focus-visible{box-shadow:0 0 0 2px color-mix(in srgb, currentColor 45%, transparent);outline:none}.cvtkAW_footToggle{appearance:none;width:20px;height:20px;color:inherit;cursor:pointer;opacity:.55;background:0 0;border:none;border-radius:6px;justify-content:center;align-items:center;padding:0;transition:opacity .12s,background-color .12s;display:inline-flex;position:absolute;top:6px;right:6px}.cvtkAW_footCard:hover .cvtkAW_footToggle{opacity:.8}.cvtkAW_footToggle:hover{opacity:1;background:color-mix(in srgb, currentColor 10%, transparent)}.cvtkAW_footToggle:focus-visible{box-shadow:0 0 0 2px color-mix(in srgb, currentColor 45%, transparent);outline:none}.cvtkAW_footToggle svg{display:block}.cvtkAW_footHead{justify-content:space-between;align-items:baseline;gap:8px;display:flex}.cvtkAW_footTitle{opacity:.65;white-space:nowrap;align-items:center;gap:6px;min-width:0;font-size:12px;display:inline-flex}.cvtkAW_footTitle svg{flex:none;display:block}.cvtkAW_footValue{font-variant-numeric:tabular-nums;white-space:nowrap;margin-right:18px;font-size:15px;font-weight:600}.cvtkAW_footLine{opacity:.7;font-variant-numeric:tabular-nums;text-overflow:ellipsis;white-space:nowrap;font-size:11px;overflow:hidden}.cvtkAW_footMeta{opacity:.5;font-variant-numeric:tabular-nums;font-size:10px}.cvtkAW_footCardCollapsed .cvtkAW_footMain{min-height:36px;padding:7px 8px}.cvtkAW_footStrip{white-space:nowrap;align-items:center;gap:6px;padding-right:20px;font-size:12px;display:flex;overflow:hidden}.cvtkAW_footStrip svg{opacity:.65;flex:none;display:block}.cvtkAW_footStripProvider{text-overflow:ellipsis;flex:none;max-width:45%;font-weight:500;overflow:hidden}.cvtkAW_footStripLabel{opacity:.65;text-overflow:ellipsis;overflow:hidden}.cvtkAW_footStripValue{font-variant-numeric:tabular-nums;margin-left:auto;font-weight:600}[data-dsh-frame][data-sidebar-collapsed] .cvtkAW_footCard,[data-sidebar-collapsed] .cvtkAW_footCard{display:none}";
 		const tagId$2 = "@linxin666/dsh-web-all/packages/dsh-usage/src/client/usage.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$2) + "]") === null) {
 			const tag = document.createElement("style");
@@ -46146,6 +47394,9 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 			"chartTokens": "cvtkAW_chartTokens",
 			"currentBadge": "cvtkAW_currentBadge",
 			"currentProvider": "cvtkAW_currentProvider",
+			"dayPicker": "cvtkAW_dayPicker",
+			"dayPickerLabel": "cvtkAW_dayPickerLabel",
+			"daySelect": "cvtkAW_daySelect",
 			"errorLine": "cvtkAW_errorLine",
 			"footCard": "cvtkAW_footCard",
 			"footCardCollapsed": "cvtkAW_footCardCollapsed",
@@ -47101,6 +48352,11 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 		*/
 		/** Poll cadence while the section is open. */
 		const SECTION_POLL_MS = 1e4;
+		/**
+		* The Token bank's default window: the whole retained ledger. It is a select
+		* value rather than a date, so it can never collide with a day key.
+		*/
+		const BANK_ALL_DAYS = "all";
 		/** Compact token count: 12345 -> 12.3k, 1234567 -> 1.23M. */
 		function formatTokens(value) {
 			if (!Number.isFinite(value) || value <= 0) return "0";
@@ -47254,13 +48510,83 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 				})]
 			});
 		}
+		/**
+		* Fetch the day a picker selected, or stay idle for the default window. Today
+		* never fetches: the overview already carries it live, so switching back to
+		* today is instant and keeps counting with the poll. A superseded selection
+		* never lands (the effect cancels), and a failed load reports its own message
+		* instead of leaving the card on a stale day.
+		*/
+		function useDayView(loadDay, date, today) {
+			const [load, setLoad] = (0, react.useState)(void 0);
+			(0, react.useEffect)(() => {
+				if (date === void 0 || date === today) {
+					setLoad((previous) => previous === void 0 ? previous : void 0);
+					return;
+				}
+				let cancelled = false;
+				setLoad({ status: "loading" });
+				loadDay(date).then((view) => {
+					if (!cancelled) setLoad({
+						status: "ready",
+						view
+					});
+				}, (error) => {
+					if (!cancelled) setLoad({
+						status: "error",
+						error: error instanceof Error ? error.message : String(error)
+					});
+				});
+				return () => {
+					cancelled = true;
+				};
+			}, [
+				date,
+				today,
+				loadDay
+			]);
+			return load;
+		}
+		/**
+		* The day picker: today plus every retained day that recorded usage, newest
+		* first (the host serves the list ascending). Without that list (an older host
+		* document) no picker renders and the card stays on its default window.
+		*/
+		function DayPicker(props) {
+			const { value, options, today, leading, onSelect, part } = props;
+			if (options.length === 0) return null;
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: usage_module_css_default.dayPicker,
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("label", {
+					className: usage_module_css_default.dayPickerLabel,
+					htmlFor: "dsh-usage-day-" + part,
+					children: t$2("usage.day.label")
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("select", {
+					id: "dsh-usage-day-" + part,
+					className: usage_module_css_default.daySelect,
+					value,
+					onChange: (event) => {
+						onSelect(event.target.value);
+					},
+					children: [leading !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
+						value: leading.value,
+						children: leading.label
+					}), options.map((date) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
+						value: date,
+						children: date === today ? t$2("usage.day.today") : date
+					}, date))]
+				})]
+			});
+		}
 		/** The section component; the slot merges the face into these props. */
 		function UsageSectionCard(props) {
-			const { store, poll, refresh, settings } = props;
+			const { store, poll, refresh, loadDay, settings } = props;
 			const ui = (0, react.useSyncExternalStore)(store.subscribe, store.getSnapshot);
 			const settingsSnapshot = settings.getSnapshot();
 			const settingsValue = settingsSnapshot.value ?? {};
 			const [tab, setTab] = (0, react.useState)("usage");
+			const [usageDay, setUsageDay] = (0, react.useState)(void 0);
+			const [bankDay, setBankDay] = (0, react.useState)(void 0);
 			const [refreshing, setRefreshing] = (0, react.useState)(false);
 			const [, bumpSettings] = (0, react.useState)(0);
 			(0, react.useEffect)(() => settings.subscribe(() => bumpSettings((count) => count + 1)), [settings]);
@@ -47289,6 +48615,22 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 				};
 			}, [poll, enabled]);
 			const snapshot = ui.snapshot;
+			const todayDate = snapshot?.usage.today.date;
+			const dayOptions = snapshot === null ? [] : [...new Set([todayDate, ...snapshot.usage.availableDays ?? []].filter((date) => date !== void 0))].sort().reverse();
+			const usageSelection = usageDay !== void 0 && dayOptions.includes(usageDay) ? usageDay : void 0;
+			const bankSelection = bankDay !== void 0 && dayOptions.includes(bankDay) ? bankDay : void 0;
+			const selectedDay = usageSelection ?? todayDate;
+			const isToday = selectedDay === todayDate;
+			const usageDayLoad = useDayView(loadDay, usageSelection, todayDate);
+			const bankDayLoad = useDayView(loadDay, bankSelection, todayDate);
+			const day = isToday ? snapshot?.usage.today : usageDayLoad?.view;
+			const bankDayView = bankSelection === void 0 ? void 0 : bankSelection === todayDate ? snapshot?.usage.today : bankDayLoad?.view;
+			const bankWindow = bankSelection === void 0 ? snapshot?.usage.all ?? snapshot?.usage.range : bankDayView === void 0 ? void 0 : {
+				from: bankDayView.date,
+				to: bankDayView.date,
+				totals: bankDayView.totals,
+				providers: bankDayView.providers
+			};
 			const onRefresh = () => {
 				setRefreshing(true);
 				try {
@@ -47313,7 +48655,7 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 			const current = snapshot.current;
 			const currentProvider = snapshot.providers.find((provider) => provider.provider === current.provider);
 			const deepseekPeriod = deepseekPeriodAt(Date.now());
-			const deepseekVisible = current.provider !== void 0 && isDeepSeekProviderRoute(current.provider) || snapshot.usage.today.providers.some((row) => isDeepSeekProviderRoute(row.provider));
+			const deepseekVisible = isToday && (current.provider !== void 0 && isDeepSeekProviderRoute(current.provider) || snapshot.usage.today.providers.some((row) => isDeepSeekProviderRoute(row.provider)));
 			const planProviders = snapshot.providers.filter((provider) => isConfigured(provider) && (provider.planSupported === true || provider.planSupported === void 0 && provider.plan !== void 0));
 			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 				className: usage_module_css_default.section,
@@ -47381,31 +48723,46 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 							children: [
 								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 									className: usage_module_css_default.cardTitle,
-									children: t$2("usage.today")
+									children: isToday ? t$2("usage.today") : t$2("usage.day.title", { date: selectedDay ?? "" })
+								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)(DayPicker, {
+									part: "usage",
+									value: selectedDay ?? "",
+									options: dayOptions,
+									today: todayDate ?? "",
+									onSelect: (date) => {
+										setUsageDay(date === todayDate ? void 0 : date);
+									}
 								}),
 								deepseekVisible && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 									className: usage_module_css_default.muted,
 									"data-dsh-part": "peak-status",
 									children: t$2(deepseekPeriod.peak ? "usage.peak.on" : "usage.peak.off", { time: formatClock$1(deepseekPeriod.boundaryMs) })
 								}),
-								snapshot.usage.today.totals.calls === 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								usageDayLoad?.status === "error" ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: usage_module_css_default.errorLine,
+									children: t$2("usage.day.error", { error: usageDayLoad.error ?? "" })
+								}) : day === void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 									className: usage_module_css_default.muted,
-									children: t$2("usage.noData")
-								}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(TotalsRow, { totals: snapshot.usage.today.totals }),
-								snapshot.usage.today.totals.cost > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+									children: t$2("usage.day.loading")
+								}) : day.totals.calls === 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: usage_module_css_default.muted,
+									children: isToday ? t$2("usage.noData") : t$2("usage.day.empty")
+								}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(TotalsRow, { totals: day.totals }),
+								(day?.totals.cost ?? 0) > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 									className: usage_module_css_default.providerRow,
 									"data-dsh-part": "today-cost",
 									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 										className: usage_module_css_default.providerName,
-										children: t$2("usage.today.cost")
+										children: isToday ? t$2("usage.today.cost") : t$2("usage.day.cost")
 									}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 										className: usage_module_css_default.providerTokens,
-										children: formatCost(snapshot.usage.today.totals.cost)
+										children: formatCost(day?.totals.cost ?? 0)
 									})]
 								}),
-								snapshot.usage.today.providers.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+								(day?.providers.length ?? 0) > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 									"data-dsh-part": "provider-list",
-									children: snapshot.usage.today.providers.map((row) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+									children: (day?.providers ?? []).map((row) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 										className: usage_module_css_default.providerRow,
 										children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
 											className: usage_module_css_default.providerName,
@@ -47473,10 +48830,24 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 						provider,
 						current: current.provider
 					}, provider.provider))),
-					tab === "bank" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(VoucherCard, {
-						window: snapshot.usage.all ?? snapshot.usage.range,
-						observedSpend: snapshot.usage.observedSpend
-					})
+					tab === "bank" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(DayPicker, {
+						part: "bank",
+						value: bankSelection ?? BANK_ALL_DAYS,
+						options: dayOptions,
+						today: todayDate ?? "",
+						leading: {
+							value: BANK_ALL_DAYS,
+							label: t$2("usage.bank.windowAll")
+						},
+						onSelect: (date) => {
+							setBankDay(date === BANK_ALL_DAYS ? void 0 : date);
+						}
+					}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(VoucherCard, {
+						window: bankWindow,
+						observedSpend: bankSelection === void 0 ? snapshot.usage.observedSpend : void 0,
+						loading: bankSelection !== void 0 && bankDayLoad?.status === "loading",
+						...bankDayLoad?.status === "error" ? { error: bankDayLoad.error ?? "" } : {}
+					})] })
 				]
 			});
 		}
@@ -47581,15 +48952,16 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 		}
 		/**
 		* The Token 银行 card: the DeepSeek official family's retained-ledger usage
-		* minted onto the whale-yuan note at 1,000,000 tokens per whale yuan. The window
-		* prefers the host's whole-ledger aggregate and falls back to the 30-day
-		* trend when an older host serves no `all`; the spend line prefers the
-		* official balance watch and falls back to the fold-time estimate; the
-		* artwork draw failure degrades to an error line and never takes the
-		* section down.
+		* minted onto the whale-yuan note at 1,000,000 tokens per whale yuan. The
+		* window is the whole retained ledger by default (the host's aggregate,
+		* falling back to the 30-day trend when an older host serves no `all`) or the
+		* single day the user picked; the spend line prefers the official balance
+		* watch (whole window only) and falls back to the fold-time estimate; the
+		* artwork draw failure degrades to an error line and never takes the section
+		* down.
 		*/
 		function VoucherCard(props) {
-			const { window: ledger, observedSpend } = props;
+			const { window: ledger, observedSpend, loading, error } = props;
 			const data = deepseekVoucherData(ledger);
 			const canvasRef = (0, react.useRef)(null);
 			const [drawError, setDrawError] = (0, react.useState)(void 0);
@@ -47647,7 +49019,13 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 					className: usage_module_css_default.cardTitle,
 					children: t$2("usage.bank.title")
-				}), data === void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+				}), error !== void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					className: usage_module_css_default.errorLine,
+					children: t$2("usage.day.error", { error })
+				}) : loading === true ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					className: usage_module_css_default.muted,
+					children: t$2("usage.day.loading")
+				}) : data === void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 					className: usage_module_css_default.muted,
 					children: t$2("usage.bank.noUsage")
 				}) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
@@ -48438,6 +49816,7 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 		}
 		const usageApi = {
 			overview: () => usageFetch("api/dsh-usage/overview", "GET"),
+			day: async (date) => (await usageFetch("api/dsh-usage/day?date=" + encodeURIComponent(date), "GET")).day,
 			refresh: () => usageFetch("api/dsh-usage/refresh", "POST")
 		};
 		/**
@@ -48507,10 +49886,12 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 					store.actions.setState("error", error instanceof Error ? error.message : String(error));
 				});
 			};
+			const loadDay = (date) => usageApi.day(date);
 			const face = () => ({
 				store,
 				poll,
 				refresh,
+				loadDay,
 				settings: settingsForm
 			});
 			const disposeFootCard = mountUsageFootCard({
@@ -51189,7 +52570,9 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 			"caps.error.routeExists": "该提供方已存在新配置，无法恢复存档；请先移除现有配置再启用。",
 			"caps.error.partialEnable": "已启用，但清理存档失败：{error}",
 			"caps.error.baseProfile": "该提供方在组合层也声明了配置，禁用无法让它下线，因此不提供此操作。",
-			"caps.error.unavailable": "无法切换：未找到插件的存档设置项。"
+			"caps.error.unavailable": "无法切换：未找到插件的存档设置项。",
+			"caps.seat.conflict": "「模型能力」面板未挂载：模型卡片的扩展插槽已被插件 {plugin} 占用，同一插槽只渲染一个扩展区。该插件卸载后本面板自动恢复。",
+			"caps.seat.unknownPlugin": "其他插件"
 		};
 		/** English copy (full key parity with zh). */
 		const en = {
@@ -51238,7 +52621,9 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 			"caps.error.routeExists": "The provider already has a newer configuration; the archive cannot be restored. Remove the current configuration first, then enable.",
 			"caps.error.partialEnable": "Enabled, but clearing the archive failed: {error}",
 			"caps.error.baseProfile": "The composition layer also declares this provider, so disabling cannot take it down; the action is not offered.",
-			"caps.error.unavailable": "Cannot toggle: the plugin archive settings entry is not served."
+			"caps.error.unavailable": "Cannot toggle: the plugin archive settings entry is not served.",
+			"caps.seat.conflict": "The Model capabilities panel is not mounted: another plugin ({plugin}) holds the provider-card extension seat, which renders one extension area per provider card. The panel returns as soon as that plugin is unloaded.",
+			"caps.seat.unknownPlugin": "another plugin"
 		};
 		/**
 		* Active dictionary, picked by the document language at call time (the same
@@ -51914,11 +53299,12 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 		}
 		/**
 		* Render the disabled-provider archive.
-		* @param props - the injected settings face and refresh bus.
-		* @returns the footer area, or nothing while the archive is empty.
+		* @param props - the injected settings face, refresh bus and card-seat claim status.
+		* @returns the footer area, the card-collision notice on its own, or nothing while neither applies.
 		*/
 		function DisabledProvidersFooter(props) {
-			const { settings, refresh } = props;
+			const { settings, refresh, cardSeat } = props;
+			const claim = (0, react.useSyncExternalStore)(cardSeat.subscribe, cardSeat.getSnapshot);
 			const [stash, setStash] = (0, react.useState)({});
 			const [llmView, setLlmView] = (0, react.useState)(void 0);
 			const [known, setKnown] = (0, react.useState)(false);
@@ -51948,7 +53334,8 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 				settings
 			]);
 			const routes = Object.keys(stash).filter((route) => !routeLive(llmView, route)).sort((a, b) => a.localeCompare(b));
-			if (!known || routes.length === 0) return null;
+			const archived = known && routes.length > 0;
+			if (!archived && claim.kind !== "conflict") return null;
 			const enable = async (route) => {
 				if (busyRoute !== void 0) return;
 				setBusyRoute(route);
@@ -51978,46 +53365,53 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 				"data-dsh-plugin": "model-capabilities",
 				"data-dsh-part": "disabled-footer",
 				children: [
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
-						className: capabilities_module_css_default.archiveTitle,
-						children: t("caps.footer.title")
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
-						className: capabilities_module_css_default.archiveRows,
-						children: routes.map((route) => {
-							const entry = stash[route];
-							const name = entry.displayName !== void 0 && entry.displayName.length > 0 ? entry.displayName : route;
-							return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("li", {
-								className: capabilities_module_css_default.archiveRow,
-								"data-dsh-part": "disabled-row",
-								children: [
-									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-										className: capabilities_module_css_default.modelId,
-										children: name
-									}),
-									name !== route ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-										className: capabilities_module_css_default.modelName,
-										children: route
-									}) : null,
-									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { className: capabilities_module_css_default.spacer }),
-									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-										type: "button",
-										className: capabilities_module_css_default.ghost,
-										"data-dsh-part": "enable",
-										disabled: busyRoute !== void 0,
-										onClick: () => {
-											enable(route);
-										},
-										children: busyRoute === route ? t("caps.busy.enabling") : t("caps.action.enable")
-									})
-								]
-							}, route);
+					claim.kind === "conflict" ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+						className: capabilities_module_css_default.failed,
+						role: "alert",
+						children: t("caps.seat.conflict", { plugin: claim.occupant ?? t("caps.seat.unknownPlugin") })
+					}) : null,
+					archived ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+							className: capabilities_module_css_default.archiveTitle,
+							children: t("caps.footer.title")
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
+							className: capabilities_module_css_default.archiveRows,
+							children: routes.map((route) => {
+								const entry = stash[route];
+								const name = entry.displayName !== void 0 && entry.displayName.length > 0 ? entry.displayName : route;
+								return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("li", {
+									className: capabilities_module_css_default.archiveRow,
+									"data-dsh-part": "disabled-row",
+									children: [
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+											className: capabilities_module_css_default.modelId,
+											children: name
+										}),
+										name !== route ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+											className: capabilities_module_css_default.modelName,
+											children: route
+										}) : null,
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { className: capabilities_module_css_default.spacer }),
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+											type: "button",
+											className: capabilities_module_css_default.ghost,
+											"data-dsh-part": "enable",
+											disabled: busyRoute !== void 0,
+											onClick: () => {
+												enable(route);
+											},
+											children: busyRoute === route ? t("caps.busy.enabling") : t("caps.action.enable")
+										})
+									]
+								}, route);
+							})
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+							className: capabilities_module_css_default.hint,
+							children: t("caps.footer.hint")
 						})
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
-						className: capabilities_module_css_default.hint,
-						children: t("caps.footer.hint")
-					}),
+					] }) : null,
 					failure !== void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
 						className: capabilities_module_css_default.failed,
 						role: "alert",
@@ -52025,6 +53419,155 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 					}) : null
 				]
 			});
+		}
+		//#endregion
+		//#region ../dsh-model-capabilities/src/client/provider-card-seat.ts
+		/**
+		* The Models page's provider-card seat claim for the pi-ai adapter family.
+		*
+		* `settings.models.provider-card` is a KEYED slot: the Models page dispatches
+		* one extension area per provider settings namespace, and a cell renders
+		* exactly one entry. The core registry refuses a second registration into an
+		* occupied cell (same key, same priority) by throwing — the right default, but
+		* it makes the loser of a collision silently invisible unless it reports the
+		* refusal. Two unrelated plugins that both extend pi-ai provider cards (this
+		* one and a third-party auth plugin, for example) therefore cannot both
+		* render, and the reporter must be able to see that.
+		*
+		* This module owns that outcome so it is never a silent blank:
+		*
+		* - a refused claim is classified and reported (console plus a status the
+		*   Models page renders), naming the registrant that holds the cell;
+		* - the claim is retried on every change to that slot, so disabling the
+		*   occupying plugin restores this panel without a DSH restart;
+		* - the retry subscription lives inside the injected declaration's lifetime,
+		*   so fiber unload and declaration collapse both release it.
+		*
+		* The panel deliberately keeps the default priority rather than picking a
+		* distinct one: entries sharing a cell at DIFFERENT priorities coexist on the
+		* ledger but only the lowest renders, which would replace a loud collision
+		* with a silent shadowing of the other plugin.
+		*
+		* The shared tree has no client-SDK dependency, so this module reads its
+		* context through the structural shape below; callers pass the plugin's own
+		* `ctx`.
+		* @module @linxin666/dsh-client-ui-model-capabilities/client/provider-card-seat
+		*/
+		/** The Models page seat this plugin fills for pi-ai provider cards. */
+		const PROVIDER_CARD_SEAT = "settings.models.provider-card";
+		/** The adapter-family settings namespace whose cards carry the panel. */
+		const PI_AI_PROVIDER_CARD_KEY = "llm-pi-ai";
+		/**
+		* The registry's diagnostics label of whoever holds the pi-ai cell.
+		*
+		* Best-effort by design: a registry that refuses the inspection still lets the
+		* refusal be reported, just without the occupant's name.
+		* @param ctx - client context owning the registry.
+		* @returns the occupant's label, or undefined when unknown or absent.
+		*/
+		function providerCardOccupant(ctx) {
+			let entries;
+			try {
+				entries = ctx.slots.entries(PROVIDER_CARD_SEAT);
+			} catch {
+				return;
+			}
+			for (const entry of entries) {
+				const view = entry;
+				if (view?.options?.key === "llm-pi-ai") return view.registrant;
+			}
+		}
+		/**
+		* Claim the pi-ai provider-card cell: report a refusal instead of swallowing
+		* it, and take the cell back as soon as it is released.
+		* @param ctx - client context (its slot registry owns the cell).
+		* @param seat - the panel contribution.
+		* @returns observable claim status for a user-visible notice.
+		*/
+		function claimProviderCardSeat(ctx, seat) {
+			let status = { kind: "unclaimed" };
+			const listeners = /* @__PURE__ */ new Set();
+			/** Publish a status change to every subscriber (stable reference between them). */
+			const publish = (next) => {
+				if (next.kind === status.kind && (next.kind !== "conflict" || next.occupant === (status.kind === "conflict" ? status.occupant : void 0))) return;
+				status = next;
+				for (const listener of [...listeners]) listener();
+			};
+			/** Report a refused claim instead of leaving the panel silently missing. */
+			const reportRefusal = (occupant, error) => {
+				const holder = occupant === void 0 ? "another plugin" : `"${occupant}"`;
+				try {
+					console.error(`[dsh-model-capabilities] provider-card slot "${PROVIDER_CARD_SEAT}" key "${PI_AI_PROVIDER_CARD_KEY}" is held by ${holder}, so the model capabilities panel is not rendered; disable that plugin to restore it`, error);
+				} catch {}
+			};
+			/** One attempt at the cell; its disposer, or undefined when refused. */
+			const tryClaim = () => {
+				try {
+					const unregister = ctx.slots.register({
+						name: PROVIDER_CARD_SEAT,
+						key: PI_AI_PROVIDER_CARD_KEY,
+						...seat.inject === void 0 ? {} : { inject: seat.inject }
+					}, seat.component);
+					publish({ kind: "claimed" });
+					return () => {
+						unregister();
+						publish({ kind: "unclaimed" });
+					};
+				} catch (error) {
+					const occupant = providerCardOccupant(ctx);
+					reportRefusal(occupant, error);
+					publish({
+						kind: "conflict",
+						occupant
+					});
+					return;
+				}
+			};
+			/**
+			* Wait for the occupant to release the cell, then claim it. The registry
+			* notifies per mutation, so a claim that is still refused simply waits for
+			* the next change; nothing polls.
+			*
+			* The `claiming` latch is required, not defensive: the registry emits that
+			* notification synchronously from inside `register`, so without it the
+			* claim would re-enter itself while its own entry is being written and
+			* collide with the entry it is writing.
+			*/
+			const watchForReleasedCell = () => {
+				if (typeof ctx.slots.subscribe !== "function") return () => {};
+				let stopped = false;
+				let claiming = false;
+				let claimed;
+				let unsubscribe = () => {};
+				const claim = () => {
+					if (stopped || claiming || claimed !== void 0) return;
+					claiming = true;
+					const release = tryClaim();
+					claiming = false;
+					if (release === void 0) return;
+					claimed = release;
+					unsubscribe();
+				};
+				unsubscribe = ctx.slots.subscribe(PROVIDER_CARD_SEAT, claim);
+				return () => {
+					stopped = true;
+					unsubscribe();
+					claimed?.();
+					publish({ kind: "unclaimed" });
+				};
+			};
+			ctx.slots.inject(PROVIDER_CARD_SEAT, () => tryClaim() ?? watchForReleasedCell());
+			return {
+				subscribe(listener) {
+					listeners.add(listener);
+					return () => {
+						listeners.delete(listener);
+					};
+				},
+				getSnapshot() {
+					return status;
+				}
+			};
 		}
 		//#endregion
 		//#region ../dsh-model-capabilities/src/client/settings-face.ts
@@ -52110,22 +53653,12 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 					return () => {};
 				}
 			}, "dsh-model-capabilities: document events");
-			ctx.slots.inject("settings.models.provider-card", () => {
-				try {
-					const unregister = ctx.slots.register({
-						name: "settings.models.provider-card",
-						key: "llm-pi-ai",
-						inject: () => ({
-							settings,
-							refresh
-						})
-					}, CapabilitiesPanel);
-					return () => {
-						unregister();
-					};
-				} catch {
-					return () => {};
-				}
+			const cardSeat = claimProviderCardSeat(ctx, {
+				component: CapabilitiesPanel,
+				inject: () => ({
+					settings,
+					refresh
+				})
 			});
 			ctx.slots.inject("settings.models.footer", () => {
 				try {
@@ -52134,13 +53667,17 @@ Please report this to https://github.com/markedjs/marked.`, e) {
 						id: "ui-model-capabilities",
 						inject: () => ({
 							settings,
-							refresh
+							refresh,
+							cardSeat
 						})
 					}, DisabledProvidersFooter);
 					return () => {
 						unregister();
 					};
-				} catch {
+				} catch (error) {
+					try {
+						console.error("[dsh-model-capabilities] the Models page footer slot refused the disabled-provider listing", error);
+					} catch {}
 					return () => {};
 				}
 			});

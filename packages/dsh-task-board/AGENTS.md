@@ -6,7 +6,8 @@ dsh Web GUI 的 Host 权威多列任务看板。任务通过真实 DSH 会话执
 
 - 权威账本固定为 `$DSH_HOME/task-board/ledger-v2.json`（文件名为历史沿用），当前 schema 为 `{ schemaVersion: 4, revision, tasks, scheduler }`；旧 v2/v3 文档在 Host 启动时逐字段无损迁移为 v4 写回（v4 为 `ScheduleRule.timeZone` 盖章 Host 时区），迁移失败必须明确报错且保留原文件（不静默清零）；写入必须保持临时文件加原子 rename、损坏文件隔离和 revision 单调递增。
 - 浏览器 `dsh.taskBoard.v1` 只用于一次性导入且必须保留；导入 marker 只能在 Host 确认后写。所有生产变更走 `protocol.ts` 的严格同源 action 协议，UI 不得先写未确认状态。
-- 手动与 cron 统一走 `HostExecutionRunner`。钉住的 workspace、agent preset、permission 任一失效都在任务 Prompt 前 fail closed；默认每次 execution 创建独立会话，任务开启 `reuseSession` 后可复用上一次会话——复用条件由 `core/session-reuse.ts` 唯一裁定：上一执行已结算、该 session 仍在名册中且空闲（名册未知一律不复用），复用时重新应用钉住的 permission/model 再入队 Prompt，不重命名、不新建。
+- 手动与 cron 统一走 `HostExecutionRunner`。钉住的 workspace、agent preset、permission 任一失效都在任务 Prompt 前 fail closed；默认每次 execution 创建独立会话，任务开启 `reuseSession` 后可复用上一次会话——复用条件由 `core/session-reuse.ts` 唯一裁定：上一执行已结算、该 session 仍在名册中且空闲（名册未知一律不复用），复用时重新应用钉住的 permission/model 再入队 Prompt，不重命名、不新建。名册由这次启动自己读取（`reuseSessionFor`），不沿用轮询缓存：空闲看板不轮询后，缓存的名册可能已经过期。
+- 会话名册只在看板确有需要名册裁决的事情时读取（issue #1821）：`HostTaskLedger.runtimeView().needsSessionState` 为真，即存在待核对的执行，或运行列里有一张卡片（其结算可能来自本进程未观测到的写入）。空看板、无运行中卡片、无未结算执行、无已启用计划时不轮询，Host 不重建持久化会话行。节奏由配置项 `sessionPollSeconds`（默认 5，1..300，volatile，范围与换算的唯一来源是 `src/core/poll-cadence.ts`）决定；一轮读不到名册（抛错或 `known: false`）按翻倍延迟退避、上限一分钟，可读即清零，因此会话树故障时不会被按轮询间隔反复冲击。该闸门刻意不查扩展注册表：提供方能力面（`TaskBoardExtensionHost`）不含任何会话能力，把扩展算进来只会削弱修复。
 - 目标执行默认开启：任务未显式 `goalRun: false` 时，runner 先入队 Prompt，再在同一会话执行 `/goal <组合 Prompt>`（目标文本经 `goalObjective` 规避 `/goal` 自身的关键字语法）；`/goal` 被拒或部署没有命令派发器时只告警并照常按单回合执行。目标存活期间 `inspect` 读 `session/projections` 判定：目标 `active` 保持 pending、`blocked` 以目标自身原因判失败、`complete`/`paused`/无目标沿用回合判定；读取失败回退回合判定并告警，不得让读失败永久挂住执行。
 - 交接包三元组在执行时覆盖普通钉住字段；有效权限高于权限基线的绑定必须先经 `confirm-permission` 动作人工确认（变更即重新武装），未确认卡片手动执行拒绝、cron 跳过并滚动 `nextRunAt`。基线取配置键 `sessionDefaultPermission`；未设置时跟随宿主自己的默认权限预设（可选服务 `permissionPresets` 的 `catalog().defaultPreset`，即 DSH 新会话的起始权限），按次实时读取，因此宿主设置变更无需重挂载即生效；部署不提供该服务、或它的默认值不是三种沙箱模式之一（如仅限当前会话的 `auto`）时回退 `read-only`。
 - cron 使用规则自身的 IANA 时区（`ScheduleRule.timeZone`，缺省跟随 Host 时区）：墙上时间由 `core/schedule.ts` 经 `Intl.DateTimeFormat` 在目标时区解析，夏令时空洞跳过、重复时刻取更早者；日期/星期遵循 Vixie 语义（两个字段都受限为 OR，其余组合为 AND）。账本 schema v4 迁移把 Host 时区盖到未存时区的规则上，使既有规则的触发时刻不随 `TZ` 变化移动。Host 首启或长暂停后的过期出现全部跳过；同任务 running 时不排队、不并发，只滚动下一触发点。
@@ -31,12 +32,12 @@ GitHub 工具与配置说明以包 README 为准。新增 GitHub 工具同样按
 
 ## 外部提供方扩展契约
 
-- 看板声明三个子席位 `task-board.detail.section`（props `{ task, dispatch }`）、`task-board.settings.section`（props `{ dispatch }`）、`task-board.card.decoration`（props `{ task }`）；注册组件在 `register` 选项声明 `children` 并在组件内用 `renderSlot` 消费，经内部 React context 穿透到详情页、设置卡与卡片；跨包扩展只在自己包内同形 `declare module` 声明这些键，不得 value import 看板。看板不再 import 提供方：`src/tool-surface.ts` 是 `scripts/sync-shared.mjs` 生成的副本，其中 `task-board-github` 键是家族 tool-section 顺序表的插件 id 键，不是 import、不是依赖、不是能力穿透，不计入「看板不再认识 GitHub」的判据。
+- 看板声明三个子席位 `task-board.detail.section`（props `{ task, dispatch }`）、`task-board.settings.section`（props `{ dispatch }`）、`task-board.card.decoration`（props `{ task }`）；注册组件在 `register` 选项声明 `children` 并在组件内用 `renderSlot` 消费，经内部 React context 穿透到详情页、设置卡与卡片；跨包扩展只在自己包内同形 `declare module` 声明这些键，不得 value import 看板。看板不再出现提供方名字：`src/tool-surface.ts` 是 `scripts/sync-shared.mjs` 生成的副本，家族 tool-section 顺序表只登记宿主插件的 order，外部扩展用家族自己的 `EXTENSION_TOOL_SECTION_ORDER` 槽位排在宿主之后，因此副本里没有提供方 id；`grep -rn github packages/dsh-task-board/src` 为 0。
 - host 与 client 各发布一份 cordis 服务 `taskBoard`，API 版本常量为 `TASK_BOARD_API_VERSION = 1`；provider 按该常量协商，版本不匹配即可见拒绝，且不影响看板继续服务。
 - provider 只见宿主能力面 `tasks.{ list, get, create, patchContent, setStatus, linked }`、`integration.{ read, write }`、`events.{ onStatusChanged, onExecutionSettled, onTaskDeleted }`、`publish`、`registerTool`，以及客户端能力面 `dispatch` / `registerVisibility` / `subscribe` / `snapshot`；`HostTaskLedger` 不进服务面。
 - 载荷不透明：`TaskRecord.integrations` 是 `Record<string, unknown>`，只校验纯 JSON 对象且单条不超过 64KiB；协议只有泛化的 `{ kind: "extension-action", extensionId, action, taskId?, payload? }`；快照只有 `extensions?: Record<string, unknown>`；不做账本 schema 迁移，远端语义的归一化不再被看板核心引用。
 - 不变量由看板上收执行：`patchContent` 复用 `canEditTaskContent`（执行过或已归档的卡内容冻结）、`setStatus` 走既有列与权限门禁、事件回调 try/catch 隔离且绝不打断执行；远端身份的索引归 provider，看板不提供 `findTaskByGitHubIdentity` 或 `updateTaskIntegrations`。
-- 开关三态：loader 行禁用（需重启，最重）> 扩展 `enabled`（volatile，默认 true，即时惰性：停轮询、停写回、注销工具、撤下详情区与徽章，不清数据）> 看板总开关；扩展的设置区块必须保持可达（它是重新开启的地方），只收放其中的配置表单。契约全文见 [Agent Note](../../.agents/notes/proposed/architecture/2026-09-30-task-board-extension-contract.md)。
+- 开关三态：loader 行禁用（需重启，最重）> 扩展 `enabled`（volatile，默认 true，即时惰性：停轮询、停写回、注销工具、撤下详情区与徽章，不清数据）> 看板总开关；扩展的设置区块必须保持可达（它是重新开启的地方），只收放其中的配置表单。契约全文见 [Agent Note](../../.agents/notes/implemented/architecture/2026-09-30-task-board-extension-contract.md)。
 
 ## 电源保护
 

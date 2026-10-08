@@ -54,14 +54,16 @@ describe('GitHub extension master switch', () => {
     })
     extension.start?.({ ...host, registerTool: tool => { tools.push(tool); return () => {} } })
     try {
-      // When the same five tools run before and after revocation, then all reject the revoked account.
-      expect(tools).toHaveLength(5)
+      // When the same seven tools run before and after revocation, then all reject the revoked account.
+      expect(tools).toHaveLength(7)
       const cases: Record<string, Record<string, unknown>> = {
         task_board_github_list: {},
         task_board_github_get: { taskId: 'missing' },
         task_board_github_refresh: {},
         task_board_github_create_pr: { taskId: 'missing', headBranch: 'dev' },
         task_board_github_link_pr: { taskId: 'missing', pullRequestNumber: 1 },
+        task_board_github_comment: { taskId: 'missing', body: 'Update' },
+        task_board_github_close_issue: { taskId: 'missing' },
       }
       for (const tool of tools) {
         allowed = true
@@ -124,7 +126,7 @@ describe('GitHub extension master switch', () => {
     const extension = provider({ enabled: () => live, backend, timers: recorder.timers })
     board.admit(extension)
     expect(board.isActive('github')).toBe(true)
-    expect(board.toolNames).toHaveLength(5)
+    expect(board.toolNames).toHaveLength(7)
     expect(recorder.armed).toEqual([{ kind: 'interval', delay: 300_000 }])
 
     // When the operator turns the switch off and the board re-applies its gate

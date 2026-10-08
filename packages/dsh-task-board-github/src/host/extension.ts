@@ -15,7 +15,9 @@ import {
   type TaskBoardExtensionHost,
 } from '../core/contract.ts'
 import type { HostTimerFace } from '../core/timers.ts'
+import type { WorkspaceRegistryFace } from './service.ts'
 import { GITHUB_EXTENSION_ID, type GitHubRepoConfig } from '../core/types.ts'
+import type { IssueAnalyzer } from './analysis.ts'
 import { GitHubApiClient } from './client.ts'
 import { GitHubSyncService } from './service.ts'
 import { buildGitHubTools, buildSetupTools } from './tools.ts'
@@ -41,6 +43,24 @@ export interface GitHubExtensionOptions {
   timers?: HostTimerFace
   now?: () => number
   /**
+   * The optional host workspace registry, resolved lazily. Absent leaves every
+   * synchronized card on the board's own workspace inheritance rules.
+   */
+  workspaceRegistry?: () => WorkspaceRegistryFace | undefined
+  /**
+   * Called with the live service on start and with undefined on stop.
+   *
+   * The settings surface needs the mounted service to read its sync health;
+   * the settings options are built before any service exists, so the handle
+   * arrives here instead of being captured.
+   */
+  onService?: (service: GitHubSyncService | undefined) => void
+  /**
+   * Resolves the live GitHub token. Preferred over `token`, which stays only
+   * as the fallback for a mount that has no credential seam.
+   */
+  credential?: () => Promise<string | undefined>
+  /**
    * Volatile master switch, read at use time by the board's registry. Absent
    * means enabled, which is the schema default.
    */
@@ -50,6 +70,10 @@ export interface GitHubExtensionOptions {
    * programmatic mount) registers the synchronization tools only.
    */
   setup?: GitHubSetup
+  /** Writes the model analysis of a card's issue; absent refuses analysis requests. */
+  analyzer?: IssueAnalyzer
+  /** Resolves the host's default model route (provider/model). */
+  defaultModel?: () => Promise<string | undefined>
 }
 
 /** One provider action the GitHub browser half dispatches. */
@@ -82,12 +106,22 @@ export function createGitHubExtension(options: GitHubExtensionOptions = {}): Tas
 
   const settings = (host: TaskBoardExtensionHost): GitHubSyncService => {
     service ??= new GitHubSyncService({
+      // Re-publish after every pass so the board's copy of the summary carries
+      // a live lastSyncAt rather than the instant the provider mounted.
+      onPass: () => {
+        if (service === undefined) return
+        try { host.publish(service.snapshotSummary()) } catch { /* best-effort */ }
+      },
       host,
       assertAccess: options.assertAccess,
       client: options.client ?? new GitHubApiClient({ token: options.token, tokenEnv: options.tokenEnv }),
       repositories: options.repositories,
       timers: options.timers,
       now: options.now,
+      credential: options.credential,
+      workspaceRegistry: options.workspaceRegistry,
+      analyzer: options.analyzer,
+      defaultModel: options.defaultModel,
     })
     return service
   }
@@ -98,6 +132,7 @@ export function createGitHubExtension(options: GitHubExtensionOptions = {}): Tas
     enabled: () => options.enabled?.() ?? true,
     start(host) {
       const sync = settings(host)
+      options.onService?.(sync)
       disposers.push(host.events.onExecutionSettled(event => {
         const task = host.tasks.get(event.taskId)
         const execution = task?.executions.find(entry => entry.id === event.executionId)
@@ -137,6 +172,7 @@ export function createGitHubExtension(options: GitHubExtensionOptions = {}): Tas
       for (const dispose of disposers.splice(0)) {
         try { dispose() } catch { /* best-effort */ }
       }
+      options.onService?.(undefined)
       service?.dispose()
       service = undefined
     },
@@ -183,6 +219,27 @@ export function createGitHubExtension(options: GitHubExtensionOptions = {}): Tas
           }
           const pullRequest = await service.linkPullRequest(taskId, pullRequestNumber)
           return { ok: true, pullRequest }
+        }
+        case 'analyze': {
+          // Accepted at once: the model call outlives the board's action
+          // channel, so it runs in the background and its outcome reaches the
+          // browser as a card change. A refusal (frozen, edited, in flight)
+          // throws here, synchronously, so the dispatcher sees it.
+          const taskId = requireTaskId(request)
+          const model = stringField(request, 'model')
+          void service.beginAnalysis(taskId, {
+            ...(model === undefined || model.trim() === '' ? {} : { model: model.trim() }),
+            overwrite: request.payload?.overwrite === true,
+          })
+          return { ok: true, started: true }
+        }
+        case 'clear-analysis': {
+          service.clearAnalysis(requireTaskId(request), request.payload?.overwrite === true)
+          return { ok: true }
+        }
+        case 'move-backlog': {
+          service.moveToBacklog(requireTaskId(request))
+          return { ok: true }
         }
         default:
           throw new Error(`unknown GitHub action "${request.action}"`)

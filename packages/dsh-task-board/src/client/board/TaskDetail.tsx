@@ -27,7 +27,7 @@ import { inheritPresetLabel, presetLabel } from './preset-label.ts'
 import { formatHostTimestamp, formatTime } from './TaskCard.tsx'
 import { STATUS_KEY } from './status-key.ts'
 import { VerificationReport } from './VerificationReport.tsx'
-import { TaskMarkdown } from './task-markdown.tsx'
+import { ClampedMarkdown } from './ClampedMarkdown.tsx'
 
 /** Execution outcome → locale key. */
 const RESULT_KEY: Record<NonNullable<ExecutionRecord['result']>, TaskBoardKey> = {
@@ -180,6 +180,16 @@ function ExecutionSettingsSection({ controller, task, pending, executionOptions,
         <span>{t('exec.goalRun')}</span>
       </label>
       <p className={css.detailText}>{t('exec.goalRunHint')}</p>
+      <label className={css.scheduleToggle}>
+        <input
+          type="checkbox"
+          checked={task.skipVerification === true}
+          disabled={pending}
+          onChange={event => { controller.updateTask(task.id, { skipVerification: event.target.checked }) }}
+        />
+        <span>{t('exec.skipVerification')}</span>
+      </label>
+      <p className={css.detailText}>{t('exec.skipVerificationHint')}</p>
       <label className={css.scheduleToggle}>
         <input
           type="checkbox"
@@ -512,7 +522,7 @@ export function TaskDetail({ controller, task, phase = 'open' }: { controller: B
           )}
           <section className={css.detailSection}>
             <h4>{t('detail.description')}</h4>
-            <TaskMarkdown source={current.description !== '' ? current.description : '—'} />
+            <ClampedMarkdown source={current.description !== '' ? current.description : '—'} />
           </section>
 
           <SubtaskSection controller={controller} task={current} pending={pending} archived={archived} snapshot={snapshot} />
@@ -590,7 +600,7 @@ export function TaskDetail({ controller, task, phase = 'open' }: { controller: B
 
           <section className={css.detailSection}>
             <h4>{t('detail.prompt')}</h4>
-            <TaskMarkdown source={current.prompt !== '' ? current.prompt : current.title} />
+            <ClampedMarkdown source={current.prompt !== '' ? current.prompt : current.title} />
           </section>
 
           {!archived && (

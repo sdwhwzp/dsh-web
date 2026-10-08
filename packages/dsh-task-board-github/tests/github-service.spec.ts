@@ -31,7 +31,7 @@ function faceOf(board: FakeBoard): TaskBoardExtensionHost {
 function makeService(
   board: FakeBoard,
   backend: FakeGitHubBackend,
-  options: { repositories?: GitHubRepoConfig[]; now?: () => number; timers?: HostTimerFace; token?: string } = {},
+  options: { repositories?: GitHubRepoConfig[]; now?: () => number; timers?: HostTimerFace; token?: string; workspaces?: Array<{ id: string, path?: string, name?: string }> } = {},
 ): GitHubSyncService {
   return new GitHubSyncService({
     host: faceOf(board),
@@ -39,6 +39,9 @@ function makeService(
     repositories: options.repositories ?? [REPO],
     now: options.now ?? (() => 100),
     ...(options.timers === undefined ? {} : { timers: options.timers }),
+    ...(options.workspaces === undefined
+      ? {}
+      : { workspaceRegistry: () => ({ list: () => options.workspaces ?? [] }) }),
   })
 }
 
@@ -72,6 +75,29 @@ describe('GitHub sync service', () => {
       const again = await service.syncRepository('deepseek-ai', 'dsh')
       expect(again.errors).toEqual(['account mode'])
       expect(requests).toBe(1)
+    } finally {
+      service.dispose()
+    }
+  })
+
+  it('operator revocation during credential resolution prevents the next repository pass', async () => {
+    // Given credentials that resolve after the shared integration is revoked.
+    const board = new FakeBoard()
+    let allowed = true
+    let requests = 0
+    const service = new GitHubSyncService({
+      host: faceOf(board),
+      repositories: [REPO],
+      assertAccess: () => { if (!allowed) throw new Error('account mode') },
+      credential: async () => { allowed = false; return 'test-token' },
+      client: new GitHubApiClient({ fetch: async () => { requests += 1; return json([]) } }),
+    })
+    try {
+      // When the pass resumes after credential lookup.
+      await expect(service.syncAll()).rejects.toThrow('account mode')
+      // Then neither GitHub nor the shared board receives a write or request.
+      expect(requests).toBe(0)
+      expect(cards(board)).toEqual([])
     } finally {
       service.dispose()
     }
@@ -216,7 +242,8 @@ describe('GitHub sync service', () => {
     const service = makeService(board, backend)
     await service.syncRepository('deepseek-ai', 'dsh')
     const task = cards(board)[0]!
-    expect(task.prompt).toBe('Initial Prompt Content')
+    const recorded = task.prompt
+    expect(recorded).toContain('Initial Prompt Content')
 
     // And the card has started executing, which is what the board's content
     // gate freezes it on
@@ -231,7 +258,8 @@ describe('GitHub sync service', () => {
     // Then the board refused the content patch: the recorded prompt and title
     // are unchanged while the remote snapshot is recorded as metadata only
     const stored = board.records.get(task.id)!
-    expect(stored.prompt).toBe('Initial Prompt Content')
+    expect(stored.prompt).toBe(recorded)
+    expect(stored.prompt).not.toContain('Changed Remote Body')
     expect(stored.title).toBe('Issue 50')
     expect(readTaskGitHubMetadata(stored)?.remoteTitle).toBe('Changed Title')
     expect(readTaskGitHubMetadata(stored)?.remoteBody).toBe('Changed Remote Body')
@@ -420,5 +448,72 @@ describe('GitHub sync service', () => {
     expect(summary.repositories).toHaveLength(1)
     expect(summary.repositories[0]?.owner).toBe('deepseek-ai')
     expect(JSON.stringify(summary)).not.toContain('super-secret-token')
+  })
+
+  it('operator sees a synchronized issue pinned to the checkout of the same name', async () => {
+    // Given a deployment holding two checkouts, one of which is this repository
+    const board = new FakeBoard()
+    const backend = new FakeGitHubBackend()
+    backend.issues = [issueFixture(80, ['dsh'])]
+    const service = makeService(board, backend, {
+      workspaces: [{ id: 'ws-dsh', path: '/home/dev/code/dsh' }, { id: 'ws-web', path: '/home/dev/code/dsh-web' }],
+    })
+
+    // When the sync materializes the card
+    await service.syncAll()
+
+    // Then it is pinned to the matching checkout, not to the most recent one
+    const card = cards(board).find(candidate => readTaskGitHubMetadata(candidate)?.issueNumber === 80)
+    expect(card?.workspaceId).toBe('ws-dsh')
+  })
+
+  it('operator whose checkout is named differently sees no pin rather than a wrong one', async () => {
+    // Given a deployment whose checkouts do not match the repository name
+    const board = new FakeBoard()
+    const backend = new FakeGitHubBackend()
+    backend.issues = [issueFixture(81, ['dsh'])]
+    const service = makeService(board, backend, {
+      workspaces: [{ id: 'ws-a', path: '/home/dev/work/harness' }, { id: 'ws-b', path: '/home/dev/work/site' }],
+    })
+
+    // When the sync materializes the card
+    await service.syncAll()
+
+    // Then nothing is pinned: an unmatched repository keeps the board's own
+    // inheritance rules instead of being sent to a lookalike project
+    const card = cards(board).find(candidate => readTaskGitHubMetadata(candidate)?.issueNumber === 81)
+    expect(card?.workspaceId).toBeUndefined()
+  })
+
+  it('operator with two checkouts of the same project sees no pin, because the choice is theirs', async () => {
+    // Given an ambiguous deployment
+    const board = new FakeBoard()
+    const backend = new FakeGitHubBackend()
+    backend.issues = [issueFixture(82, ['dsh'])]
+    const service = makeService(board, backend, {
+      workspaces: [{ id: 'ws-one', path: '/home/dev/personal/dsh' }, { id: 'ws-two', path: '/home/dev/work/dsh' }],
+    })
+
+    // When the sync materializes the card
+    await service.syncAll()
+
+    // Then neither is chosen
+    const card = cards(board).find(candidate => readTaskGitHubMetadata(candidate)?.issueNumber === 82)
+    expect(card?.workspaceId).toBeUndefined()
+  })
+
+  it('operator on a deployment with no workspace registry is unaffected', async () => {
+    // Given a service wired with no registry at all
+    const board = new FakeBoard()
+    const backend = new FakeGitHubBackend()
+    backend.issues = [issueFixture(83, ['dsh'])]
+    const service = makeService(board, backend)
+
+    // When the sync materializes the card
+    await service.syncAll()
+
+    // Then the card was still materialized, and it simply carries no pin
+    const card = cards(board).find(candidate => readTaskGitHubMetadata(candidate)?.issueNumber === 83)
+    expect([card?.title, card?.workspaceId]).toEqual(['Issue 83', undefined])
   })
 })

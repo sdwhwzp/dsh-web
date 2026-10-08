@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-02",
+  "generated": "2026-10-08",
   "items": [
     {
       "id": "dsh-quick-ask",
@@ -384,12 +384,12 @@
     },
     {
       "id": "dsh-chatgpt-subscription",
-      "name": "子代理管理",
+      "name": "订阅管理",
       "rank": 31,
-      "nameEn": "Subagent Management",
+      "nameEn": "Subscription Management",
       "author": "Aa728848",
-      "description": "让 DSH 通过 ChatGPT 订阅使用 GPT 系列模型：PKCE OAuth 登录、DPAPI/钥匙串/0600 凭据存储、流式 Responses、图片生成、Codex 搜索、额度展示与子代理管理。",
-      "descriptionEn": "Use GPT models in DSH through your ChatGPT subscription: PKCE OAuth login, DPAPI/keychain/0600 credential storage, streaming Responses, image generation, Codex search, quota display and subagent management.",
+      "description": "让 DSH 用上你已订阅的模型：ChatGPT、Kimi、Claude、Command Code、WorkBuddy、MiniMax Code、Google Antigravity 七条线路各自独立登录、独立额度卡片；支持 PKCE OAuth 与设备码登录、DPAPI/钥匙串/0600 凭据存储、流式 Responses、图片生成、Codex 搜索与子代理模型授权。",
+      "descriptionEn": "Bring the model subscriptions you already pay for into DSH: seven independent lines (ChatGPT, Kimi, Claude, Command Code, WorkBuddy, MiniMax Code, Google Antigravity), each with its own login and quota card; PKCE OAuth and device-code login, DPAPI/keychain/0600 credential storage, streaming Responses, image generation, Codex search and subagent model authorization.",
       "repo": "https://github.com/Aa728848/dsh-chatgpt-subscription",
       "npm": "@eddyskywalker/dsh-chatgpt-subscription",
       "category": "integration",
@@ -1654,6 +1654,44 @@
       "npm": "dsh-screen-capture-record-desktop",
       "category": "tools",
       "subcategory": "dev"
+    },
+    {
+      "id": "dsh-as-aistudio",
+      "name": "AI Studio",
+      "rank": 130,
+      "nameEn": "AI Studio",
+      "author": "DDDMUC",
+      "description": "把一轮对话变成可以反复打磨的 prompt playground：就地改一句提示词并回滚重问、对某条回复原位重跑、把不该留下的一轮从模型上下文删掉、并让发出的提示词按 Markdown 渲染。自包含安装，一个包内置全部四个组件（编辑并重跑、原位重跑、删除该轮、Markdown 气泡），插件列表里只显示 AI Studio 一行；四个组件仍是各自独立的 npm 包，单独安装时各自出现在列表里。设置 > 插件 > AI Studio 面板如实报告每个组件的实际状态（已安装 / 已挂载 / 版本）。",
+      "descriptionEn": "Turn one turn into a prompt playground you can keep revising: rewrite a prompt in place and roll the conversation back to just before it, regenerate a reply from the same prompt while later turns survive, remove a turn from the model context, and render sent prompts as Markdown. Self-contained - one package bundles all four components (edit and re-run, re-run in place, delete this turn, Markdown bubble) and the plugin list shows a single AI Studio row; each component is still its own independent npm package and appears as its own row when installed standalone. The Settings > Plugins > AI Studio panel reports what each component is actually doing (installed / mounted / version).",
+      "repo": "https://github.com/DDDMUC/dsh-as-aistudio",
+      "npm": "dsh-as-aistudio",
+      "category": "tools",
+      "subcategory": "context"
+    },
+    {
+      "id": "dsh-wallpaper-engine",
+      "name": "壁纸引擎",
+      "rank": 131,
+      "nameEn": "Wallpaper Engine",
+      "author": "elysia395",
+      "description": "把本机 Wallpaper Engine 壁纸渲染到 DSH 聊天界面后方：Scene/Web 由内置 WebWallGL 实时渲染，Video 直接播放；附液态玻璃、壁纸属性面板、Now Playing 联动与主题随壁纸。与皮肤类插件互斥（二选一）。",
+      "descriptionEn": "Renders local Wallpaper Engine wallpapers behind the DSH chat UI: Scene/Web via the bundled WebWallGL renderer, Video plays directly, with liquid glass, a wallpaper properties panel, Now Playing integration and theme following. Mutually exclusive with skin plugins (choose one).",
+      "repo": "https://github.com/elysia395/dsh-wallpaper-engine",
+      "npm": "dsh-plugin-wallpaper-engine",
+      "category": "ui",
+      "subcategory": "render"
+    },
+    {
+      "id": "dsh-pet-quota",
+      "name": "宠物额度气泡",
+      "rank": 132,
+      "nameEn": "Pet Quota Bubble",
+      "author": "Daizhdd",
+      "description": "在 DSH 桌面宠物头上显示今日 token 用量：按输入+缓存读+缓存写+输出与侧边栏同口径统计，分轻度/中度/重度三档，档位只用一个彩色圆点表示，无进度条与百分比；另有任务完成、本轮失败、跨档三类事件气泡，全部通过宠物插件公开的 announce 接口推送，不改动任何第三方代码。",
+      "descriptionEn": "Shows today token usage as a bubble above the DSH desktop pet: counts input + cache-read + cache-write + output with the same convention as the sidebar, sorts the day into three tiers shown as a single coloured dot (no progress bar, no percentage), and adds completion / failure / tier-change bubbles through the pet plugin public announce API without patching any third-party code.",
+      "repo": "https://github.com/Daizhdd/dsh-pet-quota",
+      "category": "utility",
+      "subcategory": "stats"
     }
   ]
 }

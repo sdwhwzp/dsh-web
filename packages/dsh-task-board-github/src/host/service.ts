@@ -18,6 +18,7 @@ import type { HostTimerFace } from '../core/timers.ts'
 import type { ExecutionRecord, TaskRecord, TaskStatus } from '../core/task-record.ts'
 import type { TaskBoardExtensionHost } from '../core/contract.ts'
 import {
+  GITHUB_COMMENT_MAX_CHARS,
   ME_ASSIGNEE,
   normalizeGitHubMetadata,
   readTaskGitHubMetadata,
@@ -28,13 +29,43 @@ import {
   resolveRepoConfig,
 } from '../core/types.ts'
 import {
+  composeIssuePrompt,
   computeLabelWriteBack,
   extractLabelNames,
+  isDshManagedLabel,
   isIssueIncluded,
   materializeTaskFromIssue,
   reconcileIssueWithTask,
 } from '../core/projection.ts'
+import { isPromptEdited, issueSourceHash, type IssuePromptSource } from '../core/prompt.ts'
+import { workspaceIdForRepository, type WorkspaceMatchCandidate } from '../core/workspace-match.ts'
+import { IssueAnalysisError, splitModelRoute, type AnalysisRoute, type IssueAnalyzer } from './analysis.ts'
 import { GitHubApiClient } from './client.ts'
+
+/** Options of one analysis request. */
+export interface AnalysisRequest {
+  /** Qualified provider/model; absent falls back to the repository, the card, then the host default. */
+  model?: string
+  /** Replace a prompt somebody edited by hand. Without it an edited prompt refuses the request. */
+  overwrite?: boolean
+}
+
+/** A refusal of an analysis request, with a stable code the browser can phrase. */
+export class AnalysisRequestError extends Error {
+  constructor(readonly code: 'not-linked' | 'not-configured' | 'frozen' | 'prompt-edited' | 'in-flight' | 'no-model' | 'no-analyzer', message: string) {
+    super(message)
+    this.name = 'AnalysisRequestError'
+  }
+}
+
+/**
+ * The optional host workspace registry the provider infers an issue's checkout
+ * from. Resolved structurally and read at use time: a deployment that serves
+ * none simply pins nothing, which is the pre-existing behavior.
+ */
+export interface WorkspaceRegistryFace {
+  list(): readonly WorkspaceMatchCandidate[]
+}
 
 export interface GitHubSyncServiceOptions {
   /** The capability face the board hands the extension while it is enabled. */
@@ -45,6 +76,36 @@ export interface GitHubSyncServiceOptions {
   now?: () => number
   /** Recheck access before remote requests and local writes, including after an await. */
   assertAccess?: () => void
+  /**
+   * The optional host workspace registry. Absent leaves every synchronized
+   * card on the board's own workspace inheritance rules.
+   */
+  workspaceRegistry?: () => WorkspaceRegistryFace | undefined
+  /**
+   * Called after every completed pass, so a consumer can re-publish health.
+   * Never awaited, and a throw from it never reaches the pass.
+   */
+  onPass?: () => void
+  /**
+   * Resolves the live GitHub token, credential store first.
+   *
+   * Resolved once per PASS, not once at activation. The store is an async host
+   * service that may not be serving when this row activates, and a token read
+   * that races it yields nothing: the provider then mounts unauthenticated and,
+   * because re-resolution only happened on a `credentials/reference-updated`
+   * event that a pre-existing credential never fires, stays that way for the
+   * life of the host. A pass runs long after activation, by which time the
+   * store answers, so resolving here is what makes the first poll work.
+   */
+  credential?: () => Promise<string | undefined>
+  /**
+   * Writes the model analysis a card's prompt may include. Absent (a
+   * deployment with no model service wired) refuses analysis requests while
+   * synchronization keeps working on the templated prompt alone.
+   */
+  analyzer?: IssueAnalyzer
+  /** Resolves the host's default model route (provider/model), when there is one. */
+  defaultModel?: () => Promise<string | undefined>
 }
 
 const DEFAULT_TIMERS: HostTimerFace = {
@@ -69,14 +130,28 @@ export class GitHubSyncService {
   readonly repositories: ResolvedGitHubRepoConfig[]
   private readonly timers: HostTimerFace
   private readonly now: () => number
+  private readonly workspaceRegistry: (() => WorkspaceRegistryFace | undefined) | undefined
+  private readonly onPass: (() => void) | undefined
+  private readonly credential: (() => Promise<string | undefined>) | undefined
   private pollTimer: (() => void) | undefined
   private stopped = false
-  private syncing = false
   private readonly assertAccess: (() => void) | undefined
+  /** In-flight pass, with the instant it opened: a stale one is taken over. */
+  private inFlight: { since: number } | undefined
+  /** When the last pass actually reached a repository, ms epoch. */
+  private lastSyncAt: number | undefined
+  /** Errors the last pass collected, for the operator to read. */
+  private lastSyncErrors: string[] = []
+  /** Consecutive passes that synced nothing at all. */
+  private consecutiveEmptySyncs = 0
   /** Immutable remote identity -> local card id, owned by this provider. */
   private readonly identityIndex = new Map<string, string>()
   /** Login this credential authenticates as, resolved once for an `@me` inclusion rule. */
   private authenticatedLogin: string | undefined
+  private readonly analyzer: IssueAnalyzer | undefined
+  private readonly defaultModel: (() => Promise<string | undefined>) | undefined
+  /** In-flight analyses by card id, so one card never runs two at once. */
+  private readonly analyses = new Map<string, { controller: AbortController; done: Promise<void> }>()
 
   constructor(options: GitHubSyncServiceOptions) {
     this.host = options.host
@@ -85,6 +160,56 @@ export class GitHubSyncService {
     this.repositories = (options.repositories ?? []).map(resolveRepoConfig)
     this.timers = options.timers ?? DEFAULT_TIMERS
     this.now = options.now ?? Date.now
+    this.workspaceRegistry = options.workspaceRegistry
+    this.onPass = options.onPass
+    this.credential = options.credential
+    this.analyzer = options.analyzer
+    this.defaultModel = options.defaultModel
+  }
+
+  /**
+   * Put the live token on the client before a pass uses it.
+   *
+   * A store that cannot be read is swallowed on purpose: it must not throw
+   * out of the pass, and the pass then reports a missing credential through
+   * its ordinary error path instead.
+   */
+  private async refreshCredential(): Promise<void> {
+    this.assertAccess?.()
+    if (this.credential === undefined) return
+    try {
+      const token = await this.credential()
+      this.assertAccess?.()
+      this.client.setToken(token)
+    } catch {
+      // Leave the client on whatever it already had.
+    }
+    this.assertAccess?.()
+  }
+
+  /**
+   * The workspace an issue from one repository should be pinned to.
+   *
+   * Resolved per materialization, not once at start: a user who adds a
+   * checkout after the extension mounted must still get correctly pinned
+   * cards. A registry that is absent, throws, or lists nothing leaves the pin
+   * empty, which is the board's own inheritance behavior rather than a guess.
+   *
+   * @param repository - the GitHub repository name.
+   * @returns the workspace id, or undefined when the rule does not match.
+   */
+  workspaceIdFor(repository: string): string | undefined {
+    this.assertAccess?.()
+    const registry = this.workspaceRegistry?.()
+    if (registry === undefined) return undefined
+    let workspaces: readonly WorkspaceMatchCandidate[]
+    try {
+      workspaces = registry.list()
+    } catch {
+      return undefined
+    }
+    if (!Array.isArray(workspaces)) return undefined
+    return workspaceIdForRepository(repository, workspaces)
   }
 
   /**
@@ -119,6 +244,7 @@ export class GitHubSyncService {
   start(): void {
     if (this.stopped || this.pollTimer !== undefined) return
     this.reindex()
+    this.clearStalePendingAnalyses()
     const intervals = this.repositories
       .map(r => r.pollingIntervalMs)
       .filter(ms => ms > 0)
@@ -126,11 +252,32 @@ export class GitHubSyncService {
 
     const minInterval = Math.min(...intervals)
     this.pollTimer = this.timers.interval(() => {
-      void this.syncAll().catch(() => {})
+      this.runBackgroundSync()
     }, minInterval)
 
     // Trigger initial background sync
-    void this.syncAll().catch(() => {})
+    this.runBackgroundSync()
+  }
+
+  /**
+   * One background pass, with its outcome reported instead of discarded.
+   *
+   * The old form was `syncAll().catch(() => {})` on both the timer and the
+   * initial call: a pass that rejected took the whole extension down to
+   * silence, and the operator was left looking at a configured, credentialed,
+   * enabled integration that had plainly stopped working. A pass that merely
+   * produced errors is ALSO reported — those were returned to a caller that
+   * discarded them, which is why a repository-wide listing failure left no
+   * trace on any card.
+   */
+  private runBackgroundSync(): void {
+    void this.syncAll().then(result => {
+      if (result.errors.length > 0) {
+        console.warn('[dsh-task-board-github] sync reported errors: ' + result.errors.join(' | '))
+      }
+    }).catch(error => {
+      console.error('[dsh-task-board-github] sync failed', error)
+    })
   }
 
   /** Stop background polling timer. */
@@ -145,6 +292,191 @@ export class GitHubSyncService {
     this.stopped = true
     this.stop()
     this.identityIndex.clear()
+    for (const { controller } of this.analyses.values()) controller.abort()
+    this.analyses.clear()
+  }
+
+  /**
+   * A pending marker is in-memory state written to the card so the browser can
+   * show progress; a host restart loses the request behind it, so a marker
+   * found at start belongs to nobody and is cleared rather than left spinning.
+   */
+  private clearStalePendingAnalyses(): void {
+    for (const { task, payload } of this.host.tasks.linked()) {
+      if (typeof payload.analysisPendingSince !== 'number') continue
+      if (this.analyses.has(task.id)) continue
+      this.writePayload(task.id, { analysisPendingSince: undefined })
+    }
+  }
+
+  /**
+   * The issue facts one card's analysis is written from: the last synchronized
+   * remote snapshot, with DSH-managed labels left out.
+   */
+  private promptSourceOf(gh: GitHubTaskMetadata, config: ResolvedGitHubRepoConfig): IssuePromptSource {
+    return {
+      owner: config.owner,
+      repository: config.repository,
+      issueNumber: gh.issueNumber,
+      issueUrl: gh.issueUrl,
+      title: gh.remoteTitle ?? '',
+      body: gh.remoteBody ?? '',
+      labels: gh.remoteLabels.filter(label => !isDshManagedLabel(label, config) && label !== config.inclusionLabel),
+    }
+  }
+
+  /**
+   * Resolve the model route of one analysis: the request, then the
+   * repository's analysis model, then the card's own pinned model, then the
+   * host default.
+   */
+  private async analysisRoute(task: TaskRecord, config: ResolvedGitHubRepoConfig, requested?: string): Promise<{ route: AnalysisRoute; qualified: string } | undefined> {
+    const candidates: Array<string | undefined> = [requested, config.analysisModel, task.model]
+    for (const candidate of candidates) {
+      const route = splitModelRoute(candidate)
+      if (route !== undefined) return { route, qualified: `${route.provider}/${route.model}` }
+    }
+    let fallback: string | undefined
+    try {
+      fallback = await this.defaultModel?.()
+    } catch {
+      fallback = undefined
+    }
+    const route = splitModelRoute(fallback)
+    return route === undefined ? undefined : { route, qualified: `${route.provider}/${route.model}` }
+  }
+
+  /**
+   * Start one model analysis of a card's issue.
+   *
+   * Validation is synchronous so the caller sees a refusal at once; the model
+   * call itself runs in the background, because it routinely outlives the
+   * board's action channel. Progress is written to the card's payload
+   * (`analysisPendingSince`, then `analysis` or `analysisError`), which the
+   * board broadcasts like any other card change.
+   *
+   * On success the analysis is stored with the fingerprint of the issue it was
+   * written from, and the card's prompt is regenerated to include it — through
+   * the board's content gate, so a card that started executing meanwhile keeps
+   * its recorded prompt.
+   * @param taskId - the card to analyze.
+   * @param request - model route and overwrite consent.
+   * @returns a promise that settles when the background analysis has been recorded.
+   */
+  beginAnalysis(taskId: string, request: AnalysisRequest = {}): Promise<void> {
+    this.assertAccess?.()
+    const task = this.host.tasks.get(taskId)
+    const gh = this.metadataOf(task)
+    if (task === undefined || gh === undefined) throw new AnalysisRequestError('not-linked', 'task is not linked to a GitHub issue')
+    const config = this.findRepoConfig(gh.owner, gh.repository)
+    if (config === undefined) throw new AnalysisRequestError('not-configured', `repository ${gh.owner}/${gh.repository} is not configured`)
+    if (this.analyzer === undefined) throw new AnalysisRequestError('no-analyzer', 'this deployment serves no model service for issue analysis')
+    if (task.executions.length > 0 || task.archivedAt !== undefined) {
+      throw new AnalysisRequestError('frozen', 'the card has started executing; its prompt is read-only')
+    }
+    if (request.overwrite !== true && isPromptEdited(task.prompt, gh.promptHash, {
+      ...(gh.remoteTitle === undefined ? {} : { title: gh.remoteTitle }),
+      ...(gh.remoteBody === undefined ? {} : { body: gh.remoteBody }),
+    })) {
+      throw new AnalysisRequestError('prompt-edited', 'the prompt was edited by hand; confirm overwriting it')
+    }
+    if (this.analyses.has(taskId)) throw new AnalysisRequestError('in-flight', 'an analysis is already running for this card')
+
+    const controller = new AbortController()
+    const analyzer = this.analyzer
+    this.writePayload(taskId, { analysisPendingSince: this.now(), analysisError: undefined })
+    const done = (async () => {
+      try {
+        const resolved = await this.analysisRoute(task, config, request.model)
+        if (resolved === undefined) throw new AnalysisRequestError('no-model', 'no model route is configured: pick a model, pin one on the card, or set a host default')
+        this.assertAccess?.()
+        const source = this.promptSourceOf(gh, config)
+        const analysis = await analyzer.analyze(source, resolved.route, controller.signal)
+        this.assertAccess?.()
+        this.recordAnalysis(taskId, {
+          ...analysis,
+          sourceHash: issueSourceHash(source.title, source.body),
+          model: resolved.qualified,
+          generatedAt: this.now(),
+        })
+      } catch (error) {
+        if (controller.signal.aborted && this.stopped) return
+        const message = error instanceof IssueAnalysisError || error instanceof AnalysisRequestError
+          ? error.message
+          : error instanceof Error ? error.message : String(error)
+        this.writePayload(taskId, { analysisPendingSince: undefined, analysisError: message })
+      } finally {
+        this.analyses.delete(taskId)
+      }
+    })()
+    this.analyses.set(taskId, { controller, done })
+    return done
+  }
+
+  /** Store one finished analysis and regenerate the card's prompt with it. */
+  private recordAnalysis(taskId: string, analysis: NonNullable<GitHubTaskMetadata['analysis']>): void {
+    const task = this.host.tasks.get(taskId)
+    const gh = this.metadataOf(task)
+    if (task === undefined || gh === undefined) return
+    const config = this.findRepoConfig(gh.owner, gh.repository)
+    if (config === undefined) return
+    const generated = composeIssuePrompt(
+      { number: gh.issueNumber, html_url: gh.issueUrl, title: gh.remoteTitle ?? '', body: gh.remoteBody ?? '', labels: gh.remoteLabels },
+      config,
+      analysis,
+    )
+    try {
+      this.host.tasks.patchContent(taskId, { prompt: generated.prompt })
+    } catch {
+      // The card started executing while the model was answering: its recorded
+      // prompt stays, and the analysis is kept for the record only.
+      this.writePayload(taskId, {
+        analysis,
+        analysisPendingSince: undefined,
+        analysisError: 'the card started executing before the analysis finished; its prompt was left unchanged',
+      })
+      return
+    }
+    this.writePayload(taskId, { analysis, promptHash: generated.promptHash, analysisPendingSince: undefined, analysisError: undefined })
+  }
+
+  /**
+   * Drop a card's analysis and regenerate its prompt without it.
+   * @param taskId - the card.
+   * @param overwrite - replace a prompt somebody edited by hand.
+   */
+  clearAnalysis(taskId: string, overwrite = false): void {
+    const task = this.host.tasks.get(taskId)
+    const gh = this.metadataOf(task)
+    if (task === undefined || gh === undefined) throw new AnalysisRequestError('not-linked', 'task is not linked to a GitHub issue')
+    const config = this.findRepoConfig(gh.owner, gh.repository)
+    if (config === undefined) throw new AnalysisRequestError('not-configured', `repository ${gh.owner}/${gh.repository} is not configured`)
+    if (task.executions.length > 0 || task.archivedAt !== undefined) {
+      throw new AnalysisRequestError('frozen', 'the card has started executing; its prompt is read-only')
+    }
+    if (!overwrite && isPromptEdited(task.prompt, gh.promptHash, {
+      ...(gh.remoteTitle === undefined ? {} : { title: gh.remoteTitle }),
+      ...(gh.remoteBody === undefined ? {} : { body: gh.remoteBody }),
+    })) {
+      throw new AnalysisRequestError('prompt-edited', 'the prompt was edited by hand; confirm overwriting it')
+    }
+    const generated = composeIssuePrompt(
+      { number: gh.issueNumber, html_url: gh.issueUrl, title: gh.remoteTitle ?? '', body: gh.remoteBody ?? '', labels: gh.remoteLabels },
+      config,
+    )
+    this.host.tasks.patchContent(taskId, { prompt: generated.prompt })
+    this.writePayload(taskId, { analysis: undefined, analysisError: undefined, promptHash: generated.promptHash })
+  }
+
+  /**
+   * Move a card the analysis judged as needing no change to the backlog, at
+   * the operator's request. The board's own move gates decide.
+   * @param taskId - the card.
+   */
+  moveToBacklog(taskId: string): void {
+    const task = this.host.tasks.get(taskId)
+    if (task === undefined || this.metadataOf(task) === undefined) throw new AnalysisRequestError('not-linked', 'task is not linked to a GitHub issue')
+    this.host.tasks.setStatus(taskId, 'backlog', 'github-analysis')
   }
 
   /**
@@ -217,6 +549,11 @@ export class GitHubSyncService {
     const payload = this.payloadOf(next)
     const metadata = readTaskGitHubMetadata(next)
     if (previous === undefined) {
+      // An issue's checkout is a property of its repository, not of whoever
+      // happens to be looking at the board: without this pin the card lands on
+      // the most recently used workspace, which is the wrong project whenever
+      // the user works on more than one. Unmatched stays empty by design.
+      const workspaceId = this.workspaceIdFor(metadata?.repository ?? '')
       const created = this.host.tasks.create(
         {
           title: next.title,
@@ -224,6 +561,7 @@ export class GitHubSyncService {
           prompt: next.prompt,
           status: next.status,
           ...(next.parentId === undefined ? {} : { parentId: next.parentId }),
+          ...(workspaceId === undefined ? {} : { workspaceId }),
         },
         {
           ...(payload === undefined ? {} : { payload }),
@@ -266,12 +604,42 @@ export class GitHubSyncService {
     }
   }
 
-  /** Synchronize all configured repositories. */
+  /**
+   * Synchronize all configured repositories.
+   *
+   * The re-entry guard is a TIMESTAMP, not a flag. A boolean set true by a
+   * pass that never returns is permanent: every later poll returns at the
+   * first line, on this host and on every restart of it, with nothing logged
+   * and no card touched — the exact failure this replaces. A pass that has
+   * held the guard longer than one poll interval is presumed wedged and
+   * taken over rather than waited on forever.
+   */
   async syncAll(): Promise<{ synced: number; errors: string[] }> {
-    if (this.stopped || this.syncing) return { synced: 0, errors: [] }
-    this.syncing = true
+    if (this.stopped) return { synced: 0, errors: [] }
+    const now = this.now()
+    const held = this.inFlight
+    if (held !== undefined && now - held.since < this.pollIntervalMs()) {
+      return { synced: 0, errors: [] }
+    }
+    this.inFlight = { since: now }
     let totalSynced = 0
     const errors: string[] = []
+
+    // The live token, taken per pass. Reading it once at activation raced the
+    // credential store and mounted the provider with nothing, which is why a
+    // restart reproduced the failure instead of clearing it.
+    await this.refreshCredential()
+    if (!this.client.hasCredential()) {
+      // One reason for the whole pass, not one per repository: the same cause
+      // reported seven times reads as seven problems.
+      const message = 'no GitHub API credential available (the harness credential store could not be read for '
+        + this.repositories[0]?.owner + '/' + (this.repositories[0]?.repository ?? '?')
+        + ' and no GITHUB_TOKEN / GH_TOKEN is set in the environment)'
+      this.lastSyncErrors = [message]
+      this.consecutiveEmptySyncs += 1
+      this.inFlight = undefined
+      return { synced: 0, errors: [message] }
+    }
 
     try {
       for (const repo of this.repositories) {
@@ -284,10 +652,60 @@ export class GitHubSyncService {
         }
       }
     } finally {
-      this.syncing = false
+      this.inFlight = undefined
     }
 
+    // The health record is written even when a pass produced nothing, which is
+    // what makes a stall legible: "last synced 40 minutes ago" is a fact the
+    // operator can act on, and silence is not.
+    if (errors.length === 0 && totalSynced > 0) {
+      this.lastSyncAt = this.now()
+      this.lastSyncErrors = []
+      this.consecutiveEmptySyncs = 0
+    } else {
+      this.lastSyncErrors = errors
+      this.consecutiveEmptySyncs += 1
+    }
+    try { this.onPass?.() } catch { /* a health reporter cannot fail a pass */ }
+
     return { synced: totalSynced, errors }
+  }
+
+  /** The shortest configured poll interval, the re-entry guard's own bound. */
+  private pollIntervalMs(): number {
+    const intervals = this.repositories
+      .map(repository => repository.pollingIntervalMs)
+      .filter(ms => ms > 0)
+    return intervals.length === 0 ? 60_000 : Math.min(...intervals)
+  }
+
+  /**
+   * What the operator needs to tell "quiet" from "broken": when a pass last
+   * reached GitHub, what it reported, and how many passes in a row have
+   * produced neither a sync nor a clean result.
+   */
+  syncHealth(): {
+    running: boolean
+    inFlight: boolean
+    lastSyncAt?: number
+    lastErrors: string[]
+    consecutiveEmptySyncs: number
+    /** Set once the last clean pass is older than three poll intervals. */
+    staleSince?: number
+    staleAfterMs?: number
+  } {
+    const now = this.now()
+    const staleAfter = this.pollIntervalMs() * 3
+    return {
+      running: !this.stopped && this.repositories.length > 0,
+      inFlight: this.inFlight !== undefined,
+      ...(this.lastSyncAt === undefined ? {} : { lastSyncAt: this.lastSyncAt }),
+      lastErrors: [...this.lastSyncErrors],
+      consecutiveEmptySyncs: this.consecutiveEmptySyncs,
+      ...(this.lastSyncAt !== undefined && now - this.lastSyncAt > staleAfter
+        ? { staleSince: this.lastSyncAt, staleAfterMs: staleAfter }
+        : {}),
+    }
   }
 
   /** Synchronize a single repository by owner and name. */
@@ -423,6 +841,89 @@ export class GitHubSyncService {
       this.writePayload(task.id, { lastSyncError: message })
       return { ok: false, error: message }
     }
+  }
+
+  /**
+   * Resolve the repository a task's issue lives in, or throw the reason it
+   * cannot be written to. Every outbound write goes through here so a
+   * misconfigured repository or a missing credential is reported once, in one
+   * wording, instead of as a raw API error.
+   */
+  private writeTarget(taskId: string): { gh: GitHubTaskMetadata; config: ResolvedGitHubRepoConfig } {
+    this.assertAccess?.()
+    const task = this.host.tasks.get(taskId)
+    const gh = this.metadataOf(task)
+    if (task === undefined || gh === undefined) {
+      throw new Error('task is not linked to a GitHub issue')
+    }
+    const config = this.findRepoConfig(gh.owner, gh.repository)
+    if (config === undefined) {
+      throw new Error(`repository ${gh.owner}/${gh.repository} is not configured`)
+    }
+    if (!this.client.hasCredential()) {
+      throw new Error('no GitHub API credential available')
+    }
+    return { gh, config }
+  }
+
+  /**
+   * Post one comment on a task's issue.
+   *
+   * The body is bounded here rather than at the REST layer: an agent that
+   * pastes a whole transcript into a comment is making a mistake the user
+   * would have to undo on GitHub, so the call is refused instead of truncated
+   * into something the agent did not write.
+   *
+   * @param taskId - the task whose issue receives the comment.
+   * @param body - the Markdown comment body.
+   * @returns the created comment's number and URL.
+   */
+  async postComment(taskId: string, body: string): Promise<{ id: number; url: string }> {
+    const text = body.trim()
+    if (text === '') throw new Error('a comment needs a non-empty body')
+    if (text.length > GITHUB_COMMENT_MAX_CHARS) {
+      throw new Error(`the comment body is ${text.length} characters; the limit is ${GITHUB_COMMENT_MAX_CHARS}`)
+    }
+    const { gh, config } = this.writeTarget(taskId)
+    const comment = await this.client.createComment(config.owner, config.repository, gh.issueNumber, text)
+    this.writePayload(taskId, { lastSyncedAt: this.now(), lastSyncError: undefined })
+    return { id: comment.id, url: comment.html_url }
+  }
+
+  /**
+   * Close a task's issue.
+   *
+   * Guarded: an issue closes only once the card's pull request is MERGED. A
+   * successful local run is not a reviewed change, and closing the issue from
+   * it would strand a reviewer with no place to push back. The same guard the
+   * merge-driven automatic closure uses applies to the agent-initiated one, so
+   * the two paths can never disagree about when the work landed.
+   *
+   * @param taskId - the task whose issue is closed.
+   * @returns the issue number and its new state.
+   */
+  async closeIssue(taskId: string): Promise<{ issueNumber: number; state: 'closed' }> {
+    const { gh, config } = this.writeTarget(taskId)
+    if (gh.remoteState === 'closed') return { issueNumber: gh.issueNumber, state: 'closed' }
+    const pullRequest = gh.pullRequest
+    if (pullRequest === undefined) {
+      throw new Error(`issue #${gh.issueNumber} has no linked pull request, so there is no merged work to close it with`)
+    }
+    // Trust the remote over the cached flag: a PR merged since the last sync
+    // must not be reported as unmerged just because the card is stale.
+    const live = await this.client.getPullRequest(config.owner, config.repository, pullRequest.number)
+    const merged = live.merged === true || pullRequest.state === 'merged'
+    if (!merged) {
+      throw new Error(`pull request #${pullRequest.number} is not merged yet, so the issue stays open`)
+    }
+    this.assertAccess?.()
+    await this.client.updateIssue(config.owner, config.repository, gh.issueNumber, { state: 'closed' })
+    this.writePayload(taskId, {
+      remoteState: 'closed',
+      lastSyncedAt: this.now(),
+      lastSyncError: undefined,
+    })
+    return { issueNumber: gh.issueNumber, state: 'closed' }
   }
 
   /** Write back lifecycle labels; remote failures are recorded, while revoked access rejects the operation. */
@@ -693,7 +1194,8 @@ export class GitHubSyncService {
         if (config.closeIssueOnMerge && gh.remoteState !== 'closed') {
           try {
             this.assertAccess?.()
-            await this.client.updateIssue(config.owner, config.repository, gh.issueNumber, { state: 'closed' })
+            this.assertAccess?.()
+    await this.client.updateIssue(config.owner, config.repository, gh.issueNumber, { state: 'closed' })
             nextRemoteState = 'closed'
           } catch {
             // non-fatal
@@ -779,6 +1281,21 @@ export class GitHubSyncService {
       hasCredential: boolean
     }>
     hasCredential: boolean
+    /**
+     * Sync health travels WITH the summary so a stalled poll is visible on the
+     * board itself. Every other field here describes configuration, which is
+     * what made a broken poll look like a healthy one: the repositories and
+     * the credential were all correct while nothing had synced for hours.
+     */
+    health: {
+      running: boolean
+      inFlight: boolean
+      lastSyncAt?: number
+      lastErrors: string[]
+      consecutiveEmptySyncs: number
+      staleSince?: number
+      staleAfterMs?: number
+    }
   } {
     const hasCred = this.client.hasCredential()
     return {
@@ -791,6 +1308,7 @@ export class GitHubSyncService {
         prCreationEnabled: r.prCreationEnabled,
         hasCredential: hasCred,
       })),
+      health: this.syncHealth(),
     }
   }
 }
