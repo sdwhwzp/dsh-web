@@ -1,5 +1,5 @@
 import type { Context } from '@deepseek-ai/cordis'
-import type { TypertGateway } from '@deepseek-ai/dsh-api-gateway'
+import type { InvokeRemoteRequest, TypertGateway } from '@deepseek-ai/dsh-api-gateway'
 import { createServer, type IncomingMessage } from 'node:http'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -49,18 +49,31 @@ afterEach(() => {
 })
 
 describe('task-board deployment identities', () => {
+  it('admin cannot reset acceptance or record a result on another owner task', () => {
+    // Given a task persisted with Alice as its owner.
+    const store = ledger()
+    store.applyRequest('create-alice', { kind: 'create', id: 'alice-task', input: input() }, undefined, alice)
+
+    // When Bob attempts either new lifecycle action, then ownership rejects it before any record changes.
+    expect(() => store.applyRequest('reset-bob', { kind: 'reset-verification', taskId: 'alice-task' }, undefined, bob)).toThrow('another account')
+    expect(() => store.applyRequest('external-bob', {
+      kind: 'record-external-outcome', taskId: 'alice-task', result: 'failed', initiatedBy: 'outside-agent',
+    }, undefined, bob)).toThrow('another account')
+    expect(store.getTask('alice-task')?.executions).toEqual([])
+  })
+
   it('admin reuses only the current task owner roster and refuses reuse after revocation', async () => {
     // Given an idle execution owned by Alice and a gateway that requires her principal.
     const fixture = accountFixture()
-    const invoke = vi.fn(async (request: { principal?: TaskBoardPrincipal }) => {
+    const invoke = vi.fn(async (request: InvokeRemoteRequest & { principal?: TaskBoardPrincipal }) => {
       expect(request.principal).toEqual(alice)
       return { items: [{ sessionId: 'alice-session', running: false }] }
     })
-    const gateway = { invoke } as TypertGateway
+    const gateway: TypertGateway = { invoke, wireStream: { open: vi.fn(), failure: vi.fn() }, hasLiveClient: vi.fn(), registerRemoteEvents: vi.fn(), stream: vi.fn() }
     const host = new TaskBoardHostService(gateway, { ledger: ledger(), accounts: fixture.accounts })
     disposers.push(() => host.dispose())
     const task = { ...createTask({ ...input(), reuseSession: true }, 1, 'task-a'), executions: [
-      { id: 'execution-a', sessionId: 'alice-session', startedAt: 1, endedAt: 2, result: 'succeeded' as const },
+      { id: 'execution-a', sessionId: 'alice-session', startedAt: 1, endedAt: 2, result: 'succeeded' as const, error: undefined },
     ] }
     // When a launch requests reuse, it reads the owner's current roster.
     await expect(host['reuseSessionFor'](task, alice)).resolves.toBe('alice-session')
