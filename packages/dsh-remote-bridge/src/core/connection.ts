@@ -36,11 +36,14 @@ import {
   CAP_QUESTIONS,
   CAP_QUESTION_LIST,
   CAP_ROSTER_COMPACT,
+  CAP_SESSION_ADMIN,
   CAP_SESSION_FORK,
   CAP_SESSION_SNAPSHOT_PAGE,
   CAP_SESSION_SNAPSHOT_SINCE,
   CAP_SESSION_SNAPSHOT_TRIM,
+  CAP_SQUADS,
   CAP_SUBAGENT_THREAD,
+  CAP_WORKSPACE,
   CODE_APPROVAL_UNKNOWN,
   CODE_COMMANDS_UNAVAILABLE,
   CODE_INTERNAL,
@@ -52,6 +55,7 @@ import {
   CODE_SESSION_NOT_FOLLOWABLE,
   CODE_SNAPSHOT_TOO_LARGE,
   CODE_SNAPSHOT_UNAVAILABLE,
+  CODE_SQUADS_UNAVAILABLE,
   CODE_TOKEN_INVALID,
   CODE_UNKNOWN_METHOD,
   CODE_UNPAIRED,
@@ -64,6 +68,7 @@ import {
   METHOD_PRESETS_LIST,
   METHOD_QUESTION_ANSWER,
   METHOD_QUESTION_LIST,
+  METHOD_SESSION_ARCHIVE,
   METHOD_SESSION_ATTACHMENT,
   METHOD_SESSION_COMMAND,
   METHOD_SESSION_COMMANDS,
@@ -75,11 +80,21 @@ import {
   METHOD_SESSION_LIST,
   METHOD_SESSION_MODELS,
   METHOD_SESSION_PERMISSIONS,
+  METHOD_SESSION_PIN,
   METHOD_SESSION_PROMPT,
+  METHOD_SESSION_RENAME,
   METHOD_SESSION_SET_MODEL,
   METHOD_SESSION_SET_PERMISSION,
   METHOD_SESSION_SNAPSHOT,
   METHOD_SESSION_TITLES,
+  METHOD_SESSION_UNARCHIVE,
+  METHOD_SESSION_UNPIN,
+  METHOD_SQUADS_LIST,
+  METHOD_SQUADS_RUNS,
+  METHOD_SQUADS_RUN_MEMBER,
+  METHOD_SQUADS_RUN_SQUAD,
+  METHOD_SQUADS_STATE,
+  METHOD_WORKSPACE_LIST,
   MINOR,
   PROTO,
   SERVED_CAPABILITIES,
@@ -89,6 +104,7 @@ import {
   UNPAIRED_METHODS,
 } from './protocol.ts'
 import { base64UrlDecode, verifyEs256 } from './crypto.ts'
+import { isSquadRefusal, parseSquadMemberRun, parseSquadRun, squadRunOf, SQUAD_METHODS, squadsStateOf, type SquadTransport, type SquadsState } from './squads.ts'
 import { TITLES_MAX_IDS, type SessionMeta } from './session-meta.ts'
 import type { SessionPermissions } from './session-permissions.ts'
 import type { BridgeGateway, GatewayPeer } from './wire.ts'
@@ -184,6 +200,12 @@ export interface BridgeConnectionOptions {
    * `KNOWN_METHODS` answers `unknown-method`.
    */
   readonly extensions?: RemoteBridgeRegistry
+  /**
+   * The host's squad domain, behind the `squads.v1` channel. Absent is a host
+   * that serves no `dsh-agents` domain: the capability stays advertised and only
+   * a call that needs the domain answers `squads-unavailable`.
+   */
+  readonly squads?: SquadTransport
 }
 
 /** A device the connection proved itself to be, resolved from the upgrade request. */
@@ -291,6 +313,31 @@ function stringArg(payload: Readonly<Record<string, unknown>>, key: string): str
 /** @returns a non-empty string payload value, or undefined. */
 function optionalText(value: unknown): string | undefined {
   return typeof value === 'string' && value !== '' ? value : undefined
+}
+
+/**
+ * One roster row's own title, as the host's projection carries it.
+ *
+ * `SessionSummary` has no top-level `title` — which is why this bridge once read
+ * its own live-title cache and nothing else. Every row nevertheless carries
+ * `projections.values.title`: the host folds that out of its projection cache
+ * synchronously for a cold session as well as a live one, with no log read and no
+ * follow stream, and its own desktop list renders exactly that field. Reading it
+ * costs no call, because it is already inside the listing the bridge just paid
+ * for.
+ *
+ * The guard is the one every optional field here takes: a `projections` block
+ * that is not an object, a `values` member that is not one, and a `title` that is
+ * not a non-empty string are all simply absent, so an answer of another shape
+ * costs a row its title rather than failing the listing.
+ * @param item - one row of the host's `session/list` answer.
+ * @returns the projected title, or undefined when the row carries none.
+ */
+function projectedTitleOf(item: Readonly<Record<string, unknown>>): string | undefined {
+  const projections = isRecord(item.projections) ? item.projections : undefined
+  if (projections === undefined) return undefined
+  const values = isRecord(projections.values) ? projections.values : undefined
+  return values === undefined ? undefined : optionalText(values.title)
 }
 
 /** @returns a non-negative safe integer page argument, or undefined. */
@@ -743,6 +790,30 @@ export class BridgeConnection {
     if ((frame.m === METHOD_SESSION_COMMANDS || frame.m === METHOD_SESSION_COMMAND) && !this.declares(CAP_COMMANDS)) {
       return refusal(CODE_UNKNOWN_METHOD, `unknown method ${frame.m}`)
     }
+    // Reading workspaces is its own capability, apart from the five writes beside
+    // it: a client may ask what this host has and where without ever renaming,
+    // pinning or archiving anything, so the reading half is declared on its own
+    // and a client that declared only the writing half reads no registry.
+    if (frame.m === METHOD_WORKSPACE_LIST && !this.declares(CAP_WORKSPACE)) {
+      return refusal(CODE_UNKNOWN_METHOD, `unknown method ${frame.m}`)
+    }
+    // The session-admin writes are one capability: without it none of the five is
+    // part of this client's protocol, so no title is written and no set is
+    // mutated on behalf of a client that predates the channel.
+    if (!this.declares(CAP_SESSION_ADMIN)
+      && (frame.m === METHOD_SESSION_RENAME
+        || frame.m === METHOD_SESSION_PIN
+        || frame.m === METHOD_SESSION_UNPIN
+        || frame.m === METHOD_SESSION_ARCHIVE
+        || frame.m === METHOD_SESSION_UNARCHIVE)) {
+      return refusal(CODE_UNKNOWN_METHOD, `unknown method ${frame.m}`)
+    }
+    // The squads channel is one capability: without `squads.v1` none of the five
+    // commands is part of this client's protocol, so no squad domain is read and
+    // no session is launched on behalf of a client that never asked to drive one.
+    if (SQUAD_METHODS.has(frame.m) && !this.declares(CAP_SQUADS)) {
+      return refusal(CODE_UNKNOWN_METHOD, `unknown method ${frame.m}`)
+    }
     // Unconditional: a loopback Host buys nothing here. Without a device token
     // only the handshake and the two pairing steps run.
     if (!this.paired && !UNPAIRED_METHODS.has(frame.m)) return refusal(CODE_UNPAIRED, 'this connection is not paired')
@@ -776,6 +847,17 @@ export class BridgeConnection {
       case METHOD_SESSION_FORK: return await this.#sessionFork(frame.p)
       case METHOD_SESSION_COMMANDS: return await this.#sessionCommands(frame.p)
       case METHOD_SESSION_COMMAND: return await this.#sessionCommand(frame.p)
+      case METHOD_SQUADS_STATE: return await this.#squadsState()
+      case METHOD_SQUADS_LIST: return await this.#squadsProjection('squads')
+      case METHOD_SQUADS_RUNS: return await this.#squadsProjection('runs')
+      case METHOD_SQUADS_RUN_MEMBER: return await this.#squadsRunMember(frame.p)
+      case METHOD_SQUADS_RUN_SQUAD: return await this.#squadsRunSquad(frame.p)
+      case METHOD_WORKSPACE_LIST: return this.#workspaceList()
+      case METHOD_SESSION_RENAME: return await this.#sessionRename(frame.p)
+      case METHOD_SESSION_PIN: return await this.#sessionSetWrite(METHOD_SESSION_PIN, 'pinSession', frame.p)
+      case METHOD_SESSION_UNPIN: return await this.#sessionSetWrite(METHOD_SESSION_UNPIN, 'unpinSession', frame.p)
+      case METHOD_SESSION_ARCHIVE: return await this.#sessionArchive(frame.p)
+      case METHOD_SESSION_UNARCHIVE: return await this.#sessionSetWrite(METHOD_SESSION_UNARCHIVE, 'unarchiveSession', frame.p)
       default: return refusal(CODE_UNKNOWN_METHOD, `unknown method ${frame.m}`)
     }
   }
@@ -952,10 +1034,13 @@ export class BridgeConnection {
       const parentSessionId = optionalText(item.parentSessionId)
       sessions.push({
         id: item.sessionId,
-        // The roster itself carries no title: `SessionSummary` has none. The
-        // connection fills in whatever `session.titles` already resolved for
-        // this id and never looks one up here, so listing stays one call.
-        title: this.#options.sessionMeta.cachedTitle(item.sessionId) ?? '',
+        // The row's own title. `SessionSummary` has no top-level `title`, but the
+        // projection block beside it does — `projections.values.title` — and the
+        // host answers that synchronously for a cold session too, which is the
+        // field its own desktop list renders. The live-title cache is the
+        // fallback for a row whose projection carries none, and no lookup is
+        // spent here, so listing stays one call either way.
+        title: projectedTitleOf(item) ?? this.#options.sessionMeta.cachedTitle(item.sessionId) ?? '',
         updatedAt: typeof item.updatedAt === 'number' ? item.updatedAt : 0,
         agentRunning: item.running === true,
         ...(cwd === undefined ? {} : { cwd }),
@@ -1565,6 +1650,208 @@ export class BridgeConnection {
       ...(atSeq === undefined ? {} : { atSeq }),
     })
     return call.ok ? { ok: true, r: call.value } : call
+  }
+
+  /**
+   * Answer `squads.state`: the host's squad domain as this deployment publishes
+   * it.
+   *
+   * The read is the `dsh-agents` plugin's own `{teams, runs, host, presets?}`
+   * document — reached over loopback, or read out of its ledger when loopback
+   * cannot answer — mapped onto the frozen body: a definition keeps its identity,
+   * its pins and its members, a run names the squad it belongs to, and both lose
+   * the bookkeeping fields this channel does not publish. A body this build cannot
+   * read is refused rather than repaired, and a host that serves no domain answers
+   * `squads-unavailable` instead of an empty board.
+   */
+  async #squadsState(): Promise<DispatchOutcome> {
+    const read = await this.#squadState()
+    return read.ok ? { ok: true, r: read.state } : read
+  }
+
+  /**
+   * Answer `squads.list` or `squads.runs`: one half of the same read.
+   *
+   * Both commands read the domain once, exactly as `squads.state` does, and
+   * publish the half they are named after. There is no second source: a squad
+   * listing and a run listing can never disagree about a definition a launch
+   * touched, because both are cut from one answer.
+   * @param half - the body key this command publishes.
+   */
+  async #squadsProjection(half: 'squads' | 'runs'): Promise<DispatchOutcome> {
+    const read = await this.#squadState()
+    if (!read.ok) return read
+    return { ok: true, r: { [half]: read.state[half] } }
+  }
+
+  /**
+   * Read the squad domain once.
+   *
+   * The transport answers the plugin's rows unread and this bridge maps them
+   * here, so the ledger fallback and the loopback route are the same answer as far
+   * as a client can tell.
+   */
+  async #squadState(): Promise<{ readonly ok: true; readonly state: SquadsState } | CallFailure> {
+    const transport = this.#options.squads
+    if (transport === undefined) {
+      return refusal(CODE_SQUADS_UNAVAILABLE, 'this host serves no dsh-agents squad domain')
+    }
+    try {
+      return { ok: true, state: squadsStateOf(await transport.state()) }
+    } catch (error) {
+      return this.#squadFailure(error)
+    }
+  }
+
+  /**
+   * Answer `squads.runMember`: launch one member session.
+   *
+   * Only the two names the command needs are read here. Which preset, permission,
+   * model and brief that session is composed from is the definition's own, and
+   * whether this host can launch at all is the transport's: an unknown squad or
+   * member, an unusable preset and a squad that pins no workspace all cross as the
+   * plugin's own code.
+   * @param payload - `{squadId, memberId, firstMessage?}`.
+   */
+  async #squadsRunMember(payload: Readonly<Record<string, unknown>>): Promise<DispatchOutcome> {
+    const transport = this.#options.squads
+    if (transport === undefined) {
+      return refusal(CODE_SQUADS_UNAVAILABLE, 'this host serves no dsh-agents squad domain')
+    }
+    const request = parseSquadMemberRun(payload)
+    if (request === undefined) return refusal(CODE_INVALID_ARGS, 'squads.runMember requires squadId and memberId')
+    try {
+      return { ok: true, r: { run: squadRunOf(await transport.runMember(request)) } }
+    } catch (error) {
+      return this.#squadFailure(error)
+    }
+  }
+
+  /**
+   * Answer `squads.runSquad`: launch the Lead session of one whole squad.
+   *
+   * The goal travels as the plugin's own `goal` — it becomes part of the Lead's
+   * system-prompt context rather than its first user message — so nothing about
+   * what the squad must achieve is modelled here.
+   * @param payload - `{squadId, goal?}`.
+   */
+  async #squadsRunSquad(payload: Readonly<Record<string, unknown>>): Promise<DispatchOutcome> {
+    const transport = this.#options.squads
+    if (transport === undefined) {
+      return refusal(CODE_SQUADS_UNAVAILABLE, 'this host serves no dsh-agents squad domain')
+    }
+    const request = parseSquadRun(payload)
+    if (request === undefined) return refusal(CODE_INVALID_ARGS, 'squads.runSquad requires squadId')
+    try {
+      return { ok: true, r: { run: squadRunOf(await transport.runSquad(request)) } }
+    } catch (error) {
+      return this.#squadFailure(error)
+    }
+  }
+
+  /**
+   * Convert whatever the squad transport raised into a refusal that names a code.
+   *
+   * A refusal the transport built keeps its own code — that is how a domain
+   * refusal and this bridge's two capability codes stay distinguishable. Anything
+   * else is a host failure this channel could not attribute, and it is refused as
+   * an unreachable domain rather than as an internal error: no squad answer was
+   * read, which is exactly what `squads-unavailable` says.
+   */
+  #squadFailure(error: unknown): CallFailure {
+    if (isSquadRefusal(error)) return refusal(error.code, error.message)
+    this.#options.log(`squad domain read failed: ${failureText(error)}`)
+    return refusal(CODE_SQUADS_UNAVAILABLE, failureText(error))
+  }
+
+  /**
+   * Answer `workspace.list`: the host's workspaces and its two global sets.
+   *
+   * A pure in-process read: `list()` answers a fresh array in registry order and
+   * both sets are synchronous getters, so nothing here awaits, subscribes or
+   * touches persistence, and a write this bridge forwarded a moment ago is
+   * visible to the very next call. Nothing is sorted — the registry's own order
+   * is the display order — and no row carries a workspace's `sessionIds`: the
+   * roster already carries every session's `cwd`, a client groups for itself, and
+   * that account would make one frame grow with the session count.
+   *
+   * A host that composes no registry is refused rather than answered with an
+   * empty list: an empty list says "this host has no workspaces", which is a
+   * different sentence from "there is nothing here to ask".
+   */
+  #workspaceList(): DispatchOutcome {
+    const listed = this.#options.sessionMeta.workspaceList()
+    if (listed === undefined) return refusal(CODE_INTERNAL, 'this host composes no workspaceRegistry service')
+    return { ok: true, r: listed }
+  }
+
+  /**
+   * Answer `session.rename`: forward one `SessionRenameRequest` and hand back
+   * the host's own `SessionRenameValue`.
+   *
+   * The write goes through the gateway — `session/rename`, never the title
+   * service this process holds — because that endpoint restores a cold session
+   * before it writes, so a client needs no resume path of its own. The title is
+   * required and is text: an empty string is not a name anyone could have meant,
+   * and it is refused here instead of being written. Everything after that is
+   * the host's: the normalized title, the durable seq that committed it, and a
+   * refusal such as `session/not-found` cross verbatim.
+   * @param payload - `{sessionId, title}`.
+   */
+  async #sessionRename(payload: Readonly<Record<string, unknown>>): Promise<DispatchOutcome> {
+    const sessionId = stringArg(payload, 'sessionId')
+    const title = stringArg(payload, 'title')
+    if (sessionId === undefined || title === undefined) {
+      return refusal(CODE_INVALID_ARGS, 'session.rename requires sessionId and title')
+    }
+    const call = await this.#unary('session', 'rename', { sessionId, title })
+    return call.ok ? { ok: true, r: call.value } : call
+  }
+
+  /**
+   * Forward one registry set mutation and answer `{ok:true}`.
+   *
+   * Three of the five session-admin writes are the same call under a different
+   * endpoint name, so they share one body: `{sessionId}` in, one decided answer
+   * out. Nothing is branched on — pin, unpin and unarchive take no second
+   * argument to branch on — and the host's own set answer
+   * (`WorkspacePinValue` / `WorkspaceArchiveValue`) is deliberately not
+   * republished: a client that wants the new set reads `workspace.list`, the one
+   * read that serves both. An archive's optional `stopActivity` is
+   * `#sessionArchive`'s own concern.
+   * @param method - the protocol method being answered, named in the refusal.
+   * @param endpoint - the `workspace` registry method behind it.
+   * @param payload - `{sessionId}`.
+   */
+  async #sessionSetWrite(method: string, endpoint: string, payload: Readonly<Record<string, unknown>>): Promise<DispatchOutcome> {
+    const sessionId = stringArg(payload, 'sessionId')
+    if (sessionId === undefined) return refusal(CODE_INVALID_ARGS, `${method} requires sessionId`)
+    const call = await this.#unary('workspace', endpoint, { sessionId })
+    return call.ok ? { ok: true, r: { ok: true } } : call
+  }
+
+  /**
+   * Answer `session.archive`, whose request may ask the host to stop the
+   * session's running work first.
+   *
+   * `stopActivity` is the host's own choice and only a boolean may cross: sent
+   * without it, a session that is still running is refused by the host as
+   * `workspace/session-active`; sent as `true`, the archive is written and that
+   * work is stopped. Archiving is a session-level act — it never touches the
+   * workspace the session belongs to — and the archived session keeps its slot,
+   * so `session.unarchive` puts it back where it was. None of that is modelled
+   * here.
+   * @param payload - `{sessionId, stopActivity?}`.
+   */
+  async #sessionArchive(payload: Readonly<Record<string, unknown>>): Promise<DispatchOutcome> {
+    const sessionId = stringArg(payload, 'sessionId')
+    if (sessionId === undefined) return refusal(CODE_INVALID_ARGS, 'session.archive requires sessionId')
+    const stopActivity = payload.stopActivity
+    if (stopActivity !== undefined && typeof stopActivity !== 'boolean') {
+      return refusal(CODE_INVALID_ARGS, 'session.archive stopActivity must be a boolean when present')
+    }
+    const call = await this.#unary('workspace', 'archiveSession', { sessionId, ...(stopActivity === undefined ? {} : { stopActivity }) })
+    return call.ok ? { ok: true, r: { ok: true } } : call
   }
 
   /**

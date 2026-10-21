@@ -22,6 +22,12 @@ export const METHOD_SESSION_CREATE = 'session.create'
 export const METHOD_SESSION_FORK = 'session.fork'
 export const METHOD_SESSION_COMMANDS = 'session.commands'
 export const METHOD_SESSION_COMMAND = 'session.command'
+export const METHOD_SESSION_RENAME = 'session.rename'
+export const METHOD_SESSION_PIN = 'session.pin'
+export const METHOD_SESSION_UNPIN = 'session.unpin'
+export const METHOD_SESSION_ARCHIVE = 'session.archive'
+export const METHOD_SESSION_UNARCHIVE = 'session.unarchive'
+export const METHOD_WORKSPACE_LIST = 'workspace.list'
 export const METHOD_PRESETS_LIST = 'presets.list'
 export const METHOD_PAIR_BEGIN = 'pair.begin'
 export const METHOD_PAIR_FINISH = 'pair.finish'
@@ -29,6 +35,11 @@ export const METHOD_APPROVAL_RESOLVE = 'approval.resolve'
 export const METHOD_QUESTION_ANSWER = 'question.answer'
 export const METHOD_QUESTION_LIST = 'question.list'
 export const METHOD_JOBS_LIST = 'jobs.list'
+export const METHOD_SQUADS_STATE = 'squads.state'
+export const METHOD_SQUADS_LIST = 'squads.list'
+export const METHOD_SQUADS_RUNS = 'squads.runs'
+export const METHOD_SQUADS_RUN_MEMBER = 'squads.runMember'
+export const METHOD_SQUADS_RUN_SQUAD = 'squads.runSquad'
 
 /** Server-pushed topics of protocol v1. */
 export const TOPIC_SESSION_DELTA = 'session.delta'
@@ -166,6 +177,24 @@ export const CAP_JOBS = 'jobs.v1'
 export const CAP_AGENTS = 'agents.v1'
 
 /**
+ * Capability a client declares in `hello`'s `cap` array to read the host's
+ * agent squads and to drive them.
+ *
+ * Declaring it is what makes `squads.state`, `squads.list`, `squads.runs`,
+ * `squads.runMember` and `squads.runSquad` part of that client's protocol at
+ * all: a client that does not declare it — including every client written before
+ * this channel existed — is refused each as an unknown method, exactly as those
+ * frames were refused before. No command is called on a connection's behalf
+ * either, so a client that never asks sends the host no request.
+ *
+ * The channel is additive beside {@link CAP_AGENTS} rather than a replacement:
+ * a phone that predates the squad model keeps the preset roster and session
+ * creation it was written against, and a phone that reads this name reads the
+ * squad domain instead of deriving agents from anything else.
+ */
+export const CAP_SQUADS = 'squads.v1'
+
+/**
  * Capability a client declares in `hello`'s `cap` array to be answered with
  * byte-level increments instead of the whole roster or the whole board.
  *
@@ -256,6 +285,49 @@ export const CAP_SESSION_FORK = 'session.fork.v1'
 export const CAP_COMMANDS = 'commands.v1'
 
 /**
+ * Capability a client declares in `hello`'s `cap` array to read the host's
+ * workspaces and its two registry-global session sets.
+ *
+ * Declaring it is what makes `workspace.list` part of that client's protocol at
+ * all: a client that does not declare it — including every client written before
+ * this channel existed — is refused that frame as an unknown method, and no
+ * registry is read on its behalf. Behind the name the answer is the host's own
+ * synchronous projection: one row per registered workspace in registry order,
+ * plus the complete archive and pin sets.
+ *
+ * The method is a read and nothing is cached, so a pin or an archive followed by
+ * another list reads the set the write left behind. That pair of calls is the
+ * whole refresh story of the session-admin channel: see {@link CAP_SESSION_ADMIN}.
+ */
+export const CAP_WORKSPACE = 'workspace.v1'
+
+/**
+ * Capability a client declares in `hello`'s `cap` array to rename, pin,
+ * unpin, archive and unarchive a session.
+ *
+ * Declaring it is what makes those five methods part of that client's protocol
+ * at all: a client that does not declare it — including every client written
+ * before this channel existed — is refused each as an unknown method, and no
+ * write is asked of the host on its behalf.
+ *
+ * Every one of the five is forwarded one-to-one to the endpoint that already
+ * owns the semantics, so nothing about a title, a pin or an archive is modelled
+ * or re-derived here: a rename reaches `session/rename` — the endpoint that
+ * restores a cold session before it writes, which is why a client needs no
+ * resume path of its own — and the four set mutations reach
+ * `workspace/pinSession`, `workspace/unpinSession`, `workspace/archiveSession`
+ * and `workspace/unarchiveSession`. A host refusal crosses with its own code
+ * and text, `workspace/session-active` included.
+ *
+ * The channel publishes no event, because the host announces none of these
+ * writes as a cordis event a connection could fold into a delta: a rename
+ * appends one `session/title` log record and nothing else. A client re-reads
+ * after a write instead — the pin set through {@link CAP_WORKSPACE}, the roster
+ * through `session.list` — which is why one branch serves both capabilities.
+ */
+export const CAP_SESSION_ADMIN = 'session.admin.v1'
+
+/**
  * Capability a client declares in `hello`'s `cap` array to be sent frames
  * compressed instead of as plain text.
  *
@@ -308,6 +380,17 @@ export const KNOWN_METHODS: ReadonlySet<string> = new Set([
   METHOD_SESSION_FORK,
   METHOD_SESSION_COMMANDS,
   METHOD_SESSION_COMMAND,
+  METHOD_SESSION_RENAME,
+  METHOD_SESSION_PIN,
+  METHOD_SESSION_UNPIN,
+  METHOD_SESSION_ARCHIVE,
+  METHOD_SESSION_UNARCHIVE,
+  METHOD_WORKSPACE_LIST,
+  METHOD_SQUADS_STATE,
+  METHOD_SQUADS_LIST,
+  METHOD_SQUADS_RUNS,
+  METHOD_SQUADS_RUN_MEMBER,
+  METHOD_SQUADS_RUN_SQUAD,
 ])
 
 /** Refusal codes the bridge itself raises (DSH failures cross as their own code). */
@@ -353,6 +436,24 @@ export const CODE_JOBS_UNAVAILABLE = 'jobs-unavailable'
  * that needs those endpoints fails.
  */
 export const CODE_COMMANDS_UNAVAILABLE = 'commands-unavailable'
+/**
+ * This host serves no squad domain this bridge can reach: no answer to the
+ * plugin's state route over loopback, no readable ledger beside it, or a body
+ * this build cannot read as one squad domain. The capability stays advertised —
+ * it is a fact about this bridge, not about what a particular host mounts — and
+ * only a call that needs the domain fails. A refusal the `dsh-agents` plugin
+ * itself raised crosses with the plugin's own code instead (`team-not-found`,
+ * `member-not-found`, `preset-unknown`, `workspace-required` and their
+ * neighbours).
+ */
+export const CODE_SQUADS_UNAVAILABLE = 'squads-unavailable'
+/**
+ * The definitions are readable but the two run commands cannot be served: this
+ * host answered no run route over loopback, and the read-only ledger fallback
+ * cannot launch anything. Failing closed is the point — a client is told the
+ * capability is not served here rather than shown a run that never started.
+ */
+export const CODE_SQUADS_RUN_UNAVAILABLE = 'squads-run-unavailable'
 export const CODE_SNAPSHOT_TOO_LARGE = 'snapshot-too-large'
 export const CODE_INTERNAL = 'internal'
 
@@ -361,6 +462,18 @@ export const PROTO = 1
 /**
  * Minor version this package speaks.
  *
+ * 15 when the squads channel shipped: behind {@link CAP_SQUADS} a client may
+ * call {@link METHOD_SQUADS_STATE}, {@link METHOD_SQUADS_LIST},
+ * {@link METHOD_SQUADS_RUNS}, {@link METHOD_SQUADS_RUN_MEMBER} and
+ * {@link METHOD_SQUADS_RUN_SQUAD}, so it reads five new reply bodies off the wire
+ * and drives the squad domain instead of deriving its agents from anything else.
+ * 14 when the session-admin channel shipped: behind {@link CAP_WORKSPACE} a
+ * client may call {@link METHOD_WORKSPACE_LIST} and read the host's workspaces
+ * with both registry-global session sets, and behind {@link CAP_SESSION_ADMIN}
+ * it may call {@link METHOD_SESSION_RENAME}, {@link METHOD_SESSION_PIN},
+ * {@link METHOD_SESSION_UNPIN}, {@link METHOD_SESSION_ARCHIVE} and
+ * {@link METHOD_SESSION_UNARCHIVE}, so a phone long-presses a roster row for the
+ * same five actions the desktop offers it.
  * 13 when the question list shipped: behind {@link CAP_QUESTION_LIST} a client
  * may call {@link METHOD_QUESTION_LIST} and be answered the questions this
  * bridge is still holding, so it reads a new reply body off the wire and the
@@ -413,7 +526,7 @@ export const PROTO = 1
  * declares the capability that plugin requires. No addition changed the major
  * version, a frozen field, or an existing method or topic name.
  */
-export const MINOR = 13
+export const MINOR = 15
 
 /**
  * The capabilities this bridge itself serves, as `hello` advertises them.
@@ -438,6 +551,9 @@ export const SERVED_CAPABILITIES: readonly string[] = [
   CAP_SESSION_SNAPSHOT_SINCE,
   CAP_SESSION_FORK,
   CAP_COMMANDS,
+  CAP_WORKSPACE,
+  CAP_SESSION_ADMIN,
+  CAP_SQUADS,
 ]
 /** `server` field of the hello response. */
 export const SERVER_ID = 'dsh-remote-bridge'
