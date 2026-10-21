@@ -14,7 +14,7 @@
  * @module @linxin666/dsh-client-ui-plugin-manager/host
  */
 
-import { spawn } from 'node:child_process'
+import { spawn, type ChildProcess } from 'node:child_process'
 import { closeSync, existsSync, openSync, readSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { join, posix, win32 } from 'node:path'
@@ -23,7 +23,7 @@ import type { ControlChange } from '../core/conflict.ts'
 import { diffLayer, overlappingIds, significantChanges, type LayerChange, type LayerSnapshot } from '../core/patch-diff.ts'
 import { duplicateMountBundles } from './bundle-guard.ts'
 import { readProfileManifest, reorderProfileBundle, stripProfileBundles, type ProfileFacts } from './profile.ts'
-import { insertRowsOf, parsePatch, bareRowEnabled, bareRowId } from './rows.ts'
+import { declaredRowIds, insertRowsOf, parsePatch, bareRowEnabled, bareRowId, pruneOrphanRowOverrides, repairStaleRowNames, writePatchAtomic, type PrunedOverrides, type RepairedRowNames } from './rows.ts'
 import { buildPluginRow, claimedEntryIdsOf } from './state.ts'
 import { createOutputCapture, type OutputCapture } from './console-output.ts'
 
@@ -341,6 +341,51 @@ export function dshSpawnCommand(
   return { command: localNodeExists(localNode) ? localNode : nodeExecutable, argsPrefix: [binJs] }
 }
 
+/** The Windows directory used when the environment names no system root at all. */
+const WINDOWS_ROOT_FALLBACK = 'C:\\Windows'
+
+/**
+ * Read one environment variable by name, case-insensitively, ignoring blank
+ * values. Windows spells the same variable `ComSpec` and `comspec` depending on
+ * who wrote it (a launcher, a service, the user's own shell), and a plain
+ * object seam carries whatever spelling the caller built.
+ * @param env - the environment to read.
+ * @param name - the variable name, matched without regard to case.
+ * @returns the first non-blank value, or undefined.
+ */
+function envValue(env: NodeJS.ProcessEnv, name: string): string | undefined {
+  const wanted = name.toUpperCase()
+  for (const [key, value] of Object.entries(env)) {
+    if (typeof value !== 'string' || value.trim() === '') continue
+    if (key.toUpperCase() === wanted) return value
+  }
+  return undefined
+}
+
+/**
+ * Absolute path of the Windows command processor, resolved from an environment
+ * rather than from PATH.
+ *
+ * Every `.cmd` shim still has to be executed through cmd.exe, and a bare
+ * `cmd.exe` spawn resolves through the host PATH: a GUI-launched host whose PATH
+ * carries no `%SystemRoot%\system32` (a packaged Desktop launch, a service, a
+ * stripped environment) gets ENOENT for a name that is present on disk, and the
+ * whole feature fails with it (issue #1857). ComSpec is the variable Windows
+ * itself uses for this and names the real binary, so it is preferred; otherwise
+ * the system root is read from `SystemRoot` or `windir`, with the conventional
+ * `C:\Windows` as the last resort.
+ *
+ * Only the Windows branch needs it — a POSIX host spawns the CLI directly.
+ * @param env - the environment to resolve from.
+ * @returns the absolute cmd.exe path.
+ */
+export function windowsCmdPath(env: NodeJS.ProcessEnv = process.env): string {
+  const comSpec = envValue(env, 'ComSpec')
+  if (comSpec !== undefined) return comSpec
+  const root = envValue(env, 'SystemRoot') ?? envValue(env, 'windir') ?? WINDOWS_ROOT_FALLBACK
+  return win32.join(root, 'System32', 'cmd.exe')
+}
+
 /** Build the exact cmd.exe command line required to execute a trusted .cmd shim. */
 export function windowsCmdShimArgs(binary: string, args: readonly string[]): string[] {
   const unsafe = /[&|<>"'`%!\n\r\0]/
@@ -379,6 +424,120 @@ export function withPrependedPath(
 }
 
 /**
+ * Exit code reported for a child that never became a process. Node delivers a
+ * failed spawn as an `error` event whose `close` may never follow, and every
+ * consumer of a spawned child waits for `close` alone.
+ */
+export const SPAWN_FAILURE_EXIT_CODE = -1
+
+/** The spawn failure recorded on a guarded child, read by {@link awaitChildExit}. */
+const SPAWN_FAILURE = new WeakMap<ChildProcess, string>()
+
+/**
+ * Whether an emitted error is a spawn failure rather than a later lifecycle
+ * failure (a kill that did not land, a closed stdio pipe). Only a spawn failure
+ * means the child will never close on its own.
+ * @param error - the emitted error.
+ * @returns true when no process was ever created.
+ */
+function isSpawnFailure(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false
+  const syscall = (error as { syscall?: unknown }).syscall
+  return typeof syscall === 'string' && syscall.startsWith('spawn')
+}
+
+/**
+ * The operator-facing text of one spawn failure.
+ * @param error - the emitted error.
+ * @returns a readable one-line reason.
+ */
+function spawnFailureText(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  return 'plugin-manager: 无法启动子进程（' + message + '）'
+}
+
+/**
+ * Attach the error fallback every spawn outlet needs.
+ *
+ * A ChildProcess without an `error` listener turns a spawn failure into an
+ * unhandled `error` event, which is an uncaught exception: the failure of one
+ * CLI call took the whole dsh host process down with it. This records the
+ * reason and, when the child never closed, settles it as a failed exit so a
+ * caller that only waits for `close` neither hangs nor crashes (issue #1857).
+ * @param child - the spawned child.
+ * @returns the same child, guarded.
+ */
+export function guardSpawnFailure(child: ChildProcess): ChildProcess {
+  let closed = false
+  child.on('close', () => { closed = true })
+  child.on('error', (error: unknown) => {
+    if (!isSpawnFailure(error)) return
+    SPAWN_FAILURE.set(child, spawnFailureText(error))
+    if (closed) return
+    closed = true
+    child.emit('close', SPAWN_FAILURE_EXIT_CODE, null)
+  })
+  return child
+}
+
+/** One spawned child's exit verdict. */
+export interface ChildExit {
+  /** The process exit code, or {@link SPAWN_FAILURE_EXIT_CODE} when it never started. */
+  code: number | null
+  /** The spawn failure reason, present only when no process was created. */
+  spawnError?: string
+}
+
+/**
+ * Wait for a spawned child to close, settling on a spawn failure as well.
+ *
+ * The listener pair is attached to every child this package waits on, so the
+ * wait is safe for a child that arrived through a seam ({@link guardSpawnFailure}
+ * guards the real spawn outlets, an injected one may skip it).
+ * @param child - the spawned child.
+ * @returns the exit verdict.
+ */
+export async function awaitChildExit(child: ChildProcess): Promise<ChildExit> {
+  return new Promise<ChildExit>(resolve => {
+    let settled = false
+    const finish = (code: number | null): void => {
+      if (settled) return
+      settled = true
+      const spawnError = SPAWN_FAILURE.get(child)
+      resolve(spawnError === undefined ? { code } : { code, spawnError })
+    }
+    child.on('close', (code: number | null) => { finish(code) })
+    child.on('error', () => { finish(SPAWN_FAILURE_EXIT_CODE) })
+  })
+}
+
+/**
+ * Wait for one spawned CLI child, folding a spawn failure into its output.
+ *
+ * Every caller already reports a non-zero exit through the captured output, so
+ * a process that never started is reported the same readable way instead of as
+ * a silent failure or a hang.
+ * @param child - the spawned child.
+ * @param output - the bounded capture the failure text is appended to.
+ * @param timeoutMs - kill the child after this long; omitted for no deadline.
+ * @returns the exit code, or null when a signal ended the child.
+ */
+export async function awaitCliExit(
+  child: ChildProcess,
+  output: OutputCapture,
+  timeoutMs?: number,
+): Promise<number | null> {
+  const timer = timeoutMs === undefined ? undefined : setTimeout(() => { child.kill() }, timeoutMs)
+  try {
+    const exit = await awaitChildExit(child)
+    if (exit.spawnError !== undefined) capture(Buffer.from(exit.spawnError + '\n'), output)
+    return exit.code
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
+}
+
+/**
  * Spawn the dsh CLI with piped stdio and no shell parsing (see
  * {@link dshSpawnCommand}).
  *
@@ -388,6 +547,9 @@ export function withPrependedPath(
  * `dsh plugin` to pnpm, so without this the update would start and then fail on
  * a missing pnpm instead. This mirrors the packaged Desktop launcher, which
  * prepends its bundled runtime bin to the host it spawns.
+ *
+ * Every child leaves here guarded ({@link guardSpawnFailure}), so a spawn that
+ * fails settles as a non-zero exit instead of raising an unhandled error.
  * @param binary - the resolved dsh CLI path.
  * @param args - arguments after the interpreter/script prefix.
  * @param env - the host environment.
@@ -398,16 +560,18 @@ export function spawnDsh(binary: string, args: string[], env: NodeJS.ProcessEnv)
   const pathApi = process.platform === 'win32' ? win32 : posix
   const childEnv = withPrependedPath(env, pathApi.dirname(binary))
   if (process.platform === 'win32' && command.toLowerCase().endsWith('.cmd')) {
-    return spawn('cmd.exe', windowsCmdShimArgs(command, args), {
+    // cmd.exe by bare name resolves through the host PATH, which a GUI-launched
+    // host need not carry the system directories in (issue #1857).
+    return guardSpawnFailure(spawn(windowsCmdPath(env), windowsCmdShimArgs(command, args), {
       env: childEnv,
       windowsVerbatimArguments: true,
       stdio: ['ignore', 'pipe', 'pipe'],
-    })
+    }))
   }
-  return spawn(command, [...argsPrefix, ...args], {
+  return guardSpawnFailure(spawn(command, [...argsPrefix, ...args], {
     env: command === process.execPath ? { ...childEnv, ELECTRON_RUN_AS_NODE: '1' } : childEnv,
     stdio: ['ignore', 'pipe', 'pipe'],
-  })
+  }))
 }
 
 /**
@@ -416,6 +580,29 @@ export function spawnDsh(binary: string, args: string[], env: NodeJS.ProcessEnv)
  * config mentions the mark, so only a real `id:` row counts.
  */
 const OFFICIAL_INSTALLER_PATTERN = /^\s*-?\s*id:\s*['"]?plugin-(?:installer|control)['"]?\s*$/m
+
+/**
+ * The entry ids of a composed profile dump (`dsh --profile <name>
+ * --dump-config`). The dump prints one YAML block per patch layer under a
+ * `# ==` header, with the composed entries as column-0 `- id:` items — an
+ * entry a profile patch overrides appears once, carrying the override's keys,
+ * so those lines are exactly the loader's own entry set. Nested config keeps
+ * its own `id` keys indented and is never mistaken for an entry.
+ * @param dump - the dump's captured text.
+ * @returns the composed entry ids, or undefined when the dump carried none.
+ */
+export function composedEntryIdsOf(dump: string): Set<string> | undefined {
+  const ids = new Set<string>()
+  for (const rawLine of dump.split('\n')) {
+    const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine
+    const match = /^-[ \t]+id:[ \t]*(.+?)[ \t]*$/.exec(line)
+    if (match === null) continue
+    const value = match[1]
+    const unquoted = /^'(.*)'$/.exec(value)?.[1] ?? /^"(.*)"$/.exec(value)?.[1] ?? value
+    if (unquoted !== '') ids.add(unquoted)
+  }
+  return ids.size === 0 ? undefined : ids
+}
 
 /**
  * Detect whether the official installer channels exist on this runtime by
@@ -439,7 +626,7 @@ export async function detectOfficialChannels(
   const child = spawnImpl(binary, ['--profile', profileName, '--dump-config'], env)
   child.stdout?.on('data', (chunk: Buffer) => { capture(chunk, output) })
   child.stderr?.on('data', (chunk: Buffer) => { capture(chunk, output) })
-  const code = await new Promise<number | null>(resolve => { child.on('close', resolve) })
+  const code = await awaitCliExit(child, output)
   if (code !== 0) return false
   return OFFICIAL_INSTALLER_PATTERN.test(output.read())
 }
@@ -456,7 +643,10 @@ export async function detectOfficialChannels(
  */
 export interface NativePluginManager {
   /**
-   * Install or update one package spec through the official manager.
+   * Install one package spec through the official manager. Since 0.2.1-rc.2 it
+   * refuses a package the profile already carries while the host mounts the `hmr`
+   * service (`already-installed`), which is every profile host, so an in-place
+   * update cannot be one call there.
    * @param spec - package spec (e.g. `@scope/pkg@1.2.3`).
    * @param options - activation choice and the request id the run is tracked under.
    * @returns the manager's own verdict ({@link NativeManagerOutcome}); the caller
@@ -470,6 +660,17 @@ export interface NativePluginManager {
    * re-reads the profile as well, but must read this first — a refusal resolves.
    */
   removeBundle(name: string): Promise<unknown>
+  /**
+   * Select or deselect a bundle layer while keeping the installed dependency.
+   * Present on every published manager (the official Plugins page drives it),
+   * and read here only to undo the deselection a refused removal leaves behind.
+   * Optional because the undo is best-effort: a manager without it still
+   * refuses the removal, and the report says what to do instead.
+   * @param name - installed bundle name.
+   * @param enabled - whether the bundle contributes its patch layer.
+   * @returns the manager's own verdict ({@link NativeManagerOutcome}).
+   */
+  setBundleEnabled?(name: string, enabled: boolean): Promise<unknown>
 }
 
 /**
@@ -522,6 +723,23 @@ export function nativeManagerFailure(outcome: unknown): string | undefined {
   }
   const code = failure?.code
   return typeof code === 'string' && code !== '' ? `官方插件管理器拒绝执行（${code}）` : '官方插件管理器报告失败'
+}
+
+/**
+ * The official manager's own refusal code for one run, or undefined when its
+ * verdict is not a failure. {@link nativeManagerFailure} renders the code for the
+ * person; this is the same verdict read for a decision, which is how the update
+ * path recognises the `already-installed` refusal it has to answer with a
+ * two-phase replacement.
+ * @param outcome - the resolved value of `installBundle` / `removeBundle`.
+ * @returns the manager's failure code, or undefined for a run that did not fail.
+ */
+export function nativeManagerRefusalCode(outcome: unknown): string | undefined {
+  if (typeof outcome !== 'object' || outcome === null) return undefined
+  const verdict = outcome as NativeManagerOutcome
+  if (verdict.application !== 'failed') return undefined
+  const code = verdict.error?.code
+  return typeof code === 'string' && code !== '' ? code : undefined
 }
 
 /** One layer snapshot plus the profile patch text and dependency list. */
@@ -621,9 +839,7 @@ export class CliGateway {
     const child = this.spawnCli(binary, args)
     child.stdout?.on('data', (chunk: Buffer) => { capture(chunk, output) })
     child.stderr?.on('data', (chunk: Buffer) => { capture(chunk, output) })
-    const timer = setTimeout(() => { child.kill() }, timeoutMs)
-    const code = await new Promise<number | null>(resolve => { child.on('close', resolve) })
-    clearTimeout(timer)
+    const code = await awaitCliExit(child, output, timeoutMs)
     return { code, output: output.read().trim() }
   }
 
@@ -724,6 +940,10 @@ export class CliGateway {
       job.error = `plugin-manager: 迁移后的启动预检失败${verify.output === '' ? '' : `：\n${verify.output}`}`
       return
     }
+    // The migration replaces the row-id universe the same way an update does:
+    // an override for a row only the retired aggregate declared is an orphan
+    // from here on.
+    if (await this.pruneOrphanOverrides(job, verify.output) === undefined) return
     const manifest = await readProfileManifest(this.facts.packageJsonPath)
     const updated = await buildPluginRow(
       this.facts,
@@ -941,6 +1161,13 @@ export class CliGateway {
    * run (pnpm exited non-zero, an incompatible version, a cancellation) resolves
    * with `application: 'failed'`, and only that verdict carries the reason — the
    * profile re-read can only show that the version did not move.
+   *
+   * An `already-installed` refusal is answered by {@link replaceInstalled}: the
+   * manager refuses to install a dependency the profile already carries while the
+   * host mounts `hmr` (0.2.1-rc.2, and dsh-base mounts that service on every
+   * profile host), so an in-place update there is only expressible as its two
+   * phases. The single call stays first so the day the manager accepts an
+   * in-place update this path needs no change.
    * @param job - the update job being settled.
    * @param native - the official manager.
    */
@@ -953,8 +1180,12 @@ export class CliGateway {
       return
     }
     const before = await this.capture()
-    const verdict = await native.installBundle(job.spec, { enabled: true, requestId: job.id })
-    const refusal = nativeManagerFailure(verdict)
+    const carried = await readProfileManifest(this.facts.packageJsonPath)
+    const first = await native.installBundle(job.spec, { enabled: true, requestId: job.id })
+    let refusal = nativeManagerFailure(first)
+    if (refusal !== undefined && nativeManagerRefusalCode(first) === 'already-installed') {
+      refusal = await this.replaceInstalled(job, native, targetId, carried.dependencies[targetId])
+    }
     if (refusal !== undefined) {
       job.phase = 'error'
       job.error = `plugin-manager: 官方插件管理器更新失败：${refusal}`
@@ -973,6 +1204,10 @@ export class CliGateway {
       job.error = `plugin-manager: 官方插件管理器报告成功，但 ${targetId} 仍为 ${updated.version}，预期 ${targetVersion}（更新未生效）`
       return
     }
+    // An application-owned profile composes through the same read-only probe,
+    // so orphaned overrides are pruned here too; a runtime that cannot compose
+    // leaves the patch file exactly as it is (see {@link pruneOrphanOverrides}).
+    if (await this.pruneOrphanOverrides(job) === undefined) return
     job.plugin = updated
     job.conflicts = significantChanges(diffLayer(before.layer, after.layer)).map(change => ({
       id: change.id,
@@ -981,6 +1216,169 @@ export class CliGateway {
       to: change.to,
     }))
     job.phase = 'done'
+  }
+
+  /**
+   * Replace an installed bundle with the update job's target spec through the
+   * official manager, the only writer an application-owned profile accepts.
+   * Removing first is what makes the install possible: the manager's
+   * `already-installed` guard reads the profile, so the same name is a fresh
+   * dependency once the old one is gone.
+   *
+   * A failed second phase reinstalls the spec the profile carried before the run,
+   * so an update that cannot land leaves a working plugin behind instead of an
+   * empty slot; the report says which of the two happened.
+   *
+   * Two facts make the replacement safe to repeat in one session:
+   *
+   * - **The bundle keeps its layer index.** A removal drops the name from
+   *   `dsh.profile.bundles` and the reinstall appends it, so a plain
+   *   remove-then-install moves the bundle behind every bundle that followed it
+   *   and its patch layer starts overriding rows it never overrode
+   *   ({@link restoreBundleIndex} puts it back).
+   * - **A `bundle-in-use` refusal is answered once, not repeated.** The
+   *   official guard deselects the bundle and reloads before it checks whether
+   *   the bundle's rows still run, so a refusal means the session still holds
+   *   them: the update is retried exactly once against that settled state, and a
+   *   second refusal restores the selection and names the restart the person has
+   *   to do ({@link removeForReplacement}).
+   *
+   * @param job - the update job whose spec is installed.
+   * @param native - the official manager.
+   * @param targetId - the installed bundle being replaced.
+   * @param previousSpec - the dependency spec the profile carried before the run.
+   * @returns the failure to report, or undefined once the target spec landed.
+   */
+  private async replaceInstalled(
+    job: GatewayJob,
+    native: NativePluginManager,
+    targetId: string,
+    previousSpec: string | undefined,
+  ): Promise<string | undefined> {
+    if (previousSpec === undefined) return `${targetId} 不在 profile 依赖中，无法替换已安装版本`
+    // Read while the bundle is still in the list: the removal is what drops it.
+    const index = await this.bundleIndexOf(targetId)
+    const removal = await this.removeForReplacement(native, targetId)
+    if (removal.failure !== undefined) {
+      if (removal.deselected) await this.restoreBundleSelection(native, targetId)
+      return `已安装版本无法移除（${removal.failure}），本次更新未做改动${removal.remedy}`
+    }
+    const refusal = nativeManagerFailure(await native.installBundle(job.spec, { enabled: true, requestId: job.id }))
+    if (refusal === undefined) {
+      await this.restoreBundleIndex(targetId, previousSpec, index)
+      return undefined
+    }
+    const restoreSpec = `${targetId}@${previousSpec}`
+    const restoreFailure = nativeManagerFailure(await native.installBundle(restoreSpec, { enabled: true, requestId: job.id }))
+    if (restoreFailure !== undefined) return `${refusal}；装回 ${restoreSpec} 也失败：${restoreFailure}，请手动重新安装`
+    // The rollback reinstalls the previous version at the end of the list too,
+    // so the same index has to be restored for a failed update as for a landed one.
+    await this.restoreBundleIndex(targetId, previousSpec, index)
+    return `${refusal}；已装回 ${restoreSpec}`
+  }
+
+  /**
+   * Where a bundle sits in the layer order, read before the removal drops it.
+   * @param name - the installed bundle name.
+   * @returns the index in `dsh.profile.bundles`, or undefined when the profile
+   * does not list it (nothing to restore in that case).
+   */
+  private async bundleIndexOf(name: string): Promise<number | undefined> {
+    try {
+      const manifest = await readProfileManifest(this.facts.packageJsonPath)
+      const index = manifest.bundles.indexOf(name)
+      return index < 0 ? undefined : index
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
+   * Put a replaced bundle back at the layer index it had before the removal.
+   *
+   * The loader applies one patch layer per entry of `dsh.profile.bundles`, in
+   * that order, so the index is behavior: a bundle that is removed and
+   * reinstalled without this lands behind every bundle that followed it, and
+   * whole rows start inheriting from a layer that used to come first. The write
+   * is the manifest's own backup + tmp + rename path, and nothing is written
+   * when the profile already lists the bundle where it belongs.
+   * @param name - the reinstalled bundle.
+   * @param spec - the dependency spec the reinstall recorded (unused when the bundle is absent).
+   * @param index - the position captured before the removal.
+   */
+  private async restoreBundleIndex(name: string, spec: string, index: number | undefined): Promise<void> {
+    if (index === undefined) return
+    try {
+      const manifest = await readProfileManifest(this.facts.packageJsonPath)
+      if (!Object.hasOwn(manifest.dependencies, name)) return
+      if (manifest.bundles.indexOf(name) === index) return
+      await reorderProfileBundle(this.facts.packageJsonPath, name, index)
+    } catch (error) {
+      // The plugin did land; a layer order this write could not correct is
+      // reported rather than turned into a failed update.
+      console.warn(`[plugin-manager] 未能恢复 ${name} 的 bundle 顺序（${spec}）：${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
+  /**
+   * Remove a bundle for the two-phase replacement, answering the official
+   * manager's in-use refusal instead of repeating it.
+   *
+   * Read the official `removeBundle` guard in order: it deselects the bundle,
+   * reloads the profile, and only then checks whether the bundle's own rows
+   * still hold a running fiber, which it reports as `bundle-in-use`. The
+   * deselection is therefore already on disk when the refusal arrives — the
+   * guard re-reads the selection on entry, so asking once more after that
+   * settled state is idempotent and is the only way an update can continue
+   * without a restart. A second refusal means the rows really are still
+   * loaded, and the report then names the restart instead of a bare code.
+   * @param native - the official manager.
+   * @param name - the bundle to remove.
+   * @returns the refusal to report, whether the profile lost the selection on the
+   * way, and the remedy text for that refusal.
+   */
+  private async removeForReplacement(
+    native: NativePluginManager,
+    name: string,
+  ): Promise<{ failure?: string, deselected: boolean, remedy: string }> {
+    const first = await native.removeBundle(name)
+    const failure = nativeManagerFailure(first)
+    if (failure === undefined) return { deselected: false, remedy: '' }
+    // Any other refusal is final: a retry cannot change a management-owned
+    // bundle, a missing dependency or a failed pnpm run.
+    if (nativeManagerRefusalCode(first) !== 'bundle-in-use') {
+      return { failure, deselected: await this.bundleSelectionLost(name), remedy: '' }
+    }
+    // The guard deselected the bundle before refusing; a second call finds the
+    // selection it left and checks the rows once more.
+    const second = await native.removeBundle(name)
+    const retryFailure = nativeManagerFailure(second)
+    if (retryFailure === undefined) return { deselected: false, remedy: '' }
+    return {
+      failure: retryFailure,
+      deselected: await this.bundleSelectionLost(name),
+      remedy: '；该插件仍由当前 DSH 进程加载，重启 DSH 后再执行本次更新即可',
+    }
+  }
+
+  /** Whether a bundle is still an installed dependency but no longer selected. */
+  private async bundleSelectionLost(name: string): Promise<boolean> {
+    try {
+      const manifest = await readProfileManifest(this.facts.packageJsonPath)
+      return Object.hasOwn(manifest.dependencies, name) && !manifest.bundles.includes(name)
+    } catch {
+      return false
+    }
+  }
+
+  /** Put a selection back after a refused removal, so the profile is as it was found. */
+  private async restoreBundleSelection(native: NativePluginManager, name: string): Promise<void> {
+    if (native.setBundleEnabled === undefined) return
+    try {
+      await native.setBundleEnabled(name, true)
+    } catch (error) {
+      console.warn(`[plugin-manager] 未能恢复 ${name} 的 bundle 启用状态：${error instanceof Error ? error.message : String(error)}`)
+    }
   }
 
   /** Start a deterministic legacy aggregate migration. */
@@ -1176,11 +1574,7 @@ export class CliGateway {
     const child = this.spawnCli(binary, args)
     child.stdout?.on('data', (chunk: Buffer) => { capture(chunk, output) })
     child.stderr?.on('data', (chunk: Buffer) => { capture(chunk, output) })
-    const timer = setTimeout(() => { child.kill() }, timeoutMs)
-    const code = await new Promise<number | null>(resolve => {
-      child.on('close', resolve)
-    })
-    clearTimeout(timer)
+    const code = await awaitCliExit(child, output, timeoutMs)
     if (code !== 0) {
       job.phase = 'error'
       const tail = output.read().trim()
@@ -1242,8 +1636,13 @@ export class CliGateway {
         return
       }
       job.plugin = updated
-      await this.verifyBoot(job, before, after, conflicts)
+      const dump = await this.verifyBoot(job, before, after, conflicts)
       if (job.phase === 'error') return
+      // The composed target profile — not the profile patch and not the
+      // source profile — is the authority for which row ids still exist: an
+      // update that retires a row leaves the user's old override pointing at
+      // nothing, which the loader warns about on every boot.
+      if (await this.pruneOrphanOverrides(job, dump) === undefined) return
     } else {
       // B8 (remove): a success exit code must mean the dependency is gone.
       const removed = before.dependencies.find(candidate => !after.dependencies.includes(candidate))
@@ -1297,6 +1696,231 @@ export class CliGateway {
   }
 
   /**
+   * Compose the profile with the CLI's read-only `--dump-config` probe and
+   * return the dump text. Composition writes nothing and binds no port, so it
+   * is safe on every runtime — including an application-owned profile whose
+   * *writes* the CLI refuses. A run that cannot compose (no CLI on this
+   * runtime, a non-zero exit, a spawn failure) reports undefined, and the
+   * caller must then leave the profile alone instead of guessing at the entry
+   * set.
+   * @returns the composed dump text, or undefined when it is unavailable.
+   */
+  private async compositionOf(): Promise<string | undefined> {
+    const binary = this.binary()
+    if (binary === null) return undefined
+    try {
+      const output = createOutputCapture(MAX_OUTPUT_BYTES)
+      const child = this.spawnCli(binary, ['--profile', this.facts.profileName, '--dump-config'])
+      child.stdout?.on('data', (chunk: Buffer) => { capture(chunk, output) })
+      child.stderr?.on('data', (chunk: Buffer) => { capture(chunk, output) })
+      const code = await awaitCliExit(child, output, 90_000)
+      return code === 0 ? output.read() : undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
+   * The entry ids a user-layer override may still point at: the composed ids
+   * plus every id the profile's own bundle layers still declare.
+   *
+   * The composition alone does not prove a row is retired. A host that
+   * composes while a bundle is being replaced — the remove-then-install half of
+   * an application-owned update, or an upgrade whose packages are half
+   * installed — composes *without* the rows of the bundle that is momentarily
+   * gone, and pruning on that probe deletes the user's override for a row that
+   * still exists (0.4.7 lost `web-ui-remote-web-ui` and `ui-schedule` this
+   * way). Declarations live in the bundle layers, so they survive that window.
+   * @param composed - the entry ids of the composition probe.
+   * @returns the ids to keep, or undefined when a declared layer cannot be
+   * read, which proves nothing either way and must leave the file alone.
+   */
+  private async liveOverrideIds(composed: ReadonlySet<string>): Promise<Set<string> | undefined> {
+    const live = new Set(composed)
+    let manifest
+    try {
+      manifest = await readProfileManifest(this.facts.packageJsonPath)
+    } catch {
+      return undefined
+    }
+    for (const name of manifest.bundles) {
+      const dir = join(this.facts.profileDir, 'node_modules', ...name.split('/'))
+      try {
+        await readFile(join(dir, 'package.json'), 'utf8')
+      } catch {
+        // The bundle's package is not resolvable right now (mid-install, or a
+        // link that moved): its rows cannot be known, so nothing may be pruned.
+        return undefined
+      }
+      let text: string
+      try {
+        text = await readFile(join(dir, 'cordis.patch.yml'), 'utf8')
+      } catch (error) {
+        // A plain plugin bundle declares no rows of its own; any other read
+        // failure leaves its declarations unknown.
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue
+        return undefined
+      }
+      try {
+        for (const id of declaredRowIds(text, join(dir, 'cordis.patch.yml'))) live.add(id)
+      } catch {
+        return undefined
+      }
+    }
+    return live
+  }
+
+  /**
+   * The entry names the installed bundles' own rows carry, by entry id.
+   *
+   * The loader inserts one row per id and takes that row's name from the
+   * bundle's own patch file, so this map is the very fact the loader composes:
+   * a profile row naming something else is a row the loader skips.
+   *
+   * @returns the live names, or undefined when a bundle's patch cannot be read
+   *   (which proves nothing either way and must leave the profile alone).
+   */
+  private async liveEntryNames(): Promise<Map<string, string> | undefined> {
+    const names = new Map<string, string>()
+    let manifest
+    try {
+      manifest = await readProfileManifest(this.facts.packageJsonPath)
+    } catch {
+      return undefined
+    }
+    for (const name of manifest.bundles) {
+      const dir = join(this.facts.profileDir, 'node_modules', ...name.split('/'))
+      let text: string
+      try {
+        text = await readFile(join(dir, 'cordis.patch.yml'), 'utf8')
+      } catch (error) {
+        // A plain plugin bundle declares no rows of its own; any other read
+        // failure leaves its declarations unknown.
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue
+        return undefined
+      }
+      for (const row of insertRowsOf(text)) {
+        if (row.id === undefined || row.name === undefined) continue
+        names.set(row.id, row.name)
+      }
+    }
+    return names
+  }
+
+  /**
+   * Point the profile's own rows at the packages that now carry those entry ids.
+   *
+   * A bundle that renames a row's package leaves every profile row that named
+   * the old one dead: the include patch semantics skip a row whose name does
+   * not match the inserted row, and the skip takes the whole row with it — a
+   * config row stops configuring and a `disabled` override stops disabling,
+   * both without a word in the browser. Issue #1901 moved the aggregate's
+   * family rows from the `@linxin666/dsh-web-all/<family>` subpath to the
+   * real package, so every profile row written before that upgrade went dead
+   * with it.
+   *
+   * The repair is idempotent and writes only when a row actually changed, so a
+   * healthy profile is never rewritten.
+   *
+   * @returns the repaired rows, in file order.
+   */
+  async repairProfileRowNames(): Promise<Array<{ id: string; from: string; to: string }>> {
+    const names = await this.liveEntryNames()
+    if (names === undefined || names.size === 0) return []
+    let text: string
+    try {
+      text = await readFile(this.facts.patchPath, 'utf8')
+    } catch {
+      return []
+    }
+    let repaired: RepairedRowNames
+    try {
+      repaired = repairStaleRowNames(text, this.facts.patchPath, names)
+    } catch {
+      // A patch file this gateway cannot parse is not its to repair: the CLI
+      // owns that file and reports its own parse error.
+      return []
+    }
+    if (repaired.repaired.length === 0) return []
+    await writePatchAtomic(this.facts.patchPath, repaired.text)
+    return repaired.repaired
+  }
+
+  /**
+   * Post-update orphan guard: drop this package's own enablement overrides
+   * whose entry id neither the composed *target* profile nor any bundle layer
+   * still declares. The composition is the loader's own after the update
+   * ({@link composedEntryIdsOf}), widened by the bundle layers' declarations
+   * ({@link liveOverrideIds}) because a composition taken mid-upgrade omits
+   * rows that still exist. A retired row would otherwise leave a stale
+   * override that the loader reports on every boot as
+   * `patch: entry "<id>" not found`.
+   *
+   * The stale-row-name repair ({@link repairProfileRowNames}) runs first and
+   * on its own authority, so a profile whose bundle declarations cannot be
+   * resolved is repaired even though the prune then writes nothing.
+   *
+   * Nothing is written when nothing is orphaned — a second run over a pruned
+   * profile returns the input text untouched, so no write and no second backup
+   * happen — and an unobtainable composition leaves the file as it is instead
+   * of emptying it. A write that does fail settles the job as an error the way
+   * every other post-mutation patch write in this transaction does, with the
+   * backup the write helper takes first left in place.
+   * @param job - the settling job (error target on write failure).
+   * @param dumpText - an already captured composition, when the caller has one.
+   * @returns the pruned entry ids, or undefined when the job failed.
+   */
+  private async pruneOrphanOverrides(job: GatewayJob, dumpText?: string): Promise<string[] | undefined> {
+    // A row whose package was renamed is dead until its name follows the
+    // rename, so the names are repaired before the orphan pass decides what to
+    // drop: a row that names a live package again is not an orphan. The repair
+    // answers to its own authority — the names the bundles it can read declare
+    // ({@link liveEntryNames}) — and runs before the guards below rather than
+    // inside them: a profile whose bundle list names a package that is not
+    // installed (the normal shape of a CLI-created profile, which lists
+    // `@deepseek-ai/dsh-base` and `@deepseek-ai/dsh-web-app` without
+    // installing them) leaves {@link liveOverrideIds} unknown, and a repair
+    // gated behind that would never run, while the boot repair does it anyway.
+    try {
+      const repaired = await this.repairProfileRowNames()
+      if (repaired.length > 0) {
+        console.warn('[plugin-manager] 已修复 profile 中失效的行名：' + repaired.map(row => `${row.id}（${row.from} → ${row.to}）`).join('、'))
+      }
+    } catch (error) {
+      console.warn('[plugin-manager] profile 行名修复失败：' + (error instanceof Error ? error.message : String(error)))
+    }
+    const dump = dumpText ?? await this.compositionOf()
+    if (dump === undefined) return []
+    const composed = composedEntryIdsOf(dump)
+    if (composed === undefined) return []
+    const live = await this.liveOverrideIds(composed)
+    if (live === undefined) return []
+    let text: string
+    try {
+      text = await readFile(this.facts.patchPath, 'utf8')
+    } catch {
+      return []
+    }
+    let pruned: PrunedOverrides
+    try {
+      pruned = pruneOrphanRowOverrides(text, this.facts.patchPath, live)
+    } catch {
+      // A patch file this gateway cannot parse is not its to repair: the CLI
+      // owns that file and reports its own parse error.
+      return []
+    }
+    if (pruned.pruned.length === 0) return []
+    try {
+      await writePatchAtomic(this.facts.patchPath, pruned.text)
+      return pruned.pruned
+    } catch (error) {
+      job.phase = 'error'
+      job.error = `plugin-manager: 失效行覆盖清理写回失败：${error instanceof Error ? error.message : String(error)}（备份在 ${this.facts.patchPath}.bak-plugin-manager，下次启动前请手动检查 ${this.facts.patchPath}）`
+      return undefined
+    }
+  }
+
+  /**
    * Roll back a freshly installed dependency through the official remove
    * path (which also drops its bundle), then settle the job as an error.
    * This is the owner-aware conflict resolution: the existing plugin keeps
@@ -1311,9 +1935,7 @@ export class CliGateway {
       const child = this.spawnCli(binary, ['plugin', '--profile', this.facts.profileName, 'remove', name])
       child.stdout?.on('data', (chunk: Buffer) => { capture(chunk, output) })
       child.stderr?.on('data', (chunk: Buffer) => { capture(chunk, output) })
-      const timer = setTimeout(() => { child.kill() }, REMOVE_TIMEOUT_MS)
-      const code = await new Promise<number | null>(resolve => { child.on('close', resolve) })
-      clearTimeout(timer)
+      const code = await awaitCliExit(child, output, REMOVE_TIMEOUT_MS)
       rolledBack = code === 0
       tail = output.read().trim()
     }
@@ -1379,30 +2001,32 @@ export class CliGateway {
   }
 
   /**
-   * Boot preflight after an install: compose the profile with the CLI's
-   * `--dump-config` (resolves every entry without binding the port). A failure
-   * that implicates the new plugin disables it so the next start cannot fail;
-   * an unrelated failure is reported without touching anything.
+   * Boot preflight after an install or update: compose the profile with the
+   * CLI's `--dump-config` (resolves every entry without binding the port). A
+   * failure that implicates the new plugin disables it so the next start
+   * cannot fail; an unrelated failure is reported without touching anything.
+   * The captured dump is returned on success so the update path can read the
+   * composed entry set from the same probe (see {@link pruneOrphanOverrides}).
+   * @returns the composed dump text, or undefined when the preflight did not
+   *   produce one (no CLI on this runtime, or a failure the caller must read
+   *   from `job`).
    */
-  private async verifyBoot(job: GatewayJob, before: CapturedState, after: CapturedState, conflicts: LayerChange[]): Promise<void> {
+  private async verifyBoot(job: GatewayJob, before: CapturedState, after: CapturedState, conflicts: LayerChange[]): Promise<string | undefined> {
     const binary = this.binary()
-    if (binary === null) return
+    if (binary === null) return undefined
     const name = this.newDependency(before, after)
     const verifyOutput = createOutputCapture(MAX_OUTPUT_BYTES)
     const child = this.spawnCli(binary, ['--profile', this.facts.profileName, '--dump-config'])
     child.stdout?.on('data', (chunk: Buffer) => { capture(chunk, verifyOutput) })
     child.stderr?.on('data', (chunk: Buffer) => { capture(chunk, verifyOutput) })
-    const timer = setTimeout(() => { child.kill() }, 90_000)
-    const code = await new Promise<number | null>(resolve => {
-      child.on('close', resolve)
-    })
-    clearTimeout(timer)
-    if (code === 0) return
-    const tail = verifyOutput.read().trim()
+    const code = await awaitCliExit(child, verifyOutput, 90_000)
+    const dump = verifyOutput.read()
+    if (code === 0) return dump
+    const tail = dump.trim()
     if (name === undefined) {
       job.phase = 'error'
       job.error = tail === '' ? 'plugin-manager: boot preflight failed' : tail
-      return
+      return undefined
     }
     const claimed = await this.claimedEntriesOf(name)
     const implicated = tail.includes(name) || claimed.some(id => tail.includes(id))
@@ -1416,5 +2040,6 @@ export class CliGateway {
         ? 'plugin-manager: 启动预检失败（与本次安装无关）'
         : `plugin-manager: 启动预检失败（与本次安装无关）：\n${tail}`
     }
+    return undefined
   }
 }

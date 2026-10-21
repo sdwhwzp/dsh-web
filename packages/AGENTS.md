@@ -26,9 +26,8 @@
 - **host / client 半区分层**：`src/index.ts` 是 host 半区（运行在 dsh host 进程），
   `src/client/` 是 browser 半区（Web GUI 侧），`src/core/` 是两侧共享的纯逻辑
   （两侧 program 都编译）。新增源码文件必须落在三个区之一。
-- **exports 约定**：包内 `exports` 提供 `.`（host）、`./client`（浏览器半区）、
-  必要时 `./invariant`；`./src/*` 用于测试引用。UI 类包按惯例
-  `@linxin666/dsh-client-ui-*` 命名。
+- **exports 约定**：包内 `exports` 提供 `.`（host）与 `./client`（浏览器半区）；
+  `./src/*` 用于测试引用。UI 类包按惯例 `@linxin666/dsh-client-ui-*` 命名。
 
 ## SDK 与构建约束
 
@@ -40,12 +39,14 @@
 - **共享构建预设**：所有 tsdown 包 import `shared/tsdown.client.ts`，禁止复制到
   包内；tsconfig 分层（solution + host/client 各自 program，参照
   `dsh-git-graph`/`dsh-task-board`）。
-- **运行时共享模块**：settings 卡三件套、poll-guard、dsh-home 的事实源在
-  `shared/`，包内同名文件是 `scripts/sync-shared.mjs` 生成的同步副本
+- **运行时共享模块**：settings 卡三件套、dsh-home、mount-once、http、loopback、
+  pair-access、telemetry、tool-surface 等家族共享模块的事实源在 `shared/`
+  （权威清单是 `scripts/sync-shared.mjs` 的 manifest），包内同名文件是生成的同步副本
   （generated 头注释，禁止手改；改 shared 源后重跑同步，test:scripts 含 drift 门禁）。
-- **浏览器 bundle 纯度门**：`@deepseek-ai/*` 只能 type-only 导入；值导入只允许
-  平台种子表成员（react / cordis / ui-slots / ui-primitives，见
-  `shared/web-platform.ts`）。跨插件协作走 cordis 服务
+  只被一个包使用的模块归该包所有，不进 `shared/`。
+- **浏览器 bundle 纯度门**：`@deepseek-ai/*` 的值导入仅允许
+  [平台种子表](../shared/web-platform.ts)成员，其余只能 type-only 导入。
+  跨插件协作走 cordis 服务
   （`ctx.slots` / `ctx.sessions` / `ctx.workspaces`）或 slot，不走 value import。
 - **样式**：CSS Modules（`*.module.css`）经 lightningcss 编译进 bundle；不引入
   UI 框架样式库。填充主按钮一律用主按钮三件套
@@ -78,6 +79,8 @@
 - 例外：dsh-desktop-launcher（桌面启动器）已彻底移除——包、聚合行、设置桥白名单、
   远程通道本地面、ru 语言包与文档引用均已清理；桌面启动场景由官方 DeepSeek
   Harness 桌面客户端承接。
+- 例外：dsh-model-capabilities（模型能力配置）已彻底移除——包、聚合行、ru 语言包
+  与文档引用均已清理；自定义模型的输入类型与推理档位由官方 Models 设置页编辑。
 
 ## 语义属性约定（L2，issue #506）
 

@@ -19,10 +19,13 @@ import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
 import { TaskBoardHostService, type HostTimerFace, type TaskBoardTeamDispatcher } from './host-service.ts'
 import { TaskBoardAccounts, type TaskBoardPrincipal } from './host-accounts.ts'
+import { createOwnerPeer } from './host-runner.ts'
 import { parseTaskDraft, TaskParseError } from './host-ai.ts'
 import { TASK_PERMISSIONS, isTaskPermission, type TaskPermission } from './core/tasks.ts'
 import { DEFAULT_SUBTASK_DEPTH, SUBTASK_DEPTH_MAX, SUBTASK_DEPTH_MIN } from './core/subtask.ts'
 import { DEFAULT_SESSION_POLL_SECONDS, SESSION_POLL_MAX_SECONDS, SESSION_POLL_MIN_SECONDS } from './core/poll-cadence.ts'
+import { DEFAULT_RUN_LAUNCH_WIDTH, RUN_LAUNCH_WIDTH_MAX, RUN_LAUNCH_WIDTH_MIN } from './core/launch-width.ts'
+import { DEFAULT_SPEND_BUDGET_TOKENS } from './core/spend-budget.ts'
 import {
   DEFAULT_VERIFICATION_BUDGET_SECONDS,
   DEFAULT_VERIFICATION_CALL_TIMEOUT_SECONDS,
@@ -34,10 +37,12 @@ import {
   verificationCallTimeoutMs,
 } from './core/verification-budget.ts'
 import { DEFAULT_SESSION_PERMISSION } from './core/handover.ts'
+import type { CardDefaults } from './core/card-defaults.ts'
 import { buildTaskBoardTools, TASK_BOARD_TOOL_NAMES } from './host/agent-tools.ts'
 import { PLUGIN_TOOL_SECTION_ORDERS, visibleToolText } from './tool-surface.ts'
 import { makeTaskBoardRoutes } from './host-routes.ts'
 import { TASK_BOARD_SERVICE_NAME, type TaskBoardExtension } from './core/extension.ts'
+import type { TaskBoardAction } from './protocol.ts'
 import { mountOnce } from './mount-once.ts'
 import { createGoalVerificationGate, type GoalFace } from './host/verification-gate.ts'
 import { normalizeCatalog, type ModelCatalogView, type VerificationSettings } from './core/verification.ts'
@@ -85,6 +90,19 @@ export interface Config {
   /** Environment variable whose value the authenticated proxy injects upstream. */
   proxyTokenEnv?: string
   /**
+   * Whether the operator's OWN reverse proxy or tunnel may speak for the
+   * browser (default OFF). Off keeps the pre-existing fence exactly: a request
+   * that carries a forwarding header is never local, so only a direct loopback
+   * client or an allowlisted token-injecting proxy reaches the board (issue
+   * #1906). On admits one narrower case — a forwarded request whose socket and
+   * Host are both this machine's loopback upstream, i.e. the proxy dials the
+   * board itself (issue #1918) — and still requires the browser same-origin
+   * marker, so a third party's tunnel is only trusted while the operator says
+   * it is. Volatile: the fence reads it at each request, so an edit binds the
+   * next request without re-registering the routes.
+   */
+  trustForwardedProxy?: Volatile<boolean>
+  /**
    * An explicit baseline for the permission confirmation gate. Left unset, the
    * board follows the Host's own default permission preset — the value new DSH
    * sessions start at — and falls back to `read-only` when the deployment
@@ -108,11 +126,74 @@ export interface Config {
    */
   sessionPollSeconds?: Volatile<number>
   /**
+   * How many run launches this board may have in flight at once (1..16,
+   * default 3). One run opens its whole subtree, so without a bound the Host
+   * asks DSH for every member's session in the same tick; this is the mechanism
+   * that enforces the repository's measured guidance for heavy implementation
+   * subagents. Members wait their turn instead of being dropped: the subtree
+   * still opens completely, they only enter the running column in batches. Read
+   * at each admission, so an edit bounds the next launch of a run that is still
+   * queueing.
+   */
+  runLaunchWidth?: Volatile<number>
+  /**
+   * Daily token ceiling for the work this board dispatches (default 0 = no
+   * gate). Tokens, not money: the ledger the board measures against prices
+   * DeepSeek's own routes only, so a cost cap would read 0 elsewhere. Read at
+   * each gate, so an edit binds the next run without a remount; a manual
+   * run/rerun whose day already spent the cap is refused, and a due occurrence
+   * is skipped onto the scheduler with its run budget untouched.
+   */
+  spendBudgetTokens?: Volatile<number>
+  /**
    * Continuable-subagent provider the Agent Teams service uses to compose a
    * teammate. Matches the Agent Teams tool plugin's `freshProvider` default;
    * only team-mode runs use it.
    */
   teamProvider?: string
+  /**
+   * GLOBAL native /goal switch (default OFF), the master control over whether
+   * this board starts a run with dsh's built-in /goal at all. A run uses native
+   * /goal only when THIS is on AND the task's own `goalRun` is not off; while
+   * it is off every task runs one plain turn.
+   *
+   * The value is frozen when an execution starts, so toggling it only affects
+   * executions that begin afterwards and never re-writes a task's stored
+   * `goalRun` preference. A run that consequently does not execute native
+   * /goal is marked as such (its acceptance applicability is `goal-disabled`)
+   * and is never reported as a passed goal acceptance or failed for lacking a
+   * completion call. Independent of `goalVerification`; acceptance governs the
+   * completing call of a goal-form run, this switch governs whether the run
+   * becomes a goal run.
+   */
+  goalRunEnabled?: Volatile<boolean>
+  /**
+   * Agent preset a NEW card starts from (volatile, default blank = not set).
+   * A prefill, never a pin: the create dialog opens with it selected, the
+   * caller may override it, and the card stores what it was created with. It
+   * reaches the create path only when that caller opts in with
+   * `applyCardDefaults`, so the extension provider's own create and the legacy
+   * import are untouched.
+   */
+  cardDefaultMode?: Volatile<string>
+  /**
+   * Permission a NEW card starts from (volatile, default blank = not set), one
+   * of the three presets. A prefill like the rest: a value above
+   * `sessionDefaultPermission` still has to be confirmed by a human before the
+   * card may run, because the pre-execution gate is what decides that.
+   */
+  cardDefaultPermission?: Volatile<TaskPermission | ''>
+  /**
+   * Model a NEW card starts from (volatile, default blank = not set).
+   */
+  cardDefaultModel?: Volatile<string>
+  /**
+   * Reasoning level a NEW card starts from (volatile, default blank = not set).
+   * Bound to `cardDefaultModel` exactly as a card's own level is bound to its
+   * own model: it applies only while the card's final model IS that default
+   * model, and a blank `cardDefaultModel` makes it inert.
+   */
+  cardDefaultReasoningEffort?: Volatile<string>
   /**
    * Goal acceptance for executions this board starts (default ON). When on,
    * update_goal(action: complete) inside a task execution is refused until an
@@ -184,14 +265,30 @@ export interface ConfigInput {
   trustedProxyHosts?: string[]
   /** Environment variable whose value the authenticated proxy injects. */
   proxyTokenEnv?: string
+  /** Trust a forwarded request that landed on this machine's loopback upstream; default off. */
+  trustForwardedProxy?: boolean
   /** Explicit baseline for the permission confirmation gate; unset follows the Host default. */
   sessionDefaultPermission?: TaskPermission
   /** Subtask depth limit, 1..3. */
   maxSubtaskDepth?: number
   /** Roster-poll cadence in seconds while the board has work to reconcile. */
   sessionPollSeconds?: number
+  /** Concurrent run launches allowed at once, 1..16. */
+  runLaunchWidth?: number
+  /** Daily token ceiling for board runs; 0 disables the gate. */
+  spendBudgetTokens?: number
   /** Continuable-subagent provider the Agent Teams service composes a teammate from. */
   teamProvider?: string
+  /** Global native /goal switch; default off, frozen per execution. */
+  goalRunEnabled?: boolean
+  /** Agent preset a new card starts from; blank = not set. */
+  cardDefaultMode?: string
+  /** Permission a new card starts from; blank = not set. */
+  cardDefaultPermission?: TaskPermission | ''
+  /** Model a new card starts from; blank = not set. */
+  cardDefaultModel?: string
+  /** Reasoning level a new card starts from; blank = not set. */
+  cardDefaultReasoningEffort?: string
   /** Goal acceptance switch. */
   goalVerification?: boolean
   /** Judge model route for goal acceptance; blank inherits the host default. */
@@ -210,10 +307,18 @@ export const Config: z<ConfigInput, Config> = z.object({
   preventIdleSleep: z.boolean().default(false).volatile(),
   trustedProxyHosts: z.array(z.string()).default([]),
   proxyTokenEnv: z.string().min(1).default(DEFAULT_PROXY_TOKEN_ENV),
+  trustForwardedProxy: z.boolean().default(false).volatile(),
   sessionDefaultPermission: z.union(TASK_PERMISSIONS),
   maxSubtaskDepth: z.number().min(SUBTASK_DEPTH_MIN).max(SUBTASK_DEPTH_MAX).default(DEFAULT_SUBTASK_DEPTH).volatile(),
   sessionPollSeconds: z.number().min(SESSION_POLL_MIN_SECONDS).max(SESSION_POLL_MAX_SECONDS).default(DEFAULT_SESSION_POLL_SECONDS).volatile(),
+  runLaunchWidth: z.number().min(RUN_LAUNCH_WIDTH_MIN).max(RUN_LAUNCH_WIDTH_MAX).default(DEFAULT_RUN_LAUNCH_WIDTH).volatile(),
+  spendBudgetTokens: z.number().min(DEFAULT_SPEND_BUDGET_TOKENS).default(DEFAULT_SPEND_BUDGET_TOKENS).volatile(),
   teamProvider: z.string().min(1).default(DEFAULT_TEAM_PROVIDER),
+  goalRunEnabled: z.boolean().default(false).volatile(),
+  cardDefaultMode: z.string().default('').volatile(),
+  cardDefaultPermission: z.union([...TASK_PERMISSIONS, '']).default('').volatile(),
+  cardDefaultModel: z.string().default('').volatile(),
+  cardDefaultReasoningEffort: z.string().default('').volatile(),
   goalVerification: z.boolean().default(true).volatile(),
   goalVerificationModel: z.string().default('').volatile(),
   goalVerificationReasoningEffort: z.string().default('').volatile(),
@@ -223,6 +328,13 @@ export const Config: z<ConfigInput, Config> = z.object({
 
 /** Schema default for the goal-acceptance switch, re-read for hand-built contexts. */
 export const DEFAULT_GOAL_VERIFICATION = true
+
+/**
+ * Schema default for the GLOBAL native-/goal switch, re-read for hand-built
+ * contexts. Deliberately false: a deployment that never configured it (and
+ * every card written before the option existed) runs plain single turns.
+ */
+export const DEFAULT_GOAL_RUN = false
 
 declare module '@deepseek-ai/cordis' {
   interface Events {
@@ -257,18 +369,39 @@ export function readConfigField<T>(field: Volatile<T> | T | undefined, fallback:
   return field as T
 }
 
-/** Resolve proxy access without ever placing the token value in plugin config. */
-export function resolveProxyAccess(config: Config | undefined, env: NodeJS.ProcessEnv = process.env): { trustedProxyHosts: string[]; proxyToken?: string } {
+/**
+ * Resolve proxy access without ever placing the token value in plugin config.
+ *
+ * The forwarded-proxy switch travels as a reader rather than a value: it is
+ * schema-volatile, so the fence must read it when a request arrives instead of
+ * when the routes are registered.
+ * @param config - the resolved plugin config.
+ * @param env - environment holding the proxy token value.
+ * @returns the route access handed to {@link makeTaskBoardRoutes}.
+ */
+export function resolveProxyAccess(config: Config | undefined, env: NodeJS.ProcessEnv = process.env): {
+  trustedProxyHosts: string[]
+  proxyToken?: string
+  trustForwardedProxy: () => boolean
+} {
+  const trustForwardedProxy = (): boolean => readConfigField(config?.trustForwardedProxy, DEFAULT_TRUST_FORWARDED_PROXY)
   const trustedProxyHosts = config?.trustedProxyHosts ?? []
-  if (trustedProxyHosts.length === 0) return { trustedProxyHosts }
+  if (trustedProxyHosts.length === 0) return { trustedProxyHosts, trustForwardedProxy }
   const proxyTokenEnv = config?.proxyTokenEnv ?? DEFAULT_PROXY_TOKEN_ENV
   if (proxyTokenEnv.trim() === '') throw new Error('task-board: proxyTokenEnv must not be empty')
   const proxyToken = env[proxyTokenEnv]
   if (proxyToken === undefined || proxyToken === '') {
     throw new Error(`task-board: trustedProxyHosts requires a non-empty ${proxyTokenEnv} environment variable`)
   }
-  return { trustedProxyHosts, proxyToken }
+  return { trustedProxyHosts, proxyToken, trustForwardedProxy }
 }
+
+/**
+ * Schema default for the forwarded-proxy switch, re-read for hand-built
+ * contexts. Deliberately false: a deployment that never configured it keeps
+ * refusing every forwarded request, which is the #1906 fence.
+ */
+export const DEFAULT_TRUST_FORWARDED_PROXY = false
 
 /** The registry face the agent tools register into. */
 interface AgentToolRegistry {
@@ -441,6 +574,70 @@ export function resolveLlmRuntime(ctx: Context): LlmRuntime | undefined {
 }
 
 /**
+ * The subset of `sessionController` the board uses to wake a cold persisted
+ * session before running a slash command on it (issue #1861).
+ */
+interface SessionControllerFace {
+  resolveAgent(
+    sessionId: Parameters<Context['agents']['get']>[0],
+  ): Promise<
+    | { readonly agent: Parameters<Context['commands']['execute']>[0] }
+    | { readonly error: { readonly message?: string } }
+  >
+}
+
+/**
+ * Resolve the optional `sessionController` service. Like the tool registry and
+ * the llm runtime, it is read dynamically so capture-only test contexts that do
+ * not mount the full session controller still activate the board.
+ * @param ctx - the plugin context.
+ * @returns the session controller face, or undefined when unavailable.
+ */
+export function resolveSessionController(ctx: Context): SessionControllerFace | undefined {
+  try {
+    const controller = (ctx as { get?: (name: string) => unknown }).get?.('sessionController') as SessionControllerFace | undefined
+    return controller !== undefined && typeof controller.resolveAgent === 'function' ? controller : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Resolve the live Agent for an execution session, resuming a cold persisted
+ * session through `sessionController.resolveAgent` when it is not yet in
+ * `ctx.agents` (issue #1861).
+ *
+ * A fresh run (`session/create`) or a session the browser is currently
+ * following is already in `ctx.agents`, so the fast path returns immediately.
+ * A scheduled or manual reuse of a cold session — one that `session/list`
+ * reports as idle from disk without activating its Agent — is not in
+ * `ctx.agents` when `pinAndPrompt` runs `/permission` ahead of
+ * `session/selectModel` and `session/prompt`; delegating to
+ * `sessionController.resolveAgent` resumes it with its recorded preset and
+ * model-selection state, matching what those gateway endpoints do next.
+ * @param ctx - the plugin context.
+ * @param sessionId - the target execution session id.
+ * @returns the live Agent for `sessionId`.
+ */
+export async function resolveExecutionAgent(
+  ctx: Context,
+  sessionId: Parameters<Context['agents']['get']>[0],
+): Promise<Parameters<Context['commands']['execute']>[0]> {
+  const live = ctx.agents.get(sessionId)
+  if (live !== undefined) return live
+  const controller = resolveSessionController(ctx)
+  if (controller !== undefined) {
+    const resolved = await controller.resolveAgent(sessionId)
+    if ('agent' in resolved && resolved.agent !== undefined) return resolved.agent
+    const detail = 'error' in resolved && typeof resolved.error?.message === 'string' && resolved.error.message !== ''
+      ? `: ${resolved.error.message}`
+      : ''
+    throw new Error(`execution session ${sessionId} is not available${detail}`)
+  }
+  throw new Error(`execution session ${sessionId} is not available`)
+}
+
+/**
  * Activate the board's host half: ledger, routes, cron scheduler, power
  * inhibitor, and the model-facing announcement.
  *
@@ -467,6 +664,18 @@ function applyImpl(ctx: Context, config?: Config): void {
   const maxSubtaskDepth = (): number => readConfigField(config?.maxSubtaskDepth, DEFAULT_SUBTASK_DEPTH)
   /** Current roster-poll cadence in seconds (read live: the settings card edits it in place). */
   const sessionPollSeconds = (): number => readConfigField(config?.sessionPollSeconds, DEFAULT_SESSION_POLL_SECONDS)
+  /**
+   * Current run-launch admission width. Read live on every admission, so the
+   * settings card bounds the next launch of a run that is still queueing without
+   * remounting the row; the Host clamps a hand-edited value into the schema range.
+   */
+  const runLaunchWidth = (): number => readConfigField(config?.runLaunchWidth, DEFAULT_RUN_LAUNCH_WIDTH)
+  /**
+   * Current daily token cap, read at each gate like the width above. The value
+   * decides first: 0 — the default — ends the gate before a file is opened, so
+   * a board that never set a cap pays nothing for it.
+   */
+  const spendBudgetTokens = (): number => readConfigField(config?.spendBudgetTokens, DEFAULT_SPEND_BUDGET_TOKENS)
   /**
    * The baseline the permission confirmation gate judges against: the row's own
    * `sessionDefaultPermission` when the deployment pins one, otherwise the Host's
@@ -499,19 +708,48 @@ function applyImpl(ctx: Context, config?: Config): void {
     const runner = hostForCatalog?.runner
     return runner === undefined ? undefined : normalizeCatalog(await runner.modelCatalog(principal))
   }
+  /**
+   * Live reader of the GLOBAL native-/goal switch. The service calls it exactly
+   * once per execution and carries the value, so a settings edit only reaches
+   * executions that start afterwards.
+   */
+  const goalRunEnabled = (): boolean => readConfigField(config?.goalRunEnabled, DEFAULT_GOAL_RUN)
+  /**
+   * Live reader of the new-card defaults, read at every use like the switch
+   * above: the create dialog prefills from the published snapshot, and each
+   * creating session re-reads them when it submits the create. A blank value
+   * means "not set" and reaches the resolver as an absent target.
+   */
+  const cardDefaults = (): CardDefaults => {
+    const permission = readConfigField<TaskPermission | ''>(config?.cardDefaultPermission, '')
+    return {
+      mode: readConfigField(config?.cardDefaultMode, '').trim() || undefined,
+      permission: isTaskPermission(permission) ? permission : undefined,
+      model: readConfigField(config?.cardDefaultModel, '').trim() || undefined,
+      reasoningEffort: readConfigField(config?.cardDefaultReasoningEffort, '').trim() || undefined,
+    }
+  }
+  // The 0.2.1 gateway requires every request to name the peer it speaks for:
+  // the board calls as the host-local owner, so its peer is minted on this
+  // fiber and aborts with it (see createOwnerPeer).
+  const ownerPeer = createOwnerPeer(ctx)
   const host = new TaskBoardHostService(ctx.typertGateway, {
     accounts,
     workspaceRegistry: ctx.workspaceRegistry,
+    ownerPeer,
     sessionDefaultPermission,
     maxSubtaskDepth: maxSubtaskDepth(),
+    goalRunEnabled,
+    runLaunchWidth,
+    spendBudgetTokens,
+    cardDefaults,
     verificationSettings,
     verificationCatalog,
     timers: resolveHostTimers(ctx),
     team: buildTeamDispatcher(ctx, config?.teamProvider ?? DEFAULT_TEAM_PROVIDER),
     commandDispatcher: {
       async execute(sessionId, line, signal) {
-        const agent = ctx.agents.get(sessionId)
-        if (agent === undefined) throw new Error(`execution session ${sessionId} is not available`)
+        const agent = await resolveExecutionAgent(ctx, sessionId)
         return (await ctx.commands.execute(agent, line, [], signal))?.result
       },
     },
@@ -526,10 +764,22 @@ function applyImpl(ctx: Context, config?: Config): void {
   // provider package can resolve it and admit itself; the board itself knows
   // no provider vocabulary. A capture-only test context implements no service
   // registry and the board still serves its own surfaces.
+  //
+  // The same service carries the read/write face an in-process consumer drives
+  // the board through — the remote bridge's board plugin reads and applies over
+  // it instead of opening an HTTP surface of its own, which the board's routes
+  // would refuse anyway (their guard admits a browser-shaped request, not a
+  // process). Every member is a forward of the Host service method of the same
+  // name: no gate, no normalization and no state lives here, so a consumer
+  // reaching the board this way is refused by exactly what refuses a browser.
   if (typeof (ctx as { provide?: unknown }).provide === 'function') {
     ctx.provide(TASK_BOARD_SERVICE_NAME, {
       registerExtension: (extension: TaskBoardExtension) => host.registerExtension(extension),
       isExtensionEnabled: (extensionId: string) => host.extensions.isActive(extensionId),
+      snapshot: () => host.snapshot(),
+      apply: (requestId: string, action: TaskBoardAction, initiator?: string) => host.apply(requestId, action, initiator),
+      subscribe: (listener: () => void) => host.subscribe(listener),
+      verificationOptions: () => host.verificationOptions(),
     })
   }
 

@@ -63,6 +63,10 @@ const REGISTRY_SKILLS: RegistrySkill[] = [
     whenToUse: '桌面应用交互',
     provider: 'orca',
     source: 'bundled',
+    // The official registry reports the provider's real instruction file in
+    // SkillSummary.path (#1842). resourceBase names the resource directory, not
+    // the file, so it is deliberately NOT what the panel classifies on.
+    path: join(TMP, 'bundled', 'computer-use', 'SKILL.md'),
     resourceBase: { kind: 'directory', path: join(TMP, 'bundled', 'computer-use') },
     invocation: { modelInvocable: true, userInvocable: false },
   },
@@ -321,6 +325,177 @@ describe('cross-root precedence', () => {
     expect(byName['embedded-hello'].path).toBeUndefined()
     // Filesystem entries keep their scanned path even when the registry merges metadata.
     expect(byName['poc-first'].path).toBe(join(PROJ, '.dsh', 'skills', 'poc-first', 'SKILL.md'))
+  })
+})
+
+describe('provider file vs virtual classification (#1842)', () => {
+  /** Collect the shared fixture registry over the shared roots. */
+  const collect = async () => {
+    const { skills } = await collectSkills({
+      cwd: PROJ,
+      projectRoots: [PROJ],
+      customSkillDirs: [CUSTOM],
+      dshHome: HOME,
+      agentsHome: AGENTS,
+      registry,
+    })
+    return Object.fromEntries(skills.map((s) => [s.name, s]))
+  }
+
+  it('operator sees a provider-supplied file classified apart from a virtual registration', async () => {
+    // Given a bundled entry whose provider reports a real instruction file and
+    // a runtime entry that reports none
+    const byName = await collect()
+
+    // When the panel classifies them
+    // Then they are told apart instead of both claiming "no local file"
+    expect(byName['computer-use'].fileState).toBe('provider-file')
+    expect(byName['embedded-hello'].fileState).toBe('virtual')
+    expect(byName['computer-use'].fileState).not.toBe(byName['embedded-hello'].fileState)
+  })
+
+  it('operator sees a scanned skill classified editable', async () => {
+    // Given a skill the filesystem scan resolved
+    const byName = await collect()
+
+    // When the panel classifies it
+    // Then it is editable, which is the only state that carries a writable path
+    expect(byName['poc-first'].fileState).toBe('editable')
+    expect(byName['poc-first'].path).toBe(join(PROJ, '.dsh', 'skills', 'poc-first', 'SKILL.md'))
+  })
+
+  it('operator gets no writable path for either pathless classification', async () => {
+    // Given the provider-file entry and the virtual entry
+    const byName = await collect()
+
+    // When the panel serves them
+    // Then neither carries a path, so the write routes cannot be addressed at
+    // all — the classification is display-only and never widens that trust
+    expect(byName['computer-use'].path).toBeUndefined()
+    expect(byName['embedded-hello'].path).toBeUndefined()
+  })
+
+  it('operator sees a provider resource directory alone not misread as a file', async () => {
+    // Given a registration that reports only a resourceBase directory (the
+    // official shape names relative resources, not an instruction file)
+    const { skills } = await collectSkills({
+      cwd: PROJ,
+      projectRoots: [PROJ],
+      customSkillDirs: [],
+      dshHome: HOME,
+      agentsHome: AGENTS,
+      registry: {
+        snapshot: async () => ({
+          skills: [{
+            name: 'resource-only',
+            description: '资源目录但不是文件',
+            source: 'bundled',
+            provider: 'orca',
+            resourceBase: { kind: 'directory', path: join(TMP, 'resources', 'resource-only') },
+          }],
+          complete: true,
+        }),
+      },
+    })
+
+    // When the panel classifies it
+    // Then it stays virtual rather than claiming a file it does not have
+    expect(skills.find((s) => s.name === 'resource-only')?.fileState).toBe('virtual')
+    expect(skills.find((s) => s.name === 'resource-only')?.path).toBeUndefined()
+  })
+
+  it('operator sees a blank provider path treated as no file', async () => {
+    // Given a provider that reports an empty path string
+    const { skills } = await collectSkills({
+      cwd: PROJ,
+      projectRoots: [PROJ],
+      customSkillDirs: [],
+      dshHome: HOME,
+      agentsHome: AGENTS,
+      registry: {
+        snapshot: async () => ({
+          skills: [{ name: 'blank-path', description: '空路径', source: 'runtime', provider: 'runtime', path: '   ' }],
+          complete: true,
+        }),
+      },
+    })
+
+    // When the panel classifies it
+    // Then the blank is not a file
+    expect(skills.find((s) => s.name === 'blank-path')?.fileState).toBe('virtual')
+  })
+})
+
+describe('panel switches for plugin-provided skills (#1854)', () => {
+  /** Collect the shared fixture registry over the shared roots, plus a store. */
+  const collectWithStore = async (providerDisabledSkills: Array<{ name: string; provider: string }>) => {
+    const { skills } = await collectSkills({
+      cwd: PROJ,
+      projectRoots: [PROJ],
+      customSkillDirs: [CUSTOM],
+      dshHome: HOME,
+      agentsHome: AGENTS,
+      registry,
+      providerDisabledSkills,
+    })
+    return Object.fromEntries(skills.map((s) => [s.name, s]))
+  }
+
+  it('operator sees a switched-off plugin-provided skill reported as not model invocable', async () => {
+    // Given the panel store holding the provider skill the user switched off
+    const byName = await collectWithStore([{ name: 'computer-use', provider: 'orca' }])
+
+    // When the collection is served
+    // Then the row reads as switched off, exactly like a skill whose own
+    // frontmatter disables model invocation, and it keeps its own classification
+    expect(byName['computer-use'].modelInvocable).toBe(false)
+    expect(byName['computer-use'].fileState).toBe('provider-file')
+    // And the provider's own user-invocable policy is untouched
+    expect(byName['computer-use'].userInvocable).toBe(false)
+    // Meanwhile the rows with no record stay invocable
+    expect(byName['embedded-hello'].modelInvocable).toBe(true)
+    expect(byName['poc-first'].modelInvocable).toBe(true)
+  })
+
+  it('operator sees a store record never reach a skill that has its own file', async () => {
+    // Given a store record naming a scanned skill (whose own switch rewrites
+    // the SKILL.md frontmatter instead)
+    const byName = await collectWithStore([{ name: 'user-tool', provider: 'filesystem' }])
+
+    // When the collection is served
+    // Then the scanned row is untouched: the store speaks only for provider rows
+    expect(byName['user-tool'].modelInvocable).toBe(true)
+    expect(byName['user-tool'].fileState).toBe('editable')
+    expect(byName['user-tool'].path).toBe(join(HOME, 'skills', 'user-tool', 'SKILL.md'))
+  })
+
+  it('operator sees a store record naming a virtual registration change nothing', async () => {
+    // Given a store record for a registration that reports no file at all
+    const byName = await collectWithStore([{ name: 'embedded-hello', provider: 'runtime' }])
+
+    // When the collection is served
+    // Then it stays as the registry reported it
+    expect(byName['embedded-hello'].modelInvocable).toBe(true)
+    expect(byName['embedded-hello'].fileState).toBe('virtual')
+  })
+
+  it('operator sees a store record naming a skill the panel does not list change nothing', async () => {
+    // Given a stale record for a plugin that is no longer installed
+    const byName = await collectWithStore([{ name: 'gone-skill', provider: 'orca' }])
+
+    // When the collection is served
+    // Then no listed row is affected, including the same-named one
+    expect(byName['computer-use'].modelInvocable).toBe(true)
+    expect(byName['gone-skill']).toBeUndefined()
+  })
+
+  it('operator sees a store record from a different provider leave the row alone', async () => {
+    // Given a record for the same skill name but another provider
+    const byName = await collectWithStore([{ name: 'computer-use', provider: 'other-plugin' }])
+
+    // When the collection is served
+    // Then the identity is the pair, so the listed row keeps its state
+    expect(byName['computer-use'].modelInvocable).toBe(true)
   })
 })
 

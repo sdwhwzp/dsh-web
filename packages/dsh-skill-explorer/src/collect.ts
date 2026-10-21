@@ -16,6 +16,9 @@ import { existsSync } from 'node:fs'
 import { mkdir, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import { parseFrontmatter } from './frontmatter.ts'
+// Type-only: the store owns the identity type, so importing it cannot pull
+// the persistence module (which imports isSkillName back from here) into a cycle.
+import type { ProviderSkillIdentity } from './provider-toggles.ts'
 
 /** Display order and copy for each source level. */
 export interface SourceGroup {
@@ -86,6 +89,20 @@ export function rankOf(level: string): number {
   return SKILL_SOURCE_RANK.get(level) ?? UNKNOWN_SOURCE_RANK
 }
 
+/**
+ * How the panel classifies what backs a skill locally.
+ *
+ * - `editable`: a filesystem scan resolved the SKILL.md, so the entry carries
+ *   the `path` the write routes accept.
+ * - `provider-file`: the official registry reports a real instruction file
+ *   (`SkillSummary.path`) that this panel's scan did not resolve. The file
+ *   exists — saying otherwise is issue #1842 — but it is not a path the write
+ *   routes trust, so no row control may be offered for it.
+ * - `virtual`: the registry reports no instruction file at all; "no local
+ *   file" is the accurate statement.
+ */
+export type SkillFileState = 'editable' | 'provider-file' | 'virtual'
+
 /** One skill entry as served to the panel. */
 export interface SkillEntry {
   name: string
@@ -94,6 +111,8 @@ export interface SkillEntry {
   provider?: string
   level: string
   path?: string
+  /** What backs this skill locally (see SkillFileState). */
+  fileState: SkillFileState
   /** True when the skill was discovered through a symlink entry (deletion is not allowed). */
   linked?: boolean
   modelInvocable: boolean
@@ -113,6 +132,15 @@ export interface RegistrySkill {
   whenToUse?: string
   provider?: string
   source: string
+  /**
+   * Absolute instruction file path the provider reports
+   * (`SkillSummary.path` in @deepseek-ai/dsh-skill: "Absolute instruction file
+   * path when supplied by the provider; absent for virtual skills"). This is
+   * the field that distinguishes a provider-backed skill with a real SKILL.md
+   * from a virtual one — NOT `resourceBase`, which names a directory of
+   * relative resources rather than an instruction file.
+   */
+  path?: string
   resourceBase?: { kind: string; path?: string }
   invocation?: { modelInvocable?: boolean; userInvocable?: boolean }
 }
@@ -131,6 +159,12 @@ export interface CollectOptions {
   agentsHome: string
   /** ctx.skills registry (snapshot). */
   registry: { snapshot(options: { cwd: string }): Promise<{ skills: RegistrySkill[]; complete: boolean }> }
+  /**
+   * Plugin-provided skills the panel has switched off (see
+   * provider-toggles.ts). Honored for `provider-file` rows only; absent means
+   * no switch was ever used.
+   */
+  providerDisabledSkills?: readonly ProviderSkillIdentity[]
 }
 
 /** Result of a collection pass. */
@@ -342,6 +376,7 @@ async function scanSkillRoot(
       provider: 'filesystem',
       level,
       path: file,
+      fileState: 'editable',
       linked,
       // Official frontmatter invocation policy.
       modelInvocable: parsed.disableModelInvocation !== true,
@@ -355,17 +390,21 @@ async function scanSkillRoot(
 
 /** Serialize one registry entry into the panel payload (keeps the source for grouping). */
 function serializeRegistry(skill: RegistrySkill): SkillEntry {
+  // The registry reports the instruction file it actually has (if any). A
+  // registry-only entry never carries a writable path: the write routes only
+  // trust paths from a fresh filesystem scan, so exposing this one would show
+  // toggle/delete controls that always answer 404. It is still the fact the
+  // panel needs, because "a provider file exists" and "no file exists at all"
+  // are different claims and must not both read as "No local file" (#1842).
+  const providerPath = typeof skill.path === 'string' && skill.path.trim() !== '' ? skill.path : undefined
   return {
     name: skill.name,
     description: skill.description,
     whenToUse: skill.whenToUse,
     provider: skill.provider,
     level: REGISTRY_SOURCE_LEVEL.get(skill.source) ?? `other:${skill.source}`,
-    // Registry-only entries (bundled / runtime) have no editable file: the
-    // write routes only trust paths from a fresh filesystem scan, so expose
-    // no path here — otherwise the panel would show toggle/delete controls
-    // that always answer 404.
     path: undefined,
+    fileState: providerPath === undefined ? 'virtual' : 'provider-file',
     // Official invocation semantics: an omitted policy permits both surfaces.
     // dsh-skill register() defaults to { modelInvocable: true,
     // userInvocable: true }, and the filesystem provider resolves omitted
@@ -374,6 +413,33 @@ function serializeRegistry(skill: RegistrySkill): SkillEntry {
     // never denied.
     modelInvocable: skill.invocation?.modelInvocable ?? true,
     userInvocable: skill.invocation?.userInvocable ?? true,
+  }
+}
+
+/**
+ * Apply the panel's provider-skill switches to a finished collection.
+ *
+ * Only a `provider-file` row can carry such a switch: an `editable` row's
+ * switch rewrites the SKILL.md frontmatter (and is therefore already reflected
+ * by the scan), and a `virtual` row has no file at all, so both are left
+ * exactly as the scan and registry reported them. Like the frontmatter field
+ * the local switch rewrites, this clears `modelInvocable` only — the provider's
+ * own `userInvocable` policy is not the model's automatic-call decision and
+ * stays as registered.
+ *
+ * It is deliberately the LAST step of the collection: the registry merge can
+ * replace a scanned entry with the registry's own (pathless) one, so applying
+ * the store earlier would let merge order decide whether a row is switchable.
+ * @param skills - collected entries, mutated in place as the merge does.
+ * @param disabled - identities the panel switched off.
+ */
+export function applyProviderToggles(skills: Iterable<SkillEntry>, disabled: readonly ProviderSkillIdentity[]): void {
+  if (disabled.length === 0) return
+  const keys = new Set(disabled.map((identity) => JSON.stringify([identity.provider, identity.name])))
+  for (const skill of skills) {
+    if (skill.fileState !== 'provider-file') continue
+    if (!keys.has(JSON.stringify([skill.provider ?? '', skill.name]))) continue
+    skill.modelInvocable = false
   }
 }
 
@@ -487,6 +553,10 @@ export async function collectSkills(options: CollectOptions): Promise<CollectRes
       complete = false
     }
   }
+  // The panel's own provider-skill switches close the collection: a row the
+  // user switched off reads as not model invocable here, exactly like a
+  // skill whose own frontmatter disables model invocation.
+  applyProviderToggles(byName.values(), options.providerDisabledSkills ?? [])
   return { skills: [...byName.values()], complete }
 }
 

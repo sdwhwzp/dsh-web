@@ -1,12 +1,15 @@
+import type { TaskBoardPrincipal } from '../src/host-accounts.ts'
 import { describe, expect, it, vi } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
 import type { Workspace } from '@deepseek-ai/dsh-workspace/types'
 import { createTask, type TaskRecord } from '../src/core/tasks.ts'
-import { HostExecutionRunner, SessionLaunchError } from '../src/host-runner.ts'
+import { HostExecutionRunner, SessionLaunchError, createOwnerPeer, type GatewayPeer } from '../src/host-runner.ts'
 
 type GatewayRequest = {
   namespace: string
   method: string
   args: Record<string, unknown>
+  peer: GatewayPeer
   signal?: AbortSignal
 }
 
@@ -77,6 +80,9 @@ function configuredTask(): TaskRecord {
     workspaceId: 'workspace-a',
     mode: 'preset-a',
     permission: 'workspace-write',
+    // The native-/goal option is OFF by default; the cases that launch with the
+    // frozen global switch on assert the arming, so this card opts in.
+    goalRun: true,
   }
 }
 
@@ -116,7 +122,7 @@ describe('HostExecutionRunner', () => {
         throw new Error('unexpected gateway call')
       }),
     }
-    await expect(new HostExecutionRunner(gateway, commands, workspaceRegistry()).launch(configuredTask())).resolves.toBe('session-a')
+    await expect(new HostExecutionRunner(gateway, commands, workspaceRegistry()).launch(configuredTask(), { goalEnabled: true })).resolves.toBe('session-a')
     // The permission pin precedes the prompt; the /goal arming follows it, so
     // the session's first turn carries the instruction verbatim.
     expect(order).toEqual(['preset', 'create', 'rename', 'permission', 'prompt', 'goal'])
@@ -158,7 +164,7 @@ describe('HostExecutionRunner', () => {
       }),
     }
     await expect(
-      new HostExecutionRunner(gateway, commands, workspaceRegistry()).launch(configuredTask(), { reuseSessionId: 'session-existing' }),
+      new HostExecutionRunner(gateway, commands, workspaceRegistry()).launch(configuredTask(), { reuseSessionId: 'session-existing', goalEnabled: true }),
     ).resolves.toBe('session-existing')
     // The pinned permission is re-asserted on the existing session; no
     // create/rename reaches the gateway at all.
@@ -184,6 +190,10 @@ describe('HostExecutionRunner', () => {
 
   it('selects the pinned model on the session before dispatching prompt', async () => {
     const order: string[] = []
+    // The payload is recorded and asserted AFTER the launch: an expectation
+    // thrown inside the gateway fake is swallowed by the runner's best-effort
+    // model-selection catch, which would make this case vacuous.
+    const selections: Array<Record<string, unknown>> = []
     const gateway = {
       stream: fakeStream(async () => ({ async *[Symbol.asyncIterator]() { yield snapshot([], 0, false) } })),
       invoke: fakeInvoke(async (request: GatewayRequest) => {
@@ -199,7 +209,8 @@ describe('HostExecutionRunner', () => {
         }
         if (request.method === 'selectModel') {
           order.push('selectModel')
-          return { selected: { provider: 'deepseek', model: 'deepseek-chat' } }
+          selections.push(payload)
+          return { selected: { provider: payload.provider, model: payload.model } }
         }
         if (request.method === 'prompt') {
           order.push('prompt')
@@ -213,9 +224,12 @@ describe('HostExecutionRunner', () => {
       model: 'deepseek/deepseek-chat',
     }
     await expect(new HostExecutionRunner(gateway).launch(taskWithModel)).resolves.toBe('session-model')
+    // A card that pins no reasoning effort gets exactly the selection it always
+    // got: the model route, with no effort key at all.
+    expect(selections).toEqual([{ sessionId: 'session-model', provider: 'deepseek', model: 'deepseek-chat' }])
     expect(order).toEqual(['create', 'rename', 'selectModel', 'prompt'])
     expect(gateway.invoke.mock.calls.filter(([request]) => request.method === 'selectModel'))
-      .toEqual([[{
+      .toMatchObject([[{
         namespace: 'session',
         method: 'selectModel',
         args: { request: { sessionId: 'session-model', provider: 'deepseek', model: 'deepseek-chat' } },
@@ -390,6 +404,32 @@ describe('HostExecutionRunner', () => {
     await expect(new HostExecutionRunner(gateway).inspect('session-a', 1_000)).resolves.toEqual({ outcome: 'succeeded' })
     expect(page).toHaveBeenCalledTimes(2)
     expect((page.mock.calls[1]?.[0].args.request as { beforeSeq?: number }).beforeSeq).toBe(300)
+  })
+
+  it('operator gets the text the run left behind on the verdict the runner returns', async () => {
+    // Given a session whose completed turn spoke, and an earlier message before it
+    const gateway = {
+      invoke: fakeInvoke(async (request: GatewayRequest) => request.method === 'list'
+        ? { items: [{ sessionId: 'session-a', running: false }] }
+        : request.method === 'projections'
+          ? { values: { goal: null } }
+          : { records: [], hasMore: false }),
+      stream: fakeStream(async () => ({
+        async *[Symbol.asyncIterator]() {
+          yield snapshot([
+            sessionEvent('assistant/message', 90, 900, { message: { content: [{ type: 'text', text: 'an earlier run said this' }] } }),
+            sessionEvent('assistant/message', 100, 1_100, { message: { content: [{ type: 'text', text: 'summary field recorded' }] } }),
+            sessionEvent('turn/end', 101, 1_200, { reason: { kind: 'completed' } }),
+          ], 101, false)
+        },
+      })),
+    }
+
+    // When the runner inspects that execution after its own start
+    const verdict = await new HostExecutionRunner(gateway).inspect('session-a', 1_000)
+
+    // Then the verdict carries the closing text of this run with its event seq
+    expect(verdict).toEqual({ outcome: 'succeeded', summary: { text: 'summary field recorded', seq: 100 } })
   })
 
   it('carries the session list in listRunning and reuses it in inspect without another list RPC', async () => {
@@ -594,6 +634,54 @@ describe('HostExecutionRunner', () => {
     expect(page.mock.calls.length).toBe(afterFirst)
   })
 
+  it('operator: a working teammate in a long session is re-inspected from the last scanned seq, not from the run start', async () => {
+    // Given a durable teammate session whose history is far longer than one
+    // page, the roster still reporting it running, and one new record arriving
+    // between two polls
+    const PAGE = 100
+    let head = 1_200
+    let completed = false
+    const recordAt = (seq: number) => sessionEvent(completed && seq === head ? 'turn/end' : 'assistant/message', seq, 4_000 + seq, completed && seq === head ? { reason: { kind: 'completed' } } : {})
+    const window = () => Array.from({ length: 21 }, (_, index) => recordAt(head - 20 + index))
+    const page = vi.fn(async (request: GatewayRequest) => {
+      const beforeSeq = (request.args.request as { beforeSeq?: number }).beforeSeq ?? head
+      const from = Math.max(1, beforeSeq - PAGE)
+      const records = Array.from({ length: beforeSeq - from }, (_, index) => recordAt(from + index))
+      return { records, hasMore: from > 1 }
+    })
+    const sessions = [{ sessionId: 'session-a', running: true, agentAvailable: true, updatedAt: 4_000, blank: false }] as unknown as Parameters<HostExecutionRunner['inspect']>[2]
+    const gateway = {
+      invoke: fakeInvoke(async (request: GatewayRequest) => {
+        if (request.method === 'list') return { items: sessions }
+        if (request.method === 'projections') return { values: {} }
+        return page(request)
+      }),
+      stream: fakeStream(async () => ({
+        async *[Symbol.asyncIterator]() {
+          yield snapshot(window(), head, head - 20 > 1)
+        },
+      })),
+    }
+    const runner = new HostExecutionRunner(gateway)
+
+    // When the first poll walks back to the execution start
+    await expect(runner.inspect('session-a', 1_000, sessions, { whileRunning: true })).resolves.toEqual({ outcome: 'pending' })
+    const afterFirst = page.mock.calls.length
+    expect(afterFirst).toBeGreaterThan(1)
+
+    // Then the next poll of the same teammate examines only the head it has not
+    // scanned yet, and pays no page RPC for the history it already cleared
+    head += 1
+    await expect(runner.inspect('session-a', 1_000, sessions, { whileRunning: true })).resolves.toEqual({ outcome: 'pending' })
+    expect(page.mock.calls.length).toBe(afterFirst)
+
+    // And the turn this teammate completes afterwards is still found
+    completed = true
+    head += 1
+    await expect(runner.inspect('session-a', 1_000, sessions, { whileRunning: true })).resolves.toEqual({ outcome: 'succeeded' })
+    expect(page.mock.calls.length).toBe(afterFirst)
+  })
+
   it('drops the scan memo once the execution settles or the session vanishes', async () => {
     let headSeq = 40
     let found = false
@@ -761,5 +849,126 @@ describe('HostExecutionRunner workspace default', () => {
 
     // Then the create request carries no workspace and the Host's own default decides
     expect(created).toEqual([{}])
+  })
+})
+
+describe('HostExecutionRunner owner peer (0.2.1 gateway request shape)', () => {
+  it('operator: an invoke without a caller signal still names an owner peer and no phantom signal', async () => {
+    // Given a gateway recording its requests (the 0.2.1 gateway refuses a
+    // request without a peer, so the runner must always supply one)
+    const requests: GatewayRequest[] = []
+    const gateway = {
+      invoke: fakeInvoke(async (request: GatewayRequest) => {
+        requests.push(request)
+        return { items: [] }
+      }),
+      stream: fakeStream(async () => ({ async *[Symbol.asyncIterator]() {} })),
+    }
+
+    // When the runner reads the roster without a caller signal
+    await expect(new HostExecutionRunner(gateway).listRunning()).resolves.toEqual({ known: true, count: 0, items: [] })
+
+    // Then the request speaks for an owner peer minted for this runner
+    expect(requests).toHaveLength(1)
+    const request = requests[0]
+    expect(request.peer.principal).toEqual({ kind: 'owner' })
+    expect(request.peer.interactions).toBe('none')
+    expect(request.peer.signal).toBeInstanceOf(AbortSignal)
+    expect(request.peer.signal.aborted).toBe(false)
+    expect(typeof request.peer.id).toBe('string')
+    expect(typeof request.peer.dispose).toBe('function')
+    // And no caller signal was invented: the optional field stays absent
+    expect(request.signal).toBeUndefined()
+  })
+
+  it('operator: invoke and stream speak for the exact peer the runner was given', async () => {
+    // Given a runner constructed with the fiber-bound owner peer production
+    // uses, and a gateway recording both carriers
+    const peer = createOwnerPeer(new Context())
+    const seen: GatewayRequest[] = []
+    const gateway = {
+      invoke: fakeInvoke(async (request: GatewayRequest) => {
+        seen.push(request)
+        return { items: [{ sessionId: 'session-a', running: false }] }
+      }),
+      stream: fakeStream(async (request: GatewayRequest) => {
+        seen.push(request)
+        return { async *[Symbol.asyncIterator]() { yield snapshot([], 10, false) } }
+      }),
+    }
+    const runner = new HostExecutionRunner(gateway, undefined, undefined, undefined, undefined, peer)
+
+    // When an inspection reads the roster through invoke and then opens the
+    // follow stream
+    await expect(runner.inspect('session-a', 1_000)).resolves.toEqual({ outcome: 'pending' })
+
+    // Then both carriers name exactly that peer
+    expect(seen.map(request => request.method)).toEqual(['list', 'follow'])
+    expect(seen[0].peer).toBe(peer)
+    expect(seen[1].peer).toBe(peer)
+  })
+
+  it('operator: a caller signal still rides the request unchanged beside the peer', async () => {
+    // Given a recording gateway and a caller-owned cancellation. No public
+    // runner method cancels mid-call today; its invoke helper still accepts a
+    // caller signal, and the request must carry that exact instance so
+    // cancellation stays caller-owned.
+    const requests: GatewayRequest[] = []
+    const gateway = {
+      invoke: fakeInvoke(async (request: GatewayRequest) => {
+        requests.push(request)
+        return { items: [] }
+      }),
+      stream: fakeStream(async () => ({ async *[Symbol.asyncIterator]() {} })),
+    }
+    const runner = new HostExecutionRunner(gateway)
+    const invoke = (runner as unknown as {
+      invoke(namespace: string, method: string, request: Record<string, unknown>, principal?: TaskBoardPrincipal, signal?: AbortSignal): Promise<unknown>
+    }).invoke.bind(runner)
+    const signal = new AbortController().signal
+
+    // When an invocation carries a caller signal
+    await invoke('session', 'list', {}, undefined, signal)
+
+    // Then the request forwards that exact signal alongside the owner peer
+    expect(requests).toHaveLength(1)
+    expect(requests[0].signal).toBe(signal)
+    expect(requests[0].peer.principal).toEqual({ kind: 'owner' })
+  })
+
+  it('operator: disposing the peer aborts its signal once and racing disposes share one completion', async () => {
+    // Given an owner peer, disposed the way plugin teardown disposes it
+    const peer = createOwnerPeer(new Context())
+    expect(peer.signal.aborted).toBe(false)
+
+    // When the peer is disposed twice
+    const completion = peer.dispose()
+    const racing = peer.dispose()
+
+    // Then the signal aborts and both calls awaited the same completion
+    expect(peer.signal.aborted).toBe(true)
+    expect(racing).toBe(completion)
+    await completion
+  })
+
+  it('operator: disposing the owning fiber ends the peer with the plugin', async () => {
+    // Given an owner peer bound the way apply() binds it: minted on the plugin
+    // fiber, so the fiber's shutdown is the peer's shutdown
+    const app = new Context()
+    let peer: GatewayPeer | undefined
+    const fiber = await app.registry.plugin({
+      name: '@linxin666/dsh-client-ui-task-board-peer-probe',
+      apply: (ctx: Context) => {
+        peer = createOwnerPeer(ctx)
+      },
+    })
+    const created = peer as GatewayPeer
+    expect(created.signal.aborted).toBe(false)
+
+    // When the fiber disposes the way a Host shutdown disposes the board row
+    await fiber.dispose()
+
+    // Then the peer signal is aborted, so streams speaking for it end too
+    expect(created.signal.aborted).toBe(true)
   })
 })

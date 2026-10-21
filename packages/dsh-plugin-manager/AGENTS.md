@@ -22,32 +22,35 @@ packages/AGENTS.md 的全局/包级规则。
   行 id 同名，`LOCKED_ENTRY_IDS` 同时收录该独立行 id 与家族行 `web-ui-plugin-manager`；本包
   不变量由 `tests/bundle-row-id.spec.ts` 固定。聚合侧的家族行 id 与子路径 `plugin-manager` 由聚合
   清单的 `familyIds:` 映射钉住，不随本包独立行改名（见 dsh-web-all/AGENTS.md）。
-- **列表级工具条只能插进官方页面的 chrome**：官方「插件」页不为「已安装」标题声明席位（它的
-  扩展点是 `plugins.detail.*`、`plugins.item`、`plugins.bundle.config`、`plugins.row.config`
-  与 `plugins.bundle.activation`），因此工具条由 `plugin-toolbar-mount.tsx` 直接插进
-  `[data-plugin-panel] [data-plugin-group="bundles"]` 的标题元素，并用共享的
-  `body-mutations.ts`（sync-shared 副本，勿手改）自查位；容器自持 React root，不做 DOM 改写。
-  页面重绘/切走时容器自动挪位或摘除，重复 apply 通过 `TOOLBAR_MOUNT_SELECTOR` 去重。
+- **列表级工具条只能插进官方页面的 chrome**：官方「插件」页的扩展点包括
+  `plugins.detail.*`、`plugins.item`、`plugins.bundle.config`、`plugins.row.config`、
+  `plugins.bundle.activation`，以及 0.2.1 起承载整页内容的 `plugins.tab`；后者会把批量更新藏到
+  另一个 tab，不能替代「已安装」标题旁的即时检查/pending 计数。因此工具条仍由
+  `plugin-toolbar-mount.tsx` 直接插进 `[data-plugin-panel] [data-plugin-group="bundles"]`
+  的标题元素，并用共享的 `body-mutations.ts`（sync-shared 副本，勿手改）自查位；
+  容器自持 React root，不做 DOM 改写。页面重绘/切走时容器自动挪位或摘除，重复 apply 通过
+  `TOOLBAR_MOUNT_SELECTOR` 去重。
 - **批量更新策略放 core，不放 host**：`src/core/updates.ts` 是唯一策略源——只更新第三方
   （非 `@deepseek-ai/`）且 `compatible !== false` 的行；官方包随 DSH 本体升级，绝不批量改写。
   单页区块（`plugins.detail.section`）仍可对官方包做单包更新，那是用户逐条确认的动作。
 - **重启三态，禁止臆造命令行**：`src/host/restart.ts` 判定并回传实际模式——`relaunch`
   （终端启动：detached helper 等旧进程退出后重放本进程自身的 execPath + argv，剔除
-  `--inspect*`）、`shell`（打包桌面：只退出，由桌面外壳自己的恢复对话框重启）、`manual`
-  （无终端/无法判定：不退出，界面提示手动重启）。判定是纯函数 `planRestart`，执行是
-  `performRestart`（helper 起不来时降级为 `manual` 而不是让进程白白退出）。新增重启路径前
-  先确认宿主真的能重启，不要把「重启」做成静默失败。
+  `--inspect*`）、`shell`（打包桌面**且**外壳声明了重启保证：只退出，由外壳重新拉起）、
+  `manual`（无终端、无脚本，或桌面壳未声明保证：不退出，界面提示手动重启）。判定是纯函数
+  `planRestart`，执行是 `performRestart`（helper 起不来时降级为 `manual` 而不是让进程白白
+  退出）。新增重启路径前先确认宿主真的能重启，不要把「重启」做成静默失败。
 - **重启路由必须按方法区分**：`GET /api/plugin-manager/restart` 只读方案（无副作用），
   `POST` 才执行，其他方法 405。缺了这道守卫时，一个普通 GET（浏览器预取、直接输入 URL、
   误探测）就能停掉正在运行的宿主并弹出桌面外壳的崩溃恢复对话框（2026-09-30 实证）。
   界面必须先读方案再确认：确认面板写的后果必须与 `POST` 实际产生的后果一致。
-- **桌面端的重启只能借道外壳，且必须在确认前写清后果**：打包桌面没有给 Web GUI 任何重启
-  通道（preload 只暴露 `dshDesktop.updates.status/open/subscribe`，`app.relaunch()` 只能由
-  外壳自己的恢复对话框触发），所以宿主退出必然产生一个错误样式的对话框并写崩溃报告。
-  桌面端（`shell`）的确认面板里，主按钮仍是「确认重启」，但面板必须先写明：会出现官方的
-  「应用无法启动或已意外停止」对话框、需在对话框里点「重启」、并会写一份崩溃报告；同时
-  给出手动替代（退出应用后重新打开）。用户明确要求过「点确认就直接走官方对话框」，
-  不要退回成「只有手动说明」。
+- **桌面壳未声明重启保证时不得退出**：打包桌面没有给 Web GUI 任何重启通道（preload 只暴露
+  `dshDesktop.updates.status/open/subscribe`，IPC 里没有「请壳重启宿主」，`app.relaunch()`
+  只能由外壳自己的恢复对话框触发），官方壳对宿主退出只做 `fail("dsh desktop host stopped")`
+  并显示错误页——自己退出等于把应用变成死窗口。因此桌面端只在壳导出
+  `DSH_SHELL_RESTARTS_HOST=1`（壳自己宣告会把退出的宿主重新拉起）时才走 `shell`，否则
+  `planRestart` 返回 `manual`：进程继续服务，重启面板如实写「当前进程无法自动重启，请手动
+  重启 DSH。」、给出手动替代（退出 DeepSeek Harness 后重新打开），并只渲染「取消」——这条路
+  不会发出 `POST`，所以没有确认按钮。
 - **双通道纪律**：运行时探测官方 `/plugin-installer` 通道，存在（DSHCode / 1.0.4
   checkout web）则全部走官方 RPC（单一写入器 = 官方安装器）；不存在（npm 发布的官方
   web）则走本包 host 半区的 loopback HTTP 网关——安装/卸载 spawn 官方 `dsh plugin`
@@ -56,6 +59,19 @@ packages/AGENTS.md 的全局/包级规则。
   拒绝写该 profile（`dsh plugin --profile desktop …` 直接报错），更新必须经宿主挂载的
   官方 `pluginManager` 服务（`ctx.get('pluginManager')`，契约观察不 import）；其余运行时
   CLI 仍是唯一写入器，两条路径共用同一任务表、状态轮询与版本核对。
+- **官方管理器拒绝原地更新（`already-installed`）**：0.2.1-rc.2 起 `installBundle` 在 `hmr` 挂载且该包
+  已是 profile 依赖时直接抛 `already-installed`（守卫在 pnpm 之前），而 dsh-base 只在
+  `profileContext` 存在时挂 `hmr` 行——即每个 profile 宿主，官方插件页自己的更新按钮走同一条路。
+  因此应用自有 profile 的更新按两阶段执行：先 `removeBundle` 再 `installBundle`；第二阶段失败时
+  装回运行前 profile 携带的 spec，并在错误里写明是「已装回」还是「需手动重装」。单次
+  `installBundle` 仍排在最前，上游哪天接受原地更新就自动回到单次路径。见
+  [记录](../../.agents/notes/implemented/bug-fix/2026-10-17-plugin-manager-native-update-two-phase.md)。
+- **两阶段替换不得改变层级顺序，`bundle-in-use` 只应答一次**（issue #1905）：`removeBundle` 会把
+  该包从 `dsh.profile.bundles` 删掉、重装再追加到末尾，而该数组就是 loader 套用 patch 的层级
+  顺序——批量更新会让整批行的继承顺序漂移，所以 `restoreBundleIndex()` 必须把包放回原位
+  （成功与回滚都要）。官方守卫是先取消勾选并 reload、**之后**才判定行是否仍有活跃 fiber，
+  因此 `removeForReplacement()` 针对这个已落盘状态重试一次；第二次仍被拒才用
+  `setBundleEnabled` 还原选择状态并点名重启。不要把这条重试改成「直接报错」或「循环重试」。
 - **官方管理器 resolve 不等于成功**：它的 `change()` 包装器把失败折叠进返回值
   （`application: 'failed'` / `'cancelled'`，附 `error.code` / `error.diagnostic`），而不是
   抛错。原生安装/更新/卸载必须先经 `nativeManagerFailure()` 读该判定再重读 profile，

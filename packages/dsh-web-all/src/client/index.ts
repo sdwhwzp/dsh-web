@@ -1,23 +1,23 @@
 /**
- * dsh-web compat shim, browser half (folded into the aggregate package).
+ * dsh-web compat shim, browser half: the optional compatibility layer.
  *
  * The current dsh web shell renders its grid columns without the legacy
  * `data-pane` / `data-dsh-frame` hooks (the columns carry css-module class
- * names such as `*_sidebarCol` / `*_centerCol` / `*_detailsCol`). The
- * dsh-web family plugins (task-board, ssh, several skins)
- * mount at the DOM level through those legacy selectors, so without them the
- * plugins stay silent even though they load.
+ * names such as `*_sidebarCol` / `*_centerCol` / `*_detailsCol`). Plugins that
+ * mount at the DOM level through those legacy selectors stay silent without
+ * them, so this layer stamps the expected attributes onto the real shell
+ * elements and re-applies them on any DOM mutation (React re-renders that
+ * re-create the columns). It only ever WRITES attributes; it never removes
+ * nodes and never disturbs React's reconciliation. It also carries the
+ * responsive contract (RESPONSIVE_CSS) and the boot splash dismissal.
  *
- * This shim stamps the expected attributes onto the real shell elements and
- * re-applies them on any DOM mutation (React re-renders that re-create the
- * columns), which restores every DOM-mounting plugin and the skins' column
- * selectors in one place. It also owns one marked download anchor in each
- * better-sidebar file header. It never removes host nodes; disposal and
- * upstream-action detection remove only anchors carrying its own marker.
+ * Scope: this bundle is the patch layer and nothing else. It carries no family
+ * plugin code — each family mounts through its own loader row and serves its
+ * own browser half — so a page that does not need the compat patches never
+ * pays for a family UI it did not enable (issue #1901).
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
-import { mountClientChildren } from './mount-children.ts'
 import { subscribeBodyInvalidations } from './body-mutations.ts'
 
 /** Column shims: element selector → attribute to stamp. */
@@ -172,10 +172,24 @@ export const RESPONSIVE_CSS = `
    symptom, reachable here with no skin active. Locking only the scrolling root
    (never the app root element, whose own lock clipped content in
    #1222/#1225) removes the overflow scroll target without touching the frame's
-   box in any state. Scoped through :has() so the rule stays inert until the
-   shell frame exists. */
-html:has([data-dsh-frame]),
-html:has([data-dsh-frame]) > body {
+   box in any state. Scoped to a root attribute the shim maintains so the rule
+   stays inert until the shell frame exists.
+
+   The scope is a plain attribute selector on purpose: it used to be an :has()
+   lookup for the frame on the root element, and that :has() was the whole cost
+   of this stylesheet. :has() makes every node insertion in the document
+   re-evaluate the ancestor chain up to <html>, so a terminal-style rebuild
+   (xterm re-creating its row elements on a fontSize change) paid it once per
+   inserted node and the price grew with the page's total node count. Measured
+   on a shell-shaped page driving real xterm 5.5.0 through a fontSize change:
+   22.5k nodes 12.3 ms / 12.5 ms, 64.5k nodes 31.5 ms / 13.1 ms, 127.5k nodes
+   58.1 ms / 24.2 ms
+   (:has() / attribute), i.e. the :has() variant alone scaled with page size.
+   An attribute on <html> costs one selector match per style invalidation and
+   gives the same lock: the shim writes it whenever it stamps the frame
+   (issue #1913). */
+html[data-dsh-frame-active],
+html[data-dsh-frame-active] > body {
   height: 100%;
   width: 100%;
   overflow: hidden;
@@ -216,8 +230,38 @@ html[data-platform="darwin"] body > :is(
     grid-template-rows: 100%;
     padding-bottom: env(safe-area-inset-bottom);
   }
-  [data-dsh-frame] [data-pane="sidebar"] {
-    position: absolute;
+  /* The drawer contract is not a skin decision, and this rule is the END of
+     that argument, not the start of one. Read this before raising it again.
+
+     The skin-center loader force-scopes every skin selector under
+     html[data-dsh-skin="<id>"] (scopeSelectorText prefixes the scope to every
+     head), so a skin rule written as body [data-pane='sidebar'] { position:
+     relative; } is served as html[data-dsh-skin="..."] body
+     [data-pane='sidebar'] - specificity 0-2-2, above a plain 0-2-0. The pane
+     then falls back into the single mobile grid column and pushes the
+     conversation column out of the viewport (measured at a 700px viewport:
+     conversation y=700, height=0 - no usable session area at all).
+
+     position !important settles that case, but !important does not settle
+     everything: when BOTH sides are important the cascade returns to
+     specificity, and a skin rule like
+     div:has(> [data-slot="sidebar"]) { position: relative !important; }
+     (last-exile, porco-rosso, white-snake) is served as
+     html[data-dsh-skin="..."] body div:has(...) - 0-2-3 - which still wins.
+     The :is(...) below is deliberately redundant as a matcher and exists only
+     to lift this rule to 0-3-0 so the drawer beats that shape too. It is
+     verified against all seven affected skins; do not "simplify" it away.
+
+     BOUNDARY: this is the ceiling. If a future skin outranks 0-3-0 here, the
+     correct fix is to repair THAT SKIN, not to raise this specificity again.
+     Positioning the sidebar pane is not a skin's job: those rules want the
+     pane to be a containing block for their own glass layer, and position is
+     a side effect of that intent, not the intent. A skin that needs a
+     containing block should paint its layer inside the pane's slot child
+     instead. Chasing skins here would turn the mobile contract into an arms
+     race the shell cannot win. */
+  [data-dsh-frame] [data-pane="sidebar"]:is([data-pane="sidebar"]) {
+    position: absolute !important;
     inset-block: 0;
     inset-inline-start: 0;
     z-index: 1100;
@@ -516,6 +560,9 @@ function installMobileSidebarDismiss(frame: HTMLElement): () => void {
   }
 }
 
+/** Root attribute the viewport-lock rules in RESPONSIVE_CSS are scoped to. */
+const FRAME_LOCK_ATTRIBUTE = 'data-dsh-frame-active'
+
 /** One pass over the current DOM. Returns false once every stamp is already in place. */
 function applyShims(): boolean {
   let changed = false
@@ -536,7 +583,26 @@ function applyShims(): boolean {
     changed = true
   }
   if (frame !== null) changed = stampSemanticParts(frame) || changed
+  // The viewport lock is scoped to this root attribute rather than to
+  // `html:has([data-dsh-frame])`; see RESPONSIVE_CSS. It mirrors the frame's
+  // presence, so it is cleared again when React replaces the shell and the
+  // next pass finds no frame (the lock must never outlive the frame it locks).
+  if (syncFrameLock(frame !== null)) changed = true
   return changed
+}
+
+/**
+ * Mirror the shell frame's presence onto the document root.
+ * @param present - whether a stamped frame is currently in the document.
+ * @returns whether the root attribute changed.
+ */
+function syncFrameLock(present: boolean): boolean {
+  const root = document.documentElement
+  if (root === null) return false
+  if (root.hasAttribute(FRAME_LOCK_ATTRIBUTE) === present) return false
+  if (present) root.setAttribute(FRAME_LOCK_ATTRIBUTE, '')
+  else root.removeAttribute(FRAME_LOCK_ATTRIBUTE)
+  return true
 }
 
 function installBootShield(): { dismiss: () => void; remove: () => void } {
@@ -576,14 +642,11 @@ export const inject = [] as const
  * @param ctx - client root context.
  */
 export function apply(ctx: Context): void {
-  // The family children ride this bundle (see mount-children.ts): the shell's
-  // folded rows leave them invisible to the client module scanner, so they
-  // mount here as nested client plugins. Fire-and-forget: the row-state fetch
-  // must not delay the DOM shims (boot splash dismissal is time-critical),
-  // and the mount is fail-open and self-contained — it never rejects.
-  void mountClientChildren(ctx).catch(error => {
-    console.error('[dsh-web-all] client children mount failed', error)
-  })
+  // This half is the compat layer only. Every family plugin mounts through its
+  // own loader row and brings its own browser half, so nothing is imported or
+  // mounted here: the bundle used to carry an inlined copy of all 13 family
+  // clients, which made the page download and evaluate 2.9 MB before any
+  // family surface could render (issue #1901).
   ctx.effect(() => {
     const responsiveStyle = ensureResponsiveStyle()
     const bootShield = installBootShield()

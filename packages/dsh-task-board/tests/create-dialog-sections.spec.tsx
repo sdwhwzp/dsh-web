@@ -14,6 +14,7 @@ import { NewTaskModal } from '../src/client/board/NewTaskModal.tsx'
 import { t } from '../src/client/locales.ts'
 import type { BoardController, ControllerSnapshot, ExecutionPresetOption } from '../src/core/controller.ts'
 import type { TaskRecord } from '../src/core/tasks.ts'
+import { OVERLAY_EXIT_MS } from '../src/client/board/overlay.tsx'
 import { openFormSection } from './form-sections.ts'
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -47,6 +48,14 @@ function renderModal(initialTask?: TaskRecord): HTMLElement {
       models: [],
     },
     pendingTaskIds: [],
+    // The master native-/goal switch is on: these cases exercise the
+    // task-level option, which the global default (off) would disable.
+    host: {
+      revision: 1,
+      scheduler: { timeZone: 'UTC' },
+      power: { platform: 'linux', phase: 'unsupported', enabled: false, runningSessions: 0, armedSchedules: 0, sessionStateKnown: true },
+      goalRunEnabled: true,
+    },
   }
   const controller = {
     getSnapshot: () => snapshot,
@@ -130,8 +139,9 @@ describe('create-task dialog regions', () => {
     // When the user reads the region headers
     const container = renderModal()
 
-    // Then each collapsed header summarizes the values it holds
-    expect(regionHeader(container, t('new.section.run')).textContent).toContain(t('new.summary.multiRound'))
+    // Then each collapsed header summarizes the values it holds: the /goal
+    // option is off by default, so the run region reports a single round
+    expect(regionHeader(container, t('new.section.run')).textContent).toContain(t('new.summary.singleRound'))
     // And the execution summary names the preset a run without a pin lands on
     expect(regionHeader(container, t('new.section.execution')).textContent)
       .toContain(t('preset.builtin.standard'))
@@ -220,5 +230,111 @@ describe('create-task dialog regions', () => {
     // Then the region is open and its error is visible instead of hidden
     expect(regionHeader(container, t('new.section.schedule')).getAttribute('aria-expanded')).toBe('true')
     expect(container.textContent).toContain(t('detail.schedule.invalid'))
+  })
+})
+
+describe('create-task dialog action hierarchy and disclosure wiring', () => {
+  it('user scanning the create dialog sees one filled action, and it is the submit', () => {
+    // Given the create dialog with its footer actions
+    const container = renderModal()
+    const buttons = [...container.querySelectorAll<HTMLButtonElement>('button')]
+
+    // When the user looks for the control that commits the form
+    const submit = container.querySelector<HTMLButtonElement>('button[type="submit"]')
+    // The commit is operable and announces the dialog's own submit copy
+    expect(submit?.textContent).toBe(t('new.submit'))
+    expect(submit?.disabled).toBe(false)
+    const submitClass = submit?.className ?? ''
+    const filled = buttons.filter(button => button.className === submitClass)
+
+    // Then exactly one control wears the filled primary style
+    expect(filled).toEqual([submit])
+
+    // And the dismiss beside it is a secondary control
+    const cancel = buttons.find(button => button.textContent === t('new.cancel'))
+    expect(cancel?.className).not.toBe(submitClass)
+  })
+
+  it('user folding a create-dialog region gets the panel fold disclosure wiring', () => {
+    // Given a collapsed region that carries a one-line summary
+    const container = renderModal()
+    const header = regionHeader(container, t('new.section.labels'))
+    const controls = header.getAttribute('aria-controls')
+
+    // Then the row declares its state, names its own body, and keeps the
+    // collapsed line readable in full
+    expect(header.getAttribute('aria-expanded')).toBe('false')
+    // The row is the one claimant of that body id, declared before the body mounts
+    expect([...container.querySelectorAll('[aria-controls]')].filter(node => node.getAttribute('aria-controls') === controls)).toEqual([header])
+    expect(header.getAttribute('title')).toBe(t('new.summary.none'))
+
+    // When the user expands it
+    act(() => { header.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+
+    // Then the body it names is the one that rendered, on this region's open leg
+    expect(header.getAttribute('aria-expanded')).toBe('true')
+    const body = document.getElementById(controls ?? '')
+    expect(body?.parentElement).toBe(header.closest('[data-dsh-part="form-section"]'))
+    expect(body?.getAttribute('data-state')).toBe('open')
+  })
+})
+
+describe('create-task dialog region motion', () => {
+  /** A region header the user has already expanded, plus the id of its body. */
+  function openRegion(container: HTMLElement, title: string): { header: HTMLButtonElement; panelId: string } {
+    const header = openFormSection(container, title)
+    return { header, panelId: header.getAttribute('aria-controls') ?? '' }
+  }
+
+  it('user collapsing a region keeps its body mounted on the exit leg until the close duration ends', () => {
+    // Given a dialog region the user has opened
+    const container = renderModal()
+    vi.useFakeTimers()
+    try {
+      const { header, panelId } = openRegion(container, t('new.section.labels'))
+      expect(document.getElementById(panelId)?.getAttribute('data-state')).toBe('open')
+
+      // When the user collapses it
+      act(() => { header.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+
+      // Then the row already reports closed while the body stays mounted on
+      // the exit leg of the pair the panel's fold rides
+      expect(header.getAttribute('aria-expanded')).toBe('false')
+      expect(document.getElementById(panelId)?.getAttribute('data-state')).toBe('closing')
+
+      // And it is still mounted one tick before the close duration ends...
+      act(() => { vi.advanceTimersByTime(OVERLAY_EXIT_MS - 1) })
+      expect(document.getElementById(panelId)?.getAttribute('data-state')).toBe('closing')
+
+      // ...and gone once it has
+      act(() => { vi.advanceTimersByTime(2) })
+      expect(document.getElementById(panelId)).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('user reopening a region during the exit leg keeps the body it was collapsing', () => {
+    // Given a region the user has just collapsed
+    const container = renderModal()
+    vi.useFakeTimers()
+    try {
+      const { header, panelId } = openRegion(container, t('new.section.labels'))
+      act(() => { header.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+      expect(document.getElementById(panelId)?.getAttribute('data-state')).toBe('closing')
+
+      // When they reopen it before the exit leg ends
+      act(() => { vi.advanceTimersByTime(OVERLAY_EXIT_MS - 20) })
+      act(() => { header.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+
+      // Then the body never left and it is back on the open leg, past the
+      // point where the cancelled exit would have unmounted it
+      expect(header.getAttribute('aria-expanded')).toBe('true')
+      expect(document.getElementById(panelId)?.getAttribute('data-state')).toBe('open')
+      act(() => { vi.advanceTimersByTime(OVERLAY_EXIT_MS * 2) })
+      expect(document.getElementById(panelId)?.getAttribute('data-state')).toBe('open')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

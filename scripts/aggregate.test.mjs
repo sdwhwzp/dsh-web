@@ -122,6 +122,83 @@ test('web-ui-all keeps the removed doctor/describe-image plugins out but their t
   assert.equal(pkg.exports['./describe-image'], './lib/shells/shell.js', 'describe-image tombstone export must survive')
 })
 
+const SHELL_METADATA_LOCALES = ['en', 'ru', 'zh']
+
+/** Family subpaths the aggregate exports (single-segment keys resolving to the shell). */
+function familySubpaths() {
+  const pkg = JSON.parse(readFileSync(join(ROOT, 'packages/dsh-web-all/package.json'), 'utf8'))
+  return Object.entries(pkg.exports)
+    .filter(([key, target]) => target === './lib/shells/shell.js' && key.startsWith('./') && !key.slice(2).includes('/'))
+    .map(([key]) => key.slice(2))
+    .sort()
+}
+
+/** One locale metadata file of one family subpath, parsed. */
+function shellMetadataOf(sub, locale) {
+  return JSON.parse(readFileSync(join(ROOT, 'packages/dsh-web-all/shell-metadata', sub, 'locale', locale + '.json'), 'utf8'))
+}
+
+/** shellNotes entries of an aggregate manifest, keyed by family subpath. */
+function shellNotesOf(relPath) {
+  const notes = new Map()
+  let section = null
+  for (const raw of readFileSync(join(ROOT, relPath), 'utf8').split(/\r?\n/)) {
+    const line = raw.trim()
+    if (!line || line.startsWith('#')) continue
+    const sectionMatch = line.match(/^[A-Za-z0-9_-]+:\s*$/)
+    if (sectionMatch) {
+      section = line.slice(0, -1)
+      continue
+    }
+    if (section !== 'shellNotes' || !line.startsWith('- ')) continue
+    const entry = JSON.parse(line.slice(2).trim().replace(/\s+#.*$/, ''))
+    notes.set(entry.id, entry)
+  }
+  return notes
+}
+
+test('web-ui-all shell metadata covers exactly the exported family subpaths', () => {
+  const shellSubs = familySubpaths()
+  const metadataRoot = join(ROOT, 'packages/dsh-web-all/shell-metadata')
+  const dirs = readdirSync(metadataRoot, { withFileTypes: true })
+    .filter(entry => entry.isDirectory())
+    .map(entry => entry.name)
+    .sort()
+  assert.deepEqual(dirs, shellSubs, 'stale or missing shell metadata directories')
+  const pkg = JSON.parse(readFileSync(join(ROOT, 'packages/dsh-web-all/package.json'), 'utf8'))
+  for (const sub of shellSubs) {
+    assert.equal(pkg.exports['./' + sub + '/icon'], './icon.svg', sub + ' must export the family icon')
+    for (const locale of SHELL_METADATA_LOCALES) {
+      const exportKey = './' + sub + '/locale/' + locale + '.json'
+      const target = './shell-metadata/' + sub + '/locale/' + locale + '.json'
+      assert.equal(pkg.exports[exportKey], target, sub + ' must export its ' + locale + ' metadata')
+      assert.equal(shellMetadataOf(sub, locale).meta?.title, 'web-all/' + sub)
+    }
+  }
+})
+
+test('web-ui-all family rows carry a one-line purpose description from aggregate.yml', () => {
+  // The official plugin inventory renders meta.description as the gray line
+  // under a row title. aggregate.yml's shellNotes section is its only source,
+  // and a family subpath without a note fails "node scripts/aggregate.mjs".
+  const shellSubs = familySubpaths()
+  const notes = shellNotesOf('packages/dsh-web-all/aggregate.yml')
+  assert.deepEqual([...notes.keys()].sort(), shellSubs, 'shellNotes must cover exactly the exported family subpaths')
+  for (const sub of shellSubs) {
+    const note = notes.get(sub)
+    for (const locale of SHELL_METADATA_LOCALES) {
+      const description = shellMetadataOf(sub, locale).meta?.description
+      assert.equal(typeof description, 'string', sub + ' ' + locale + ' metadata must carry a description')
+      assert.ok(description.trim() !== '', sub + ' ' + locale + ' description must not be blank')
+      assert.equal(description, note[locale], sub + ' ' + locale + ' description must come from shellNotes')
+    }
+    // The Chinese line is capped so it stays on one line under the title.
+    const han = [...note.zh].filter(char => /\p{Script=Han}/u.test(char)).length
+    assert.ok(han > 0 && han <= 20, sub + ' zh note must be 1-20 Han characters, got ' + han)
+    assert.notEqual(note.zh, note.en, sub + ' zh and en notes must be different text')
+  }
+})
+
 test('web-ui-all ships the opt-in family rows disabled by default', () => {
   // The manifest's inactive list renders trailing bare "disabled: true"
   // overrides; users opt in per row in the plugin manager (a user-layer
@@ -146,23 +223,23 @@ test('web-ui-all ships the opt-in family rows disabled by default', () => {
   }
 })
 
-test('family shell rows keep the real plugin config at the row config root', () => {
-  // The Host settings surface edits an entry's OWN Config schema, so a
-  // shell-wrapped family row must present the family plugin's fields where a
-  // standalone install of that package keeps them: beside the shell's own
-  // `plugin` key, never nested under a second `config:` key (which the
-  // settings surface cannot address, and which left a shelled row silently
-  // unconfigurable while its card showed an editable form).
+test('family rows mount the real plugin package, never a shell subpath with a config block', () => {
+  // Issue #1901: a family row names its plugin package directly. That is what
+  // makes the loader serve the package's own browser half, so the row needs no
+  // shell wrapper and no `config.plugin` indirection — and the Host settings
+  // surface keeps editing that package's own Config schema, exactly as a
+  // standalone install of the same package does.
   const patch = readFileSync(join(ROOT, 'packages/dsh-web-all/cordis.patch.yml'), 'utf8')
   const lines = patch.split(/\r?\n/)
   let checked = 0
   for (let i = 0; i < lines.length; i++) {
-    const name = lines[i].match(/^      name: '@linxin666\/dsh-web-all\/(\S+)'$/)
-    if (!name) continue
-    assert.equal(lines[i + 1], '      config:', 'shell row ' + name[1] + ' must carry a config block')
-    assert.match(lines[i + 2] ?? '', /^        plugin: '@linxin666\/[^']+'$/, 'shell row ' + name[1] + ' must name the real plugin first')
-    for (let j = i + 3; j < lines.length && /^ {8}\S/.test(lines[j]); j++) {
-      assert.doesNotMatch(lines[j], /^ {8}config:/, 'shell row ' + name[1] + ' nests the family config one level too deep')
+    const id = lines[i].match(/^ {4}- id: (web-ui-[a-z0-9-]+)$/)
+    if (!id) continue
+    const name = (lines[i + 1] ?? '').match(/^ {6}name: '([^']+)'$/)
+    assert.ok(name, 'row ' + id[1] + ' must carry a name')
+    assert.doesNotMatch(name[1], /^@linxin666\/dsh-web-all\//u, 'row ' + id[1] + ' still mounts a shell subpath')
+    for (let j = i + 2; j < lines.length && /^ {6}\S/.test(lines[j]); j++) {
+      assert.doesNotMatch(lines[j], /^ {6}config:$/u, 'row ' + id[1] + ' still carries a shell config block')
     }
     checked += 1
   }
@@ -243,6 +320,39 @@ test('familyIds overrides keep the aggregate row id off the child id derivation'
   }
 })
 
+test('a host-only child row keeps its platform guard in the aggregate patch', () => {
+  // dsh-win-bash is a host-only family package whose own patch row carries
+  // `disabled: !!js process.platform !== 'win32'`: the vendored payload is a
+  // Windows x64 build and the tool never falls back to a bash found on PATH, so
+  // the row must cost nothing on POSIX. The generator used to preserve scalar
+  // row options for PATCH rows only, which silently dropped this guard and
+  // mounted a Windows-only row on every host. The child's row options are
+  // carried verbatim, after name/config so every row parser in the repository
+  // still finds them adjacent.
+  const patch = readFileSync(join(ROOT, 'packages/dsh-web-all/cordis.patch.yml'), 'utf8')
+  assert.match(
+    patch,
+    /- id: web-ui-win-bash\n {6}name: '@linxin666\/dsh-win-bash'\n {6}disabled: !!js process\.platform !== 'win32'\n/u,
+    'the win-bash family row must carry the child platform guard verbatim',
+  )
+  const child = readFileSync(join(ROOT, 'packages/dsh-win-bash/cordis.patch.yml'), 'utf8')
+  assert.match(child, /disabled: !!js process\.platform !== 'win32'/u, 'the child keeps its own guard')
+})
+
+test('the win-bash family row and subpath use the short family name', () => {
+  // The child id names its package (\`dsh-win-bash\`, pinned by that package's
+  // AGENTS.md), so deriving the aggregate id would produce
+  // \`web-ui-dsh-win-bash\` and the subpath \`dsh-win-bash\`. Family subpaths are
+  // the short names (ssh / usage / liangshen), so familyIds pins the pair at
+  // \`web-ui-win-bash\` / \`win-bash\` from the first release.
+  const patch = readFileSync(join(ROOT, 'packages/dsh-web-all/cordis.patch.yml'), 'utf8')
+  assert.match(patch, /^ {4}- id: web-ui-win-bash$/mu, 'the family row id is the short web-ui-win-bash')
+  assert.doesNotMatch(patch, /web-ui-dsh-win-bash/u, 'the derived package-prefixed id must not appear')
+  const pkg = JSON.parse(readFileSync(join(ROOT, 'packages/dsh-web-all/package.json'), 'utf8'))
+  assert.equal(pkg.exports['./win-bash'], './lib/shells/shell.js', 'the short family subpath must resolve to the shell')
+  assert.equal(pkg.dependencies['@linxin666/dsh-win-bash'], 'workspace:*', 'the aggregate pulls the child as a workspace dep')
+})
+
 test('the plugin-manager family row id and subpath survive its standalone row rename', () => {
   // Published identifiers: the aggregate row id `web-ui-plugin-manager`, the
   // family subpath `@linxin666/dsh-web-all/plugin-manager` and the matching
@@ -253,11 +363,82 @@ test('the plugin-manager family row id and subpath survive its standalone row re
   const patch = readFileSync(join(ROOT, 'packages/dsh-web-all/cordis.patch.yml'), 'utf8')
   assert.match(
     patch,
-    /- id: web-ui-plugin-manager\n {6}name: '@linxin666\/dsh-web-all\/plugin-manager'\n {6}config:\n {8}plugin: '@linxin666\/dsh-client-ui-plugin-manager'/u,
-    'the plugin-manager family row must keep its id, subpath and real plugin name',
+    /- id: web-ui-plugin-manager\n {6}name: '@linxin666\/dsh-client-ui-plugin-manager'\n/u,
+    'the plugin-manager family row must keep its id and mount the real plugin package',
   )
   const pkg = JSON.parse(readFileSync(join(ROOT, 'packages/dsh-web-all/package.json'), 'utf8'))
   assert.equal(pkg.exports['./plugin-manager'], './lib/shells/shell.js', 'the family subpath export must stay resolvable')
   const childPatch = readFileSync(join(ROOT, 'packages/dsh-plugin-manager/cordis.patch.yml'), 'utf8')
   assert.match(childPatch, /- id: ui-plugin-manager-update-check/u, 'the standalone row keeps its own id')
+})
+
+/** Entries of one aggregate manifest section, parsed as single-line JSON flow mappings. */
+function flowEntriesOf(ymlPath, wantedSection) {
+  const entries = []
+  let section = null
+  for (const raw of readFileSync(join(ROOT, ymlPath), 'utf8').split(/\r?\n/)) {
+    const line = raw.trim()
+    if (!line || line.startsWith('#')) continue
+    const sectionMatch = line.match(/^[A-Za-z0-9_-]+:\s*$/)
+    if (sectionMatch) {
+      section = line.slice(0, -1)
+      continue
+    }
+    if (section !== wantedSection || !line.startsWith('- ')) continue
+    entries.push(JSON.parse(line.slice(2).trim().replace(/\s+#.*$/, '')))
+  }
+  return entries
+}
+
+/** Plain scalar list entries of one aggregate manifest section. */
+function scalarEntriesOf(ymlPath, wantedSection) {
+  const entries = []
+  let section = null
+  for (const raw of readFileSync(join(ROOT, ymlPath), 'utf8').split(/\r?\n/)) {
+    const line = raw.trim()
+    if (!line || line.startsWith('#')) continue
+    const sectionMatch = line.match(/^[A-Za-z0-9_-]+:\s*$/)
+    if (sectionMatch) {
+      section = line.slice(0, -1)
+      continue
+    }
+    if (section === wantedSection && line.startsWith('- ')) entries.push(line.slice(2).trim())
+  }
+  return entries
+}
+
+test('web-ui-all retired plugins are tombstones, not dependencies, and match the generated registry', () => {
+  // The shell skips an import for every package listed in the generated
+  // retirement registry. Two facts make that skip safe and one keeps it
+  // honest, so the manifest section behind all three is gated here: the family
+  // must be a tombstone (its subpath export has to stay alive for older
+  // profiles), the plugin must not also be a dependency (a mounted package must
+  // never be swallowed by the no-op branch), and the generated module must be
+  // exactly what the manifest says.
+  const yml = 'packages/dsh-web-all/aggregate.yml'
+  const retired = flowEntriesOf(yml, 'retiredPlugins')
+  assert.ok(retired.length > 0, 'aggregate.yml should declare the retired plugin registry')
+  const tombstones = new Set(scalarEntriesOf(yml, 'tombstones'))
+  const pkg = JSON.parse(readFileSync(join(ROOT, 'packages/dsh-web-all/package.json'), 'utf8'))
+  const families = new Set()
+  const plugins = new Set()
+  for (const entry of retired) {
+    assert.match(entry.family, /^[a-z0-9-]+$/, 'retired family is a subpath: ' + entry.family)
+    assert.ok(tombstones.has(entry.family), 'retired family must keep its tombstone subpath export: ' + entry.family)
+    assert.ok(!(entry.plugin in pkg.dependencies), 'a retired plugin must not also be a dependency: ' + entry.plugin)
+    assert.ok(!families.has(entry.family), 'duplicate retired family: ' + entry.family)
+    assert.ok(!plugins.has(entry.plugin), 'duplicate retired plugin: ' + entry.plugin)
+    families.add(entry.family)
+    plugins.add(entry.plugin)
+  }
+  const generated = readFileSync(join(ROOT, 'packages/dsh-web-all/src/retired-plugins.generated.ts'), 'utf8')
+  for (const entry of retired) {
+    assert.ok(generated.includes("'" + entry.family + "': '" + entry.plugin + "'"), 'generated registry is missing ' + entry.family + ' -> ' + entry.plugin)
+  }
+  const generatedPluginCount = [...generated.matchAll(/^  '[^']+': '[^']+',$/gm)].length
+  assert.equal(generatedPluginCount, retired.length, 'generated registry must carry exactly the manifest entries')
+  // Issue #1889 regression: the 2026-09-23 removal never reached the shell's
+  // hand-written list, so both package names are pinned by name here.
+  assert.ok(plugins.has('@linxin666/dsh-tool-describe-image'), 'dsh-tool-describe-image must be registered as retired')
+  assert.ok(plugins.has('@linxin666/dsh-doctor'), 'dsh-doctor must be registered as retired')
 })

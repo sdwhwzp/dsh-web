@@ -30,7 +30,8 @@ test('copies cover the settings trio for all consumers plus host and http helper
   // binds a family namespace (7 today). Every family panel now renders through
   // the native layout seats, so the panel-mount-core and sidebar-entry-core
   // copies are gone and body-mutations serves the aggregate shell, the usage
-  // card and the plugin-manager's list-level update toolbar. run-guarded.ts is
+  // card, the plugin-manager's list-level update toolbar and the task board's
+  // official schedule-row guard. run-guarded.ts is
   // not synced here: no in-repo package imports
   // it (the satellite repositories that do carry their own copies), so only the
   // shared source and its spec remain in this repository. The plugin-card seat
@@ -39,9 +40,16 @@ test('copies cover the settings trio for all consumers plus host and http helper
   // tool-surface.ts adds three copies in host halves (ssh, task-board,
   // task-board-github); they sit at a package root rather than under
   // src/host/, so the bucket below does not claim them.
-  assert.equal(entries.length, 110)
+  // dsh-remote-bridge adds one dsh-home.ts copy under src/host/ (the bridge's
+  // host half resolves $DSH_HOME through the same generated copy every other
+  // host half uses, rather than a second local parser).
+  // dsh-web-settings joined the card trio (the family-wide telemetry switch
+  // renders through the same chrome), which adds three client copies: the card
+  // chrome, its form primitives, and the card stylesheet. It carries no
+  // entry-bound form fallback, because it binds no Host settings namespace.
+  assert.equal(entries.length, 111)
   const clientTrio = entries.filter(entry => entry.target.includes('/src/client/'))
-  assert.equal(clientTrio.length, 44)
+  assert.equal(clientTrio.length, 47)
   const hostCopies = entries.filter(entry => entry.target.includes('/src/host/')
     || entry.target.includes('/src/dsh-home.ts')
     || entry.target.includes('/src/mount-once.ts')
@@ -49,7 +57,7 @@ test('copies cover the settings trio for all consumers plus host and http helper
     || entry.target.includes('/src/pair-access.ts')
     || entry.target.includes('/src/agent/')
     || entry.target.endsWith('/packages/dsh-task-board/src/http.ts'))
-  assert.equal(hostCopies.length, 49)
+  assert.equal(hostCopies.length, 47)
 })
 
 test('checkSync detects drift and applySync repairs it', async () => {

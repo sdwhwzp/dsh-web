@@ -41,8 +41,11 @@ afterEach(() => {
   delete globalWithEventSource.EventSource
 })
 
-/** One complete, writable card snapshot with no staged edits. */
-function cardState(): TaskBoardSettingsCardState {
+/**
+ * One complete, writable card snapshot with no staged edits.
+ * @param runLaunchWidth - stored value of the run-launch width field.
+ */
+function cardState(runLaunchWidth = ''): TaskBoardSettingsCardState {
   const field = { text: '', overridden: false, invalid: false }
   return {
     available: true,
@@ -55,11 +58,19 @@ function cardState(): TaskBoardSettingsCardState {
     enabled: { ...field, text: 'true' },
     announceToAgent: field,
     preventIdleSleep: field,
+    trustForwardedProxy: field,
     maxSubtaskDepth: field,
     sessionPollSeconds: field,
+    runLaunchWidth: { ...field, text: runLaunchWidth },
+    spendBudgetTokens: { ...field, text: '0' },
+    goalRunEnabled: { ...field, text: 'false' },
     goalVerification: { ...field, text: 'true' },
     goalVerificationModel: field,
     goalVerificationReasoningEffort: field,
+    cardDefaultMode: field,
+    cardDefaultPermission: field,
+    cardDefaultModel: field,
+    cardDefaultReasoningEffort: field,
   }
 }
 
@@ -67,8 +78,8 @@ function cardState(): TaskBoardSettingsCardState {
 const PROVIDER_CARD_LABEL = 'Provider section'
 
 /** Render-ready props for the card: a fixed snapshot, an inert form, and optionally the provider seat. */
-function cardProps(withProvider = false): TaskBoardSettingsCardProps {
-  const state = cardState()
+function cardProps(withProvider = false, runLaunchWidth = ''): TaskBoardSettingsCardProps {
+  const state = cardState(runLaunchWidth)
   return {
     t: (key: string) => (zh as Record<string, string>)[key] ?? key,
     renderSlot: () => withProvider
@@ -143,7 +154,7 @@ describe('task-board settings card disclosure', () => {
     expect(topic.querySelectorAll('span[aria-hidden="true"]')).toHaveLength(0)
   })
 
-  it('operator expanding the board card finds the board topic, task acceptance and the provider card collapsed', () => {
+  it('operator expanding the board card finds every topic collapsed in its documented order', () => {
     // Given the collapsed settings card of a deployment whose provider seat
     // contributes one card
     const container = render(cardProps(true))
@@ -151,15 +162,34 @@ describe('task-board settings card disclosure', () => {
     // When the operator opens it
     act(() => { header(container, zh['settings.title']).click() })
 
-    // Then three topics stand collapsed under it in the order board,
-    // acceptance, provider card, and nothing is expanded yet
+    // Then the topics stand collapsed under it in the order board, run behavior,
+    // acceptance, new-card defaults, provider card, and nothing is expanded yet
     const topics = headers(container)
-    expect(topics).toHaveLength(4)
+    expect(topics).toHaveLength(6)
     expect(topics[1]?.textContent).toContain(zh['settings.enabled'])
-    expect(topics[2]?.textContent).toContain(zh['settings.goalVerificationTitle'])
-    expect(topics[3]?.textContent).toContain(PROVIDER_CARD_LABEL)
+    expect(topics[2]?.textContent).toContain(zh['settings.runBehaviorTitle'])
+    expect(topics[3]?.textContent).toContain(zh['settings.goalVerificationTitle'])
+    expect(topics[4]?.textContent).toContain(zh['settings.cardDefaultsTitle'])
+    expect(topics[5]?.textContent).toContain(PROVIDER_CARD_LABEL)
     expect(topics[0]?.getAttribute('aria-expanded')).toBe('true')
     for (const topic of topics.slice(1)) expect(topic.getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('operator expanding the run-behavior topic reaches the GLOBAL native /goal switch alone', () => {
+    // Given the expanded settings card with the run-behavior topic closed
+    const container = render(cardProps())
+    act(() => { header(container, zh['settings.title']).click() })
+    expect(container.querySelector('#settings-task-board-goal-run')).toBeNull()
+
+    // When the operator opens the run-behavior topic
+    act(() => { header(container, zh['settings.runBehaviorTitle']).click() })
+
+    // Then the global switch is there with its default (off) and its hint, and
+    // the sibling topics are untouched
+    expect(container.querySelector('#settings-task-board-goal-run')?.textContent).toBe(zh['settings.off'])
+    expect(container.textContent).toContain(zh['settings.goalRunGlobalHint'])
+    expect(header(container, zh['settings.enabled']).getAttribute('aria-expanded')).toBe('false')
+    expect(header(container, zh['settings.goalVerificationTitle']).getAttribute('aria-expanded')).toBe('false')
   })
 
   it('operator expanding the board topic reaches the master switch without opening the other topics', () => {
@@ -181,6 +211,28 @@ describe('task-board settings card disclosure', () => {
     expect(header(container, zh['settings.goalVerificationTitle']).getAttribute('aria-expanded')).toBe('false')
   })
 
+  it('operator expanding the board topic reaches the run-launch width with its batch hint', () => {
+    // Given the expanded settings card with a stored admission width
+    const container = render(cardProps(false, '8'))
+    act(() => { header(container, zh['settings.title']).click() })
+    expect(container.querySelector('#settings-task-board-run-launch-width')).toBeNull()
+
+    // When the operator opens the board topic
+    act(() => { header(container, zh['settings.enabled']).click() })
+
+    // Then the width is editable beside the depth limit, shows the stored value,
+    // and explains that waiting members still start (they only start in batches)
+    const width = container.querySelector<HTMLInputElement>('#settings-task-board-run-launch-width')
+    expect(width?.type).toBe('text')
+    expect(width?.value).toBe('8')
+    expect(container.textContent).toContain(zh['settings.runLaunchWidth'])
+    expect(container.textContent).toContain(zh['settings.runLaunchWidthHint'])
+    // ...and it sits with the runtime-behavior field beside it, whose own
+    // rendered copy is what the operator reads there
+    const pollLabel = container.querySelector<HTMLLabelElement>('label[for="settings-task-board-session-poll"]')
+    expect(pollLabel?.textContent).toBe(zh['settings.sessionPollSeconds'])
+  })
+
   it('operator expanding the acceptance topic reaches the judge settings and its resolved preview', () => {
     // Given the expanded settings card with the acceptance topic still closed
     const container = render(cardProps())
@@ -199,8 +251,28 @@ describe('task-board settings card disclosure', () => {
     expect(header(container, zh['settings.enabled']).getAttribute('aria-expanded')).toBe('false')
   })
 
-  it('operator sees the provider seat rendered inside the same topic list as the board topics', () => {
-    // Given a settings card whose provider seat contributes one entry
+  it('operator expanding the new-card-defaults topic reaches the four prefill fields', () => {
+    // Given the expanded settings card with the defaults topic still closed
+    const container = render(cardProps())
+    act(() => { header(container, zh['settings.title']).click() })
+    expect(container.querySelector('#settings-task-board-card-default-mode')).toBeNull()
+
+    // When the operator opens the new-card-defaults topic
+    act(() => { header(container, zh['settings.cardDefaultsTitle']).click() })
+
+    // Then the four prefills are there, each resting on the choice that applies
+    // no default at all, and the sibling topics stayed closed
+    const mode = container.querySelector<HTMLSelectElement>('#settings-task-board-card-default-mode')
+    expect(mode?.tagName).toBe('SELECT')
+    expect([...(mode?.options ?? [])].map(option => option.value)).toEqual([''])
+    expect(mode?.options[0]?.textContent).toBe(zh['exec.mode.inherit'])
+    expect(container.querySelector('#settings-task-board-card-default-permission')?.textContent).toBe(zh['exec.permission.default'])
+    expect(container.querySelector('#settings-task-board-card-default-model')?.textContent).toBe(zh['exec.model.default'])
+    expect(container.querySelector('#settings-task-board-card-default-effort')?.textContent).toBe(zh['exec.reasoning.inherit'])
+    expect(header(container, zh['settings.goalVerificationTitle']).getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('operator sees the provider seat rendered inside the same topic list as the board topics', () => {    // Given a settings card whose provider seat contributes one entry
     // When the operator expands the settings card
     const container = render(cardProps(true))
     act(() => { header(container, zh['settings.title']).click() })
@@ -209,6 +281,6 @@ describe('task-board settings card disclosure', () => {
     const seats = container.querySelectorAll('[data-testid="provider-seat"]')
     expect(seats).toHaveLength(1)
     expect(seats[0]?.parentElement?.tagName).toBe('UL')
-    expect(seats[0]?.parentElement?.children).toHaveLength(3)
+    expect(seats[0]?.parentElement?.children).toHaveLength(5)
   })
 })

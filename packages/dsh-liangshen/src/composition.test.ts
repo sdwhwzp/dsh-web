@@ -71,10 +71,18 @@ describe('readCompositionRows', () => {
     // Given the tool-catalog row, When the operator reads its config, Then the
     // shipped scalars and the single-line flow sequence survive.
     const catalog = configOf(rowOf(rows(), 'tool-catalog'))
-    expect(catalog['presentation']).toBe('both')
+    expect(catalog['presentation']).toBe('ptc')
     expect(catalog['descriptionMaxLength']).toBe(200)
     expect(catalog['maxResidentTokens']).toBe(8000)
     expect(catalog['pagedToolPatterns']).toEqual(['mcp__*'])
+  })
+
+  it('operator reads the shipped dispatcher switch ON on the minimal-prompt row', () => {
+    // Given the factory composition, When the operator reads the minimal-prompt
+    // row, Then it declares `dispatcher: true`: the shipped default appends the
+    // dispatcher block, and the key is present so the overlay writes a value
+    // rather than inventing a key the row never carried.
+    expect(configOf(rowOf(rows(), 'minimal-prompt'))['dispatcher']).toBe(true)
   })
 
   it('operator keeps a literal block scalar verbatim', () => {
@@ -235,33 +243,42 @@ describe('applyPresetOverrides', () => {
     expect(applyPresetOverrides(parsed, {})).toEqual(parsed)
   })
 
-  it('operator writes the settings into the rows that carry them', () => {
-    // Given committed settings, When the operator applies the overlay, Then
-    // the tool-catalog and guard rows carry them and nothing else moves.
-    const applied = applyPresetOverrides(rows(), {
-      presentation: 'ptc',
-      guardEnabled: false,
-      guardSensitivity: 'aggressive',
-      guardStallReasoningChars: 12000,
-      guardGlobalStallCap: 6,
-      guardEchoFailures: 2,
-    })
-    expect(configOf(rowOf(applied, 'tool-catalog'))['presentation']).toBe('ptc')
-    expect(configOf(rowOf(applied, 'guard'))).toEqual({
-      enabled: false,
-      sensitivity: 'aggressive',
-      stallReasoningChars: 12000,
-      globalStallCap: 6,
-      echoFailures: 2,
-    })
-    expect(configOf(rowOf(applied, 'tool-catalog'))['descriptionMaxLength']).toBe(200)
+  it('operator leaves the dispatcher key out of the row while the setting is unset', () => {
+    // Given the shipped rows and no dispatcher choice, When the operator
+    // applies the overlay, Then the minimal-prompt row keeps exactly the keys
+    // the composition declares: the switch is only ever written when a caller
+    // committed a value for it, never invented as a factory default.
+    const applied = applyPresetOverrides(rows(), { presentation: 'native' })
     expect(rowOf(applied, 'minimal-prompt')).toEqual(rowOf(rows(), 'minimal-prompt'))
+    expect(configOf(rowOf(applied, 'minimal-prompt'))['dispatcher']).toBe(true)
+  })
+
+  it('operator writes the dispatcher switch into the minimal-prompt row', () => {
+    // Given a committed dispatcher choice, When the operator applies the
+    // overlay, Then the minimal-prompt row carries it and the presentation key
+    // in the tool-catalog row is untouched: the two settings are orthogonal,
+    // and the row's other config keys survive.
+    const applied = applyPresetOverrides(rows(), { presentation: 'native', dispatcher: true })
+    const prompt = configOf(rowOf(applied, 'minimal-prompt'))
+    expect(prompt['dispatcher']).toBe(true)
+    expect(prompt['keepPlanPolicy']).toBe(true)
+    expect(prompt['instructionSource']).toBe('host')
+    expect(configOf(rowOf(applied, 'tool-catalog'))['presentation']).toBe('native')
+    expect(rowOf(applied, 'working-context')).toEqual(rowOf(rows(), 'working-context'))
+  })
+
+  it('operator turns the dispatcher switch back off through the same key', () => {
+    // Given a committed `false` for the dispatcher switch, When the operator
+    // applies the overlay, Then the row carries that value: the key is written
+    // for both directions, so a session can return to the bare persona.
+    const applied = applyPresetOverrides(rows(), { dispatcher: false })
+    expect(configOf(rowOf(applied, 'minimal-prompt'))['dispatcher']).toBe(false)
   })
 
   it('operator is never given a row the composition does not carry', () => {
     // Given a composition with no tool-catalog row, When the operator applies
     // a presentation choice, Then no row is invented for it.
-    const parsed = readCompositionRows('- id: other\n  name: ./other.mjs\n  config:\n    presentation: both\n', presetDir)
+    const parsed = readCompositionRows('- id: other\n  name: ./other.mjs\n  config:\n    presentation: native\n', presetDir)
     const applied = applyPresetOverrides(parsed, { presentation: 'ptc' })
     expect(applied).toEqual(parsed)
   })

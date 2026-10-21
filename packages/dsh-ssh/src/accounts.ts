@@ -57,6 +57,9 @@ class AccountHostStore extends HostStore {
   private checkPayload(payload: Partial<HostPayload>): void {
     this.checkAuth(payload.auth)
     this.checkProxyCommand(payload.proxyCommand)
+    if (this.restricted && payload.forwardAgent === true) {
+      throw new Error('Host SSH agent forwarding is available only to administrators')
+    }
     if (this.restricted && payload.proxyJump !== undefined && (!Array.isArray(payload.proxyJump) ||
       payload.proxyJump.some(alias => typeof alias !== 'string' || super.find(alias) === undefined))) {
       throw new Error('Every jump host must be configured in your SSH account')

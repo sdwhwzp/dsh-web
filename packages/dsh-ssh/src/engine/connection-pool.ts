@@ -97,8 +97,37 @@ export function buildConnectConfig(entry: SshHostEntry, sock: ConnectConfig['soc
       config.passphrase = entry.auth.passphrase
     }
   }
+  // Agent forwarding is additive: it never changes how the host
+  // authenticates, it only lets this connection broker signatures from the
+  // local agent for the remote side (OpenSSH ForwardAgent / ssh -A).
+  if (entry.forwardAgent === true) {
+    // Agent auth already resolved an endpoint, and reusing it keeps the
+    // forwarded agent identical to the one that authenticated.
+    const agentPath = typeof config.agent === 'string'
+      ? config.agent
+      : resolveForwardAgentPath(entry.auth.agentPath)
+    if (agentPath === undefined) {
+      // ssh2's own message for this case ("You must set a valid agent path to
+      // allow agent forwarding") names neither the host nor a way out, so the
+      // engine refuses first with an actionable one.
+      throw new Error('agent forwarding is enabled for this host but no ssh-agent endpoint is available: '
+        + 'set SSH_AUTH_SOCK, start Pageant on Windows, or configure an agent path')
+    }
+    config.agent = agentPath
+    config.agentForward = true
+  }
   return config
 }
+
+/**
+ * The default ssh-agent endpoint on Windows: the named pipe the native
+ * OpenSSH ssh-agent service listens on. ssh2 connects to a named pipe for any
+ * path matching its Windows pipe form, so the default is a real endpoint
+ * rather than a protocol name (#1910). PuTTY Pageant is still reachable — it
+ * is what the literal `pageant` agent path selects — but it is no longer the
+ * assumption.
+ */
+export const WINDOWS_AGENT_PIPE = '\\\\.\\pipe\\openssh-ssh-agent'
 
 /** Resolve the ssh2 agent path for 'agent' auth. */
 export function resolveAgentPath(agentPath?: string): string | undefined {
@@ -106,8 +135,22 @@ export function resolveAgentPath(agentPath?: string): string | undefined {
   if (explicit !== undefined) return explicit
   const sock = process.env.SSH_AUTH_SOCK
   if (sock !== undefined && sock !== '') return sock
-  if (process.platform === 'win32') return 'pageant'
+  if (process.platform === 'win32') return WINDOWS_AGENT_PIPE
   return undefined
+}
+
+/**
+ * Resolve the ssh-agent endpoint that forwarding brokers signatures through:
+ * an explicitly configured agent path wins, then SSH_AUTH_SOCK, then the
+ * native OpenSSH named pipe on Windows. Undefined means no endpoint exists on
+ * this machine.
+ *
+ * Forwarding shares the auth resolution on purpose — the endpoint a host
+ * signs through is the same one it authenticates with — but it is a separate
+ * name so the forwarding path can evolve without touching auth.
+ */
+export function resolveForwardAgentPath(agentPath?: string): string | undefined {
+  return resolveAgentPath(agentPath)
 }
 
 /** Keyboard-interactive handler callback for 2FA / dynamic prompt flow. */
@@ -232,6 +275,12 @@ export function parseJumpSpec(spec: string): { host: string; port?: number; user
  * Resolve one ProxyJump spec: an alias configured in this plugin wins, and any
  * other value is read as an OpenSSH address whose credentials come from the
  * target entry (an ad-hoc hop has no stored auth of its own).
+ *
+ * An address hop deliberately carries no forwardAgent flag: OpenSSH's
+ * ForwardAgent is a per-Host setting and an ad-hoc address was never
+ * configured, so it must never inherit the target's opt-in. A hop written as
+ * an alias uses that alias's own entry, which is how a user forwards on a
+ * bastion on purpose.
  */
 export function resolveHop(engine: PoolEngine, entry: SshHostEntry, spec: string): SshHostEntry {
   const configured = engine.store.find(spec)

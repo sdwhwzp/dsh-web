@@ -52,8 +52,8 @@ const PACKAGES = [
   { pkg: 'dsh-git-graph', files: [{ file: 'src/client/locales.ts', shape: 'zh-en' }] },
   { pkg: 'dsh-liangshen', files: [{ file: 'src/client/locales.ts', shape: 'zh-en' }] },
   { pkg: 'dsh-market', files: [{ file: 'src/client/locales.ts', shape: 'zh-en' }] },
-  { pkg: 'dsh-model-capabilities', files: [{ file: 'src/client/locales.ts', shape: 'zh-en' }] },
   { pkg: 'dsh-plugin-manager', files: [{ file: 'src/client/locales.ts', shape: 'zh-en' }] },
+  { pkg: 'dsh-remote-bridge', files: [{ file: 'src/client/locales.ts', shape: 'zh-en' }] },
   { pkg: 'dsh-remote-web-ui', files: [{ file: 'src/client/locales.ts', shape: 'zh-en' }] },
   { pkg: 'dsh-session-id', files: [{ file: 'src/client/locales.ts', shape: 'zh-en' }] },
   { pkg: 'dsh-session-archive', files: [{ file: 'src/client/locales.ts', shape: 'zh-en' }] },
@@ -236,6 +236,23 @@ export function diffPlaceholders(a, b) {
     if (onlyA.length > 0 || onlyB.length > 0) issues.push({ key, onlyA, onlyB })
   }
   return issues
+}
+
+/**
+ * The error lines for placeholder mismatches between the zh source of truth and
+ * one other dictionary. One formatter for every comparison on purpose: the zh/en
+ * and zh/ru loops each carried their own copy of this template, and the zh/en
+ * copy interpolated a loop variable that does not exist in its scope, so a
+ * mismatch crashed the gate instead of reporting it.
+ * @param pkg - the package the zh dictionary came from (the ru side names itself).
+ * @param ns - the locale namespace.
+ * @param issues - mismatches reported by {@link diffPlaceholders}.
+ * @param other - the dictionary compared against zh, as its report label ("en", "ru").
+ * @returns one error line per mismatched key.
+ */
+export function placeholderMismatchErrors(pkg, ns, issues, other) {
+  return issues.map(({ key, onlyA, onlyB }) =>
+    `[${pkg}] ns "${ns}" key "${key}": placeholder mismatch zh vs ${other} (zh-only: ${onlyA.join(', ') || 'none'}; ${other}-only: ${onlyB.join(', ') || 'none'})`)
 }
 
 /* ------------------------------------------------------------------ *
@@ -428,9 +445,7 @@ function checkMode(packages, ruDictionaries) {
     const diff = diffKeySets(zh, en)
     if (diff.missingInB.length > 0) errors.push(`[${pkg}] ns "${ns}": keys missing in en (${diff.missingInB.length}): ${diff.missingInB.join(', ')}`)
     if (diff.missingInA.length > 0) errors.push(`[${pkg}] ns "${ns}": keys missing in zh but present in en (${diff.missingInA.length}): ${diff.missingInA.join(', ')}`)
-    for (const issue of diffPlaceholders(zh, en)) {
-      errors.push(`[${pkg}] ns "${ns}" key "${key}": placeholder mismatch zh vs en (zh-only: ${issue.onlyA.join(', ') || 'none'}; en-only: ${issue.onlyB.join(', ') || 'none'})`)
-    }
+    errors.push(...placeholderMismatchErrors(pkg, ns, diffPlaceholders(zh, en), 'en'))
   }
 
   for (const file of walkClientFiles()) {
@@ -473,9 +488,7 @@ function checkMode(packages, ruDictionaries) {
         errors.push(`[${I18N_PACKAGE}] ns "${ns}" key "${key}": CJK inside a ru value (untranslated copy or wrong dict?)`)
       }
     }
-    for (const issue of diffPlaceholders(zh, ru)) {
-      errors.push(`[${I18N_PACKAGE}] ns "${ns}" key "${issue.key}": placeholder mismatch zh vs ru (zh-only: ${issue.onlyA.join(', ') || 'none'}; ru-only: ${issue.onlyB.join(', ') || 'none'})`)
-    }
+    errors.push(...placeholderMismatchErrors(I18N_PACKAGE, ns, diffPlaceholders(zh, ru), 'ru'))
   }
   const unknownNs = [...ruByNs.keys()].filter((ns) => !packages.some((p) => p.ns === ns))
   for (const ns of unknownNs) warnings.push(`[${I18N_PACKAGE}] ru dictionary for unknown ns "${ns}" (no audited package registers it)`)

@@ -1,25 +1,24 @@
 /**
- * LiangShen settings card: availability and the wire presentation. Registers
- * into the `web-ui.plugin.item` child slot the Web UI plugin group renders,
- * bound to the `liangshen` settings namespace (the Host profile entry id).
+ * LiangShen settings card: availability, the wire presentation, and the
+ * dispatcher identity. Registers into the `web-ui.plugin.item` child slot the
+ * Web UI plugin group renders, bound to the `liangshen` settings namespace
+ * (the Host profile entry id).
  *
- * The presentation field does not act on this client half: the Host applies it
- * to the preset it declares to the agent-preset registry, so a session reads it
- * from its preset. This card is the operator's only handle on it, which is why
- * every field the Host schema carries appears here.
+ * No field acts on this client half: the Host applies the presentation and the
+ * dispatcher switch to the preset it declares to the agent-preset registry, so
+ * a session reads both from its preset. The card is the operator's only handle
+ * on them, which is why every field the Host schema carries appears here.
  */
 
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
-import { BooleanField, ChoiceField, PluginSettingsCard, ValueField } from './PluginSettingsCard.tsx'
-import { CardForm, booleanField, choiceField, numberField, type CardActions, type CardShell, type FieldState as CardFieldState } from './settings-form.ts'
+import { LiangShenMark } from './LiangShenMark.tsx'
+import { BooleanField, ChoiceField, PluginSettingsCard } from './PluginSettingsCard.tsx'
+import { CardForm, booleanField, choiceField, type CardActions, type CardShell, type FieldState as CardFieldState } from './settings-form.ts'
 
 /** Wire presentations the tool catalog accepts (mirrors the Host schema). */
-export const PRESENTATION_CHOICES = ['ptc', 'native', 'both'] as const
-
-/** Sensitivity presets for the circuit breaker (mirrors the Host schema). */
-export const SENSITIVITY_CHOICES = ['conservative', 'balanced', 'aggressive'] as const
+export const PRESENTATION_CHOICES = ['ptc', 'native'] as const
 
 /** The LiangShen fields this card edits (the namespace's full schema). */
 export interface LiangShenSettings {
@@ -29,16 +28,8 @@ export interface LiangShenSettings {
   announceToAgent?: boolean
   /** Wire presentation the Host applies to the preset's tool-catalog row. */
   presentation?: string
-  /** Master switch for the runtime degeneration circuit breaker. */
-  guardEnabled?: boolean
-  /** Sensitivity preset scaling the breaker's adaptive thresholds. */
-  guardSensitivity?: string
-  /** Per-step reasoning-character floor for the breaker's runaway ladder. */
-  guardStallReasoningChars?: number
-  /** Consecutive output-free reasoning steps for the breaker's slow-burn ladder. */
-  guardGlobalStallCap?: number
-  /** Identical-argument tool failures for the breaker's echo ladder. */
-  guardEchoFailures?: number
+  /** Whether the preset appends the dispatcher rules section after the persona. */
+  dispatcher?: boolean
 }
 
 /** What the LiangShen card renders. */
@@ -46,11 +37,7 @@ export interface LiangShenSettingsCardState extends CardShell {
   enabled: CardFieldState
   announceToAgent: CardFieldState
   presentation: CardFieldState
-  guardEnabled: CardFieldState
-  guardSensitivity: CardFieldState
-  guardStallReasoningChars: CardFieldState
-  guardGlobalStallCap: CardFieldState
-  guardEchoFailures: CardFieldState
+  dispatcher: CardFieldState
 }
 
 /** The registration-side face the card's slot entry injects. */
@@ -72,11 +59,7 @@ export class LiangShenSettingsCardController {
       booleanField('enabled'),
       booleanField('announceToAgent'),
       choiceField('presentation', PRESENTATION_CHOICES),
-      booleanField('guardEnabled'),
-      choiceField('guardSensitivity', SENSITIVITY_CHOICES),
-      numberField('guardStallReasoningChars', { integer: true, min: 200 }),
-      numberField('guardGlobalStallCap', { integer: true, min: 2 }),
-      numberField('guardEchoFailures', { integer: true, min: 2 }),
+      booleanField('dispatcher'),
     ])
     this.store = this.form.bind(() => this.projection())
   }
@@ -87,11 +70,7 @@ export class LiangShenSettingsCardController {
       enabled: this.form.field('enabled'),
       announceToAgent: this.form.field('announceToAgent'),
       presentation: this.form.field('presentation'),
-      guardEnabled: this.form.field('guardEnabled'),
-      guardSensitivity: this.form.field('guardSensitivity'),
-      guardStallReasoningChars: this.form.field('guardStallReasoningChars'),
-      guardGlobalStallCap: this.form.field('guardGlobalStallCap'),
-      guardEchoFailures: this.form.field('guardEchoFailures'),
+      dispatcher: this.form.field('dispatcher'),
     }
   }
 
@@ -135,6 +114,7 @@ export function LiangShenSettingsCard(props: LiangShenSettingsCardProps) {
       t={t}
       titleKey="settings.title"
       descriptionKey="settings.description"
+      icon={<LiangShenMark />}
       defaultOpen={false}
       state={state}
       renderChildrenWhenNotExposed
@@ -175,58 +155,15 @@ export function LiangShenSettingsCard(props: LiangShenSettingsCardProps) {
         onReset={() => { props.resetField('presentation') }}
       />
       <BooleanField
-        id="settings-liangshen-guard-enabled"
-        label={t('settings.guardEnabled')}
-        hint={t('settings.guardEnabledHint')}
+        id="settings-liangshen-dispatcher"
+        label={t('settings.dispatcher')}
+        hint={t('settings.dispatcherHint')}
         onLabel={t('settings.on')}
         offLabel={t('settings.off')}
         {...fieldProps}
-        {...state.guardEnabled}
-        onEdit={(text) => { props.edit('guardEnabled', text) }}
-        onReset={() => { props.resetField('guardEnabled') }}
-      />
-      <ChoiceField
-        id="settings-liangshen-guard-sensitivity"
-        label={t('settings.guardSensitivity')}
-        hint={t('settings.guardSensitivityHint')}
-        choices={SENSITIVITY_CHOICES.map(choice => ({ value: choice, label: t(`sensitivity.${choice}`) }))}
-        {...fieldProps}
-        {...state.guardSensitivity}
-        onEdit={(text) => { props.edit('guardSensitivity', text) }}
-        onReset={() => { props.resetField('guardSensitivity') }}
-      />
-      <ValueField
-        id="settings-liangshen-guard-stall-chars"
-        numeric
-        label={t('settings.guardStallChars')}
-        hint={t('settings.guardStallCharsHint')}
-        placeholder="8000"
-        {...fieldProps}
-        {...state.guardStallReasoningChars}
-        onEdit={(text) => { props.edit('guardStallReasoningChars', text) }}
-        onReset={() => { props.resetField('guardStallReasoningChars') }}
-      />
-      <ValueField
-        id="settings-liangshen-guard-global-cap"
-        numeric
-        label={t('settings.guardGlobalCap')}
-        hint={t('settings.guardGlobalCapHint')}
-        placeholder="4"
-        {...fieldProps}
-        {...state.guardGlobalStallCap}
-        onEdit={(text) => { props.edit('guardGlobalStallCap', text) }}
-        onReset={() => { props.resetField('guardGlobalStallCap') }}
-      />
-      <ValueField
-        id="settings-liangshen-guard-echo"
-        numeric
-        label={t('settings.guardEchoFailures')}
-        hint={t('settings.guardEchoFailuresHint')}
-        placeholder="3"
-        {...fieldProps}
-        {...state.guardEchoFailures}
-        onEdit={(text) => { props.edit('guardEchoFailures', text) }}
-        onReset={() => { props.resetField('guardEchoFailures') }}
+        {...state.dispatcher}
+        onEdit={(text) => { props.edit('dispatcher', text) }}
+        onReset={() => { props.resetField('dispatcher') }}
       />
     </PluginSettingsCard>
   )

@@ -24,16 +24,18 @@ import { DEFAULT_IDLE_EXPIRE_MS, PairingService, type PairingConfig } from './pa
 import { dshHome } from './dsh-home.ts'
 import { isPairedDeviceRequest, makeGateListener } from './gate.ts'
 import { RemoteWebUiPairing } from './pairing-access.ts'
-import { isTrustedApiRequest, makeRoutes } from './routes.ts'
+import { isTrustedApiRequest, makeRoutes, PAIRING_SOURCE_OPTIONS, type PairingSourcePreference } from './routes.ts'
 import { makeRemoteApiRoutes, makeRemoteApiUpgradeRoutes } from './remote-api.ts'
 import { startRemotePresencePet, type PresencePetSeam } from './remote-presence-pet.ts'
 import { claimPostureKey, postureTargets, probePosture, releasePostureKey } from './posture.ts'
 import { lanIPv4Addresses } from './lan.ts'
-import { ensureFirewallRule, firewallSummary, removeFirewallRule } from './firewall.ts'
-import { lanBindState, writeLanBind } from './lan-bind.ts'
+import { ensureFirewallRule, firewallSummary, removeFirewallRule, type FirewallSummary } from './firewall.ts'
+import { lanBindState, removeManagedBlock } from './lan-bind.ts'
+import { FORWARD_UPSTREAM_HOST, LanForwarder, type LanForwardState } from './lan-forward.ts'
 import { isHttpUrl, tunnelPlanOf } from './tunnel-plan.ts'
 import { loadRelayIdentity, RelayRegistrar, type RelayState } from './relay-registry.ts'
-import { desiredBindHost, desiredBindPort, firewallActionNeeded, pendingRestartOf, resolveManagedProfile, type AppliedFirewallState, type StartupFacts } from './lan-bind-plan.ts'
+import { firewallActionNeeded, forwardPlanOf, isLanReachableBind, resolveManagedProfile, type AppliedFirewallState, type ForwardStopReason, type LanBindCapability, type StartupFacts } from './lan-bind-plan.ts'
+import { bindUrlHostOf, isWildcardLiteral, wildcardBindSupported, type ConfigSchemaFactory } from './host-bind-capability.ts'
 import { createInnerAuth } from './inner-auth.ts'
 import { withIdentityEncoding } from './http.ts'
 import { TunnelManager, type TunnelInfo } from './tunnel.ts'
@@ -207,6 +209,16 @@ export interface Config {
   profile?: string
   /** Master switch for the plugin (browser half + host pairing surfaces). */
   enabled?: boolean
+  /**
+   * The manual override of the automatic pairing-network choice, for the case
+   * where the phone's own probe misjudges (see `PairingSourcePreference` in
+   * routes.ts). `auto` (default) names the public base in the QR link and lets
+   * the landing page switch to a LAN origin when one answers; `public` pins the
+   * public base and disables the probe; `lan` pins the first LAN literal and
+   * skips the public hop entirely. Set through the profile patch — the settings
+   * card carries no control for it, so a save from that card leaves it alone.
+   */
+  pairingSource?: PairingSourcePreference
 }
 
 /**
@@ -245,10 +257,17 @@ export const Config = z.object({
   lanBind: z.boolean().volatile(),
   profile: z.string().pattern(/^[A-Za-z0-9][A-Za-z0-9._-]*$/),
   enabled: z.boolean().default(true).volatile(),
+  pairingSource: z.union([...PAIRING_SOURCE_OPTIONS]).default('auto').volatile(),
 })
 
 /** Presence sweep cadence (a stale device flips to disconnected within two sweeps). */
 const SWEEP_INTERVAL_MS = 10_000
+
+/**
+ * Re-plan retry while the quick tunnel waits for the webServer port to bind
+ * (a recompose pass can run this apply ahead of the listener's bind).
+ */
+const PORT_SETTLE_RETRY_MS = 1_000
 
 /**
  * Fully resolved config: every field non-optional except `publicBaseUrl`,
@@ -294,6 +313,7 @@ export interface ResolvedConfigFields {
   lanBind?: ConfigField<boolean>
   profile?: ConfigField<string>
   enabled?: ConfigField<boolean>
+  pairingSource?: ConfigField<PairingSourcePreference>
 }
 
 /** Read one resolved config field, following the live reference the schema produces. */
@@ -360,6 +380,7 @@ const DEFAULTS: ResolvedConfig = {
   lanBind: undefined,
   profile: resolveManagedProfile(undefined, undefined, process.env.DSH_PROFILE),
   enabled: true,
+  pairingSource: 'auto',
 }
 
 /**
@@ -382,6 +403,137 @@ function launchedProfileName(ctx: Context): string | undefined {
  * @param config - resolved plugin config (schema defaults applied by the loader).
  */
 export const apply = mountOnce('@linxin666/dsh-remote-web-ui', applyImpl)
+
+/**
+ * What the running host accepts as a bind, sampled once per boot: the installed
+ * webserver schema decides the wildcard (see host-bind-capability.ts) and the
+ * interface list is frozen for the same reason the QR bases are.
+ *
+ * The plugin no longer writes a bind anywhere (issue #1917), so the schema
+ * answer is reported to the settings card and never turned into a profile row;
+ * the LAN edge listens on a concrete interface literal, which every schema
+ * line accepts.
+ * @param configOf - schema factory override (test seam); the installed package's own by default.
+ * @returns the capability the LAN-edge plan is computed against.
+ */
+export function lanBindCapabilityOf(
+  configOf?: ConfigSchemaFactory,
+): LanBindCapability {
+  return {
+    wildcardSupported: wildcardBindSupported(configOf),
+    candidates: lanIPv4Addresses(),
+  }
+}
+
+/**
+ * The LAN URL bases a non-loopback bind is reachable by. A wildcard bind
+ * answers every interface, so each candidate gets its own base (a multi-homed
+ * machine can pick the network the phone actually reaches). A concrete literal
+ * is only reachable at that literal, so it is the only base advertised.
+ * @param host - the live bind, or the block host on a process whose bind is not settled.
+ * @param port - the bound port.
+ * @returns the bases, empty when the bind stays on this machine.
+ */
+export function lanBasesOf(host: string | undefined, port: number): { address: string; base: string }[] {
+  if (typeof host !== 'string' || !isLanReachableBind(host)) return []
+  const addresses = isWildcardLiteral(host)
+    ? lanIPv4Addresses()
+    // A literal with no URL form (a non-loopback IPv6 zone id) is unadvertisable:
+    // an invented base would cost a phone the whole pairing attempt.
+    : [bindUrlHostOf(host)].filter((address): address is string => address !== undefined && address !== '')
+  return addresses.map(address => ({ address, base: `http://${address}:${String(port)}` }))
+}
+
+/** The facts the LAN-bind status frame is built from, read at request time. */
+export interface LanBindFrameInput {
+  /** The managed profile. */
+  profile: string
+  /** The toggle: true/false once flipped, undefined while untouched. */
+  setting: boolean | undefined
+  /** The host a previous version's managed block still pins, before cleanup. */
+  blockHost: string | undefined
+  /** The live bind of the running web server (loopback in this design). */
+  bindHost: string | undefined
+  /** The LAN forwarder's live state. */
+  forward: LanForwardState
+  /** Why the forwarder is off, when the toggle asks for it. */
+  forwardReason: ForwardStopReason | undefined
+  /** Whether this process removed the block a previous version left behind. */
+  legacyBlockRemoved: boolean
+  /** The bound port, when it has settled. */
+  port: number | undefined
+  /** What the installed webserver schema accepts (reported, never written). */
+  wildcardSupported: boolean
+  /** The local non-loopback IPv4 literals this process could listen on. */
+  candidates: string[]
+  /** The CLI startup facts the plan is computed against. */
+  startupHost: string | undefined
+}
+
+/**
+ * The LAN-bind status frame the loopback-only `/api/pair/lan-bind` endpoint
+ * serves, built as one pure value so every field has direct unit coverage.
+ *
+ * `bindHost` is the address LAN clients can actually dial - the forwarder's
+ * listener, or the running bind when the operator pointed `--host` at the
+ * network - because that is what the card renders as "bind: host:port".
+ * `localBindHost` keeps the host process's own listener visible beside it.
+ * @param input - the facts read at request time.
+ * @param firewallOf - firewall summary reader (injected in tests).
+ * @returns the frame the settings card reads.
+ */
+export function lanBindFrameOf(
+  input: LanBindFrameInput,
+  firewallOf: (port: number, lanOn: boolean) => FirewallSummary = firewallSummary,
+): Record<string, unknown> {
+  const capability: LanBindCapability = {
+    wildcardSupported: input.wildcardSupported,
+    candidates: input.candidates,
+  }
+  const plan = forwardPlanOf(input.setting, input.startupHost, capability)
+  // Reachability is the LAN edge, never the host's own bind: the forwarder's
+  // listener when it is up, and the running bind when the operator made the
+  // host itself listen on the network (the forwarder yields that port).
+  const reachHost = input.forward.listening ? input.forward.address : input.bindHost
+  return {
+    profile: input.profile,
+    setting: input.setting ?? null,
+    blockHost: input.blockHost ?? null,
+    bindHost: reachHost,
+    localBindHost: input.bindHost ?? null,
+    port: input.port,
+    lanUrls: input.port !== undefined
+      ? lanBasesOf(reachHost, input.port).map(entry => entry.base)
+      : [],
+    firewall: input.port !== undefined
+      ? firewallOf(input.port, isLanReachableBind(reachHost))
+      : { ok: true, managed: false },
+    platform: process.platform,
+    /** The LAN address the forwarder plans to listen on; null when it must stay off. */
+    desiredHost: plan.host ?? null,
+    /** Whether the running host's schema accepts the wildcard bind (reported only). */
+    wildcardSupported: input.wildcardSupported,
+    /** The concrete LAN literals this process could listen on. */
+    supportedHosts: input.candidates,
+    /** The toggle is on but this machine has no LAN IPv4 address to listen on. */
+    lanBlocked: plan.reason === 'no-address',
+    // Always false: nothing this plugin does needs a restart any more. The
+    // field stays in the frame because the card renders it (the copy for the
+    // new failure states lands with the client/i18n follow-up).
+    pendingRestart: false,
+    /** The block a previous version wrote was removed by this process. */
+    legacyBlockRemoved: input.legacyBlockRemoved,
+    /** The LAN edge itself: what it listens on, and why not when it is off. */
+    forward: {
+      listening: input.forward.listening,
+      host: input.forward.address ?? null,
+      port: input.forward.port ?? null,
+      // A listening edge has no "why off": the reason only describes a stopped one.
+      reason: input.forward.listening ? null : (input.forwardReason ?? null),
+      error: input.forward.error ?? null,
+    },
+  }
+}
 
 function applyImpl(ctx: Context, config?: ResolvedConfigFields): void {
   const envPublicBase = process.env.DSH_REMOTE_PUBLIC_BASE_URL?.trim() || undefined
@@ -406,6 +558,7 @@ function applyImpl(ctx: Context, config?: ResolvedConfigFields): void {
     lanBind: readOptionalConfigField(config?.lanBind),
     profile: resolveManagedProfile(readOptionalConfigField(config?.profile), launchedProfileName(ctx), process.env.DSH_PROFILE),
     enabled: readConfigField(config?.enabled, DEFAULTS.enabled),
+    pairingSource: readConfigField(config?.pairingSource, DEFAULTS.pairingSource),
   })
   const service = new PairingService(pairingConfigOf(resolve()))
 
@@ -475,6 +628,14 @@ function applyImpl(ctx: Context, config?: ResolvedConfigFields): void {
   // 'off' until a sync pass turns a mode on; the phase listener only feeds
   // the public base while a plugin-managed tunnel (quick or named) runs.
   let tunnelMode: 'off' | 'quick' | 'named' = resolve().autoTunnel ? 'quick' : 'off'
+  /**
+   * Retry timer while the quick tunnel waits for the webServer port to bind
+   * (undefined when no deferral is pending). Unref'd: never keeps the
+   * process alive on its own.
+   */
+  let portSettleTimer: ReturnType<typeof nodeSetTimeout> | undefined
+  /** Dedupes the unbound-port warning to one line per unsettled episode. */
+  let portSettleWarned = false
   tunnel.onPhase((info: TunnelInfo) => {
     if (tunnelMode === 'off') return
     if (info.phase === 'running' && info.url !== undefined) {
@@ -501,6 +662,7 @@ function applyImpl(ctx: Context, config?: ResolvedConfigFields): void {
     disposeRelayRegistrar()
     publicBase.dispose()
     tunnel.dispose()
+    if (portSettleTimer !== undefined) clearTimeout(portSettleTimer)
   }, 'remote-web-ui: auto tunnel')
   // The bind facts are known by now (webServer is an inject edge): the LAN
   // bases are frozen per process, matching the CLI's once-per-invocation
@@ -511,13 +673,14 @@ function applyImpl(ctx: Context, config?: ResolvedConfigFields): void {
   // settled yet (host unset, port undefined); deriving LAN bases from that
   // would advertise :undefined links or clear a working set, so the bases
   // only update when both facts are readable.
-  const bindKnown = (ctx.webServer.host === '0.0.0.0' || ctx.webServer.host === '127.0.0.1')
+  // The reachability signal is "the bind is not loopback", never equality with
+  // the wildcard: a host that refuses wildcard binds serves the LAN from one
+  // concrete interface address, which an equality check would read as
+  // local-only (issue #1893).
+  const bindKnown = typeof ctx.webServer.host === 'string' && ctx.webServer.host !== ''
     && Number.isFinite(ctx.webServer.port)
   if (bindKnown) {
-    const lanBases = ctx.webServer.host === '0.0.0.0'
-      ? lanIPv4Addresses().map(address => ({ address, base: `http://${address}:${String(ctx.webServer.port)}` }))
-      : []
-    service.setLanBases(lanBases)
+    service.setLanBases(lanBasesOf(ctx.webServer.host, ctx.webServer.port as number))
   }
 
   // Push the effective configuration into the service and gate. The service
@@ -535,6 +698,12 @@ function applyImpl(ctx: Context, config?: ResolvedConfigFields): void {
   // round are both reflected without a restart.
   let lastKnownPort: number | undefined
   let lastFirewallApplied: AppliedFirewallState | undefined
+  // What the running host accepts, sampled once per boot: the schema cannot
+  // change under a running process, and the candidate list is frozen for the
+  // same reason the QR bases are. One value therefore drives both the block the
+  // re-assert writes and the capability the status frame reports, so the card
+  // never explains a literal the write path would not have chosen.
+  const capability = lanBindCapabilityOf()
   const lanBindStatus = (): Record<string, unknown> => {
     const resolvedNow = resolve()
     let state: { blockPresent: boolean; host?: string; port?: number }
@@ -544,31 +713,21 @@ function applyImpl(ctx: Context, config?: ResolvedConfigFields): void {
       // An unsafe profile value must not take the whole status endpoint down.
       state = { blockPresent: false }
     }
-    const lanOn = state.host === '0.0.0.0'
     const port = Number.isFinite(ctx.webServer.port) ? ctx.webServer.port : lastKnownPort
     if (Number.isFinite(ctx.webServer.port)) lastKnownPort = ctx.webServer.port
-    const startup = ctx.get('webStartup') as StartupFacts | undefined
-    const desiredHost = resolvedNow.lanBind === undefined
-      ? undefined
-      : desiredBindHost(resolvedNow.lanBind === true, startup?.host)
-    return {
+    return lanBindFrameOf({
       profile: resolvedNow.profile,
-      setting: resolvedNow.lanBind ?? null,
-      blockHost: state.host ?? null,
+      setting: resolvedNow.lanBind,
+      blockHost: state.host,
       bindHost: ctx.webServer.host,
+      forward: forwarder.snapshot(),
+      forwardReason,
+      legacyBlockRemoved,
       port,
-      lanUrls: ctx.webServer.host === '0.0.0.0' && port !== undefined
-        ? lanIPv4Addresses().map(address => `http://${address}:${String(port)}`)
-        : [],
-      firewall: port !== undefined ? firewallSummary(port, lanOn) : { ok: true, managed: false },
-      platform: process.platform,
-      // The running bind does not follow the block on every deployment (the
-      // live patch watcher is profile-shape dependent): flag the divergence
-      // so the card can ask for a restart instead of looking broken. The
-      // comparison uses the effective desired host (a CLI --host wins over
-      // the toggle), not the raw toggle.
-      pendingRestart: pendingRestartOf(resolvedNow.lanBind, desiredHost, ctx.webServer.host),
-    }
+      wildcardSupported: capability.wildcardSupported,
+      candidates: capability.candidates,
+      startupHost: (ctx.get('webStartup') as StartupFacts | undefined)?.host,
+    })
   }
   // The process's inner browser credential: the proxied /api re-issues to
   // 127.0.0.1, where the connection route enforces the harness browser-auth
@@ -616,6 +775,7 @@ function applyImpl(ctx: Context, config?: ResolvedConfigFields): void {
     ...makeRoutes({
       service,
       requirePairingForLan: () => resolve().requirePairingForLan,
+      pairingSource: () => resolve().pairingSource,
       lanBindStatus,
       indexDocument: fetchAppShell,
       trustedHosts: () => {
@@ -647,13 +807,13 @@ function applyImpl(ctx: Context, config?: ResolvedConfigFields): void {
     // credential to everything it forwards (issue #1665).
     ...makeRemoteApiRoutes({
       service,
-      port: ctx.webServer.port,
+      port: () => ctx.webServer.port,
       auth: innerAuth,
     }),
   ]
   const upgrades = makeRemoteApiUpgradeRoutes({
     service,
-    port: ctx.webServer.port,
+    port: () => ctx.webServer.port,
     auth: innerAuth,
   })
   const gate = makeGateListener(service, () => resolve().requirePairingForLan, () => resolve().enabled)
@@ -669,7 +829,12 @@ function applyImpl(ctx: Context, config?: ResolvedConfigFields): void {
   let postureWasExposed = false
   const runPostureProbe = (): void => {
     if (!resolve().enabled) return
-    const targets = postureTargets(service.publicBaseUrl, service.lanAddresses, ctx.webServer.port)
+    // The probe and the LAN targets need the bound port; before it settles
+    // (a recompose pass) there is nothing honest to probe — keep the previous
+    // snapshot and let the next trigger retry.
+    const port = ctx.webServer.port
+    if (port === undefined) return
+    const targets = postureTargets(service.publicBaseUrl, service.lanAddresses, port)
     if (targets.length === 0) {
       postureKey = undefined
       service.setPosture(undefined)
@@ -679,7 +844,7 @@ function applyImpl(ctx: Context, config?: ResolvedConfigFields): void {
     const claim = claimPostureKey(postureKey, key)
     if (!claim.run) return
     postureKey = claim.next
-    void probePosture({ port: ctx.webServer.port, targets }).then((snapshot) => {
+    void probePosture({ port, targets }).then((snapshot) => {
       service.setPosture(snapshot)
       const exposedHosts = snapshot.hosts.filter(host => host.exposed).map(host => host.host)
       const exposed = exposedHosts.length > 0
@@ -728,81 +893,167 @@ function applyImpl(ctx: Context, config?: ResolvedConfigFields): void {
     const urls = service.lanAddresses.map(ip => `http://${ip}:${String(ctx.webServer.port)}`).join(' , ')
     console.log(`remote-web-ui: the paired Web GUI is reachable on LAN at ${urls}`)
   }
-  // Cohort honesty (see the README security model): the pairing gate covers
-  // the plugin's own /remote channel; direct /api from LAN origins is
-  // governed by the harness fence + browser-auth cookie, and this cohort's
-  // api/gate seam has no emitter — so stop()/revoke() cannot invalidate a
-  // browser credential a device has already redeemed.
-  if (ctx.webServer.host === '0.0.0.0') {
-    console.warn('remote-web-ui: LAN-exposed bind — pairing gates the /remote channel; direct /api stays under the harness fence + browser auth (stop() does not revoke an already-redeemed browser credential)')
+  // The LAN-exposure note lives with the LAN edge (warnLanExposure below): the
+  // forwarder announces it when it starts, and the --host yield announces it
+  // when the host itself binds the network.
+
+  // ── the LAN edge (issue #1917) ──────────────────────────────────────────
+  // This plugin owns no bind. The web server's row is the profile's own, and it
+  // was never this plugin's to rewrite: a same-id patch row replaces the whole
+  // config (so --host/--port were swallowed), and the profile patch is exactly
+  // what the Host's HMR config watcher refreshes from (so writing it rebound the
+  // live listener mid-session). LAN reachability comes from the runtime
+  // forwarder instead (lan-forward.ts): the host keeps listening on loopback and
+  // the forwarder serves the LAN address on the same port.
+  const forwarder = new LanForwarder()
+  /** Why the forwarder is off as of the last reconcile; the status frame reports it. */
+  let forwardReason: ForwardStopReason | undefined = 'off'
+  /** Whether this process removed the block a previous version left behind. */
+  let legacyBlockRemoved = false
+  /** The legacy cleanup runs once per process, ahead of every other bind step. */
+  let legacyCleanupDone = false
+  /** One operator-facing line per stop reason, so a sync loop cannot flood the log. */
+  const warnedForwardReasons = new Set<ForwardStopReason>()
+  let lanExposureWarned = false
+
+  /** One honest note that LAN exposure rests on pairing, not on the harness fence. */
+  const warnLanExposure = (): void => {
+    if (lanExposureWarned) return
+    lanExposureWarned = true
+    // Cohort honesty (see the README security model): the pairing gate covers
+    // the plugin's own /remote channel; direct /api from LAN origins is
+    // governed by the harness fence + browser-auth cookie, and this cohort's
+    // api/gate seam has no emitter — so stop()/revoke() cannot invalidate a
+    // browser credential a device has already redeemed.
+    console.warn('remote-web-ui: LAN-exposed edge — pairing gates the /remote channel; direct /api stays under the harness fence + browser auth (stop() does not revoke an already-redeemed browser credential)')
   }
 
-  // LAN bind toggle: only write the managed patch block once the user has
-  // flipped it (undefined = untouched, never write). Desired host/port come
-  // from the CLI flags when given (flags win), else from the toggle and
-  // the currently bound port. The block takes effect on the next start, so
-  // the re-assert at every boot keeps it in sync with both the toggle and
-  // the flags.
-  //
-  // cordis.patch.yml is exactly the file the Host's HMR config watcher
-  // refreshes from, and a settings save runs inside the Host's exclusive HMR
-  // transaction. Writing that file while the caller's transaction is open makes
-  // the watcher's refresh re-enter it, which the Host refuses with "HMR
-  // transactions cannot be nested" and which surfaces on the user's save
-  // (#1751, #1754).
-  //
-  // Deferring alone does NOT escape that context, and the earlier belt rested
-  // on a premise that measurement disproves: AsyncLocalStorage is propagated
-  // into setImmediate, into node:timers, and into AsyncResource scopes (a
-  // plain resource built while the transaction runs inherits it), so
-  // "setImmediate starts a fresh store" is false. What does start clean is an
-  // AsyncResource created at module scope, before any transaction existed -
-  // see detached-work.ts. scheduleLanBindWork runs the scheduling through it,
-  // so the write lands outside the caller's transaction.
-  //
-  // The assertion is also idempotent on its own: the write is guarded by the
-  // current-vs-desired comparison below, so once the profile carries the block
-  // a coalesced follow-up sync() finds nothing to do. That guard is a second
-  // belt, not the fix.
-  const applyLanBindWork = (value: ResolvedConfig): void => {
-    if (value.lanBind !== undefined) {
-      const startup = ctx.get('webStartup') as StartupFacts | undefined
-      const desiredHost = desiredBindHost(value.lanBind === true, startup?.host)
-      const desiredPort = desiredBindPort(startup?.port, Number.isFinite(ctx.webServer.port) ? ctx.webServer.port : undefined)
-      if (desiredPort === undefined) {
-        console.error('remote-web-ui: cannot assert the lan-bind block — the web server port is not known yet')
-      } else {
-        try {
-          const current = lanBindState(value.profile)
-          if (current.host !== desiredHost || current.port !== desiredPort) {
-            writeLanBind(desiredHost, desiredPort, value.profile)
-            console.log(`remote-web-ui: lan-bind block written for profile ${value.profile} (${desiredHost}:${String(desiredPort)}); it takes effect when the profile next applies (the card reports pendingRestart until the running bind follows)`)
-          }
-        } catch (error) {
-          console.error(`remote-web-ui: failed to write the lan-bind block: ${error instanceof Error ? error.message : String(error)}`)
-        }
+  /** The address a LAN client dials right now: the forwarder, else the host's own bind. */
+  const lanEdgeHost = (): string | undefined => {
+    const state = forwarder.snapshot()
+    return state.listening ? state.address : ctx.webServer.host
+  }
+
+  /**
+   * Point the pairing service at the authority phones actually dial. The QR
+   * bases and the phone-facing fences compare the Host header against this
+   * list, so following the forwarder is what keeps a paired phone paired.
+   */
+  const applyLanBases = (): void => {
+    if (!Number.isFinite(ctx.webServer.port)) return
+    service.setLanBases(lanBasesOf(lanEdgeHost(), ctx.webServer.port as number))
+  }
+
+  /**
+   * Remove the managed block a previous version (<= 0.4.8) wrote, once per
+   * process and before anything else touches the profile. A surviving block
+   * keeps replacing the web server row's config wholesale, so every later start
+   * ignores --host/--port and binds a literal an older plugin guessed - the
+   * exact failure this issue is about. Nothing is written back.
+   * @param profile - the managed profile whose patch file may carry the block.
+   */
+  const cleanupLegacyBlock = (profile: string): void => {
+    if (legacyCleanupDone) return
+    legacyCleanupDone = true
+    try {
+      const result = removeManagedBlock(profile)
+      legacyBlockRemoved = result.removed
+      if (result.removed) {
+        console.log(`remote-web-ui: removed the lan-bind block a previous version wrote into profile ${profile} (${result.host ?? '?'}:${String(result.port ?? '?')}); the web server row is never rewritten again`)
       }
-      // Keep the firewall rule aligned with the toggle (managed platforms
-      // only; see firewall.ts). The probes and rule rewrites are blocking
-      // subprocesses, so they run only when the desired state actually moved
-      // — not on every unrelated settings save. The port is the live bind
-      // port; without it there is nothing to align yet.
-      const livePort = Number.isFinite(ctx.webServer.port) ? ctx.webServer.port : undefined
-      if (livePort === undefined) {
-        console.error('remote-web-ui: cannot align the host firewall rule — the web server port is not known yet')
-      } else {
-        const nextFirewall: AppliedFirewallState = { enabled: value.lanBind === true, port: livePort }
-        if (firewallActionNeeded(lastFirewallApplied, nextFirewall)) {
-          const ruleOk = nextFirewall.enabled ? ensureFirewallRule(nextFirewall.port) : removeFirewallRule(nextFirewall.port)
-          if (ruleOk) {
-            lastFirewallApplied = nextFirewall
-          } else {
-            console.error('remote-web-ui: the host firewall rule could not be updated (admin rights required on managed platforms)')
-          }
-        }
-      }
+    } catch (error) {
+      // A block that cannot be removed keeps swallowing the bind on every later
+      // start, so this failure is reported loudly instead of skipped. The LAN
+      // edge still runs: it does not depend on the profile file at all.
+      console.error(`remote-web-ui: failed to remove the lan-bind block from profile ${profile}: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
+
+  /**
+   * Bring the LAN edge in line with the toggle. Every failure here costs the LAN
+   * edge only: the loopback listener is never touched, so an address that
+   * disappeared after a network change or a port already taken cannot brick the
+   * host - the reason is logged and reported on the status frame.
+   * @param value - the effective plugin configuration.
+   */
+  const applyForwardEdge = (value: ResolvedConfig): void => {
+    const startup = ctx.get('webStartup') as StartupFacts | undefined
+    // The interface list is re-sampled per reconcile (unlike the schema answer,
+    // which cannot change under a running process): a machine that changed
+    // networks must not keep serving a LAN address it no longer has, and the
+    // plan follows the address it does have.
+    const liveCapability: LanBindCapability = { wildcardSupported: capability.wildcardSupported, candidates: lanIPv4Addresses() }
+    const plan = forwardPlanOf(value.lanBind, startup?.host, liveCapability)
+    forwardReason = plan.reason
+    const state = forwarder.snapshot()
+    const port = Number.isFinite(ctx.webServer.port) ? ctx.webServer.port as number : undefined
+    if (plan.host === undefined || port === undefined) {
+      if (state.listening) void forwarder.stop().then(applyLanBases)
+      else applyLanBases()
+      if (plan.reason !== undefined && !warnedForwardReasons.has(plan.reason)) {
+        warnedForwardReasons.add(plan.reason)
+        if (plan.reason === 'host-bind') {
+          console.log(`remote-web-ui: the web server itself binds ${startup?.host ?? ''} (from --host), so the LAN forwarder yields that port and this plugin adds no listener`)
+          warnLanExposure()
+        } else if (plan.reason === 'no-address') {
+          console.error('remote-web-ui: lanBind is on but this machine has no LAN IPv4 address to listen on; LAN access stays off, use a tunnel instead')
+        }
+      }
+      return
+    }
+    if (state.listening && state.address === plan.host && state.port === port) return
+    const host = plan.host
+    void forwarder.start(host, port).then((next) => {
+      if (next.listening) {
+        console.log(`remote-web-ui: LAN forwarder listening on ${host}:${String(port)} -> ${FORWARD_UPSTREAM_HOST}:${String(next.upstreamPort)}; the web server itself stays on loopback`)
+        warnLanExposure()
+      } else {
+        console.error(`remote-web-ui: the LAN forwarder could not listen on ${host}:${String(port)} (${next.error ?? 'unknown error'}); loopback access is unaffected and the LAN edge stays off`)
+      }
+      applyLanBases()
+    })
+  }
+
+  /**
+   * The bind work one sync runs: the legacy block removal, the LAN edge, and the
+   * firewall rule. It never writes a profile file except to remove the block an
+   * older version left there.
+   *
+   * The scheduling that reaches it still runs through runDetached (see
+   * scheduleLanBindWork): a settings save holds the Host's exclusive HMR
+   * transaction in its async context, and a config-file write from inside that
+   * context makes the watcher's refresh re-enter it ("HMR transactions cannot be
+   * nested", #1751/#1754). The removal is a no-op on every boot after the first,
+   * so the ordinary path writes nothing at all.
+   * @param value - the effective plugin configuration.
+   */
+  const applyLanBindWork = (value: ResolvedConfig): void => {
+    cleanupLegacyBlock(value.profile)
+    applyForwardEdge(value)
+    if (value.lanBind === undefined) return
+    // Keep the firewall rule aligned with the toggle (managed platforms only;
+    // see firewall.ts). The probes and rule rewrites are blocking subprocesses,
+    // so they run only when the desired state actually moved - not on every
+    // unrelated settings save. The port is the live bind port; without it there
+    // is nothing to align yet.
+    const livePort = Number.isFinite(ctx.webServer.port) ? ctx.webServer.port : undefined
+    if (livePort === undefined) {
+      console.error('remote-web-ui: cannot align the host firewall rule — the web server port is not known yet')
+      return
+    }
+    const nextFirewall: AppliedFirewallState = { enabled: value.lanBind === true, port: livePort }
+    if (!firewallActionNeeded(lastFirewallApplied, nextFirewall)) return
+    const ruleOk = nextFirewall.enabled ? ensureFirewallRule(nextFirewall.port) : removeFirewallRule(nextFirewall.port)
+    if (ruleOk) {
+      lastFirewallApplied = nextFirewall
+    } else {
+      console.error('remote-web-ui: the host firewall rule could not be updated (admin rights required on managed platforms)')
+    }
+  }
+
+  // The forwarder and its connections belong to this activation: a dispose (or a
+  // remount) must leave no orphan listener behind.
+  ctx.effect(() => () => { void forwarder.stop() }, 'remote-web-ui: lan forwarder')
 
   // The LAN bind assertion never blocks the caller: one pending work item is
   // enough, and it always re-reads the config through `resolve()` at run time
@@ -833,18 +1084,13 @@ function applyImpl(ctx: Context, config?: ResolvedConfigFields): void {
   }
   ctx.effect(() => () => { lanBindWorkPending = false }, 'remote-web-ui: lan-bind work')
 
-  // Apply the effective configuration to the running surfaces once per
-  // activation: the service tunables, the LAN-bind block/firewall, the tunnel
-  // plan, the pairing routes, the presence sweep, and the posture probe.
-  const sync = (): void => {
-    const value = resolve()
-    service.config = pairingConfigOf(value)
-    scheduleLanBindWork()
-    // The plugin-managed tunnels own the public base while one runs: the URL
-    // lands in the service through the tunnel's phase listener (the minted
-    // quick URL, or the named tunnel's fixed public hostname). The manual
-    // publicBaseUrl applies only when no tunnel runs.
-    const plan = tunnelPlanOf(value, ctx.webServer.port)
+  // Apply one tunnel plan to the running surfaces. The plugin-managed tunnels
+  // own the public base while one runs: the URL lands in the service through
+  // the tunnel's phase listener (the minted quick URL, or the named tunnel's
+  // fixed public hostname). The manual publicBaseUrl applies only when no
+  // tunnel runs.
+  const applyTunnelPlan = (value: ResolvedConfig, port: number | undefined): void => {
+    const plan = tunnelPlanOf(value, port)
     tunnelMode = plan.mode
     publicBase.setMode(plan.mode)
     const liveTunnelUrl = publicBase.quickUrl()
@@ -902,6 +1148,36 @@ function applyImpl(ctx: Context, config?: ResolvedConfigFields): void {
       } else {
         service.setPublicBaseUrl(value.publicBaseUrl)
       }
+    }
+  }
+
+  // Apply the effective configuration to the running surfaces once per
+  // activation: the service tunables, the LAN-bind block/firewall, the tunnel
+  // plan, the pairing routes, the presence sweep, and the posture probe.
+  const sync = (): void => {
+    const value = resolve()
+    service.config = pairingConfigOf(value)
+    scheduleLanBindWork()
+    // The quick tunnel's loopback target URL needs the bound port. A recompose
+    // pass can run this apply before the listener binds: defer the tunnel
+    // branch (and re-plan on a short timer) instead of minting an
+    // http://127.0.0.1:undefined target; everything else in sync applies.
+    const livePort = ctx.webServer.port
+    if (livePort === undefined && value.autoTunnel === true) {
+      if (!portSettleWarned) {
+        portSettleWarned = true
+        console.warn('remote-web-ui: autoTunnel is on but the web server port is not bound yet — the quick tunnel starts once the port settles')
+      }
+      if (portSettleTimer === undefined) {
+        portSettleTimer = nodeSetTimeout(() => {
+          portSettleTimer = undefined
+          sync()
+        }, PORT_SETTLE_RETRY_MS)
+        portSettleTimer.unref()
+      }
+    } else {
+      portSettleWarned = false
+      applyTunnelPlan(value, livePort)
     }
     const enabled = value.enabled
     if (!enabled) {

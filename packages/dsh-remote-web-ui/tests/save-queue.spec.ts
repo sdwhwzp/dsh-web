@@ -21,7 +21,7 @@ import { CardForm, textField } from '../src/client/settings-form.ts'
  * @returns the form double plus its in-flight observations.
  */
 function concurrencyProbe() {
-  let snapshot: ConfigFormSnapshot<Record<string, unknown>> = { status: 'ready', value: { relay: 'initial' }, base: { relay: 'initial' }, user: {}, revision: 1, writable: true, mode: 'host' }
+  let snapshot: ConfigFormSnapshot<Record<string, unknown>> = { status: 'ready', value: { relay: true }, base: { relay: true }, user: {}, revision: 1, writable: true, mode: 'host' }
   let inFlight = 0
   let peak = 0
   let calls = 0

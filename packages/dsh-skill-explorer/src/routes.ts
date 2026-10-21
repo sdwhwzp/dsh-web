@@ -1,12 +1,18 @@
 /**
  * The /api/dsh-skill-explorer route family: list (grouped by source), read
  * (one skill's editable fields and body), set enabled (rewrites SKILL.md
- * frontmatter), create, update (rewrites an existing SKILL.md in place),
- * delete (move to .trash) and health. Every route carries the shared trust
- * fence (loopback by default; a live paired-device cookie is an extra allow
+ * frontmatter), set provider enabled (records a panel-local switch for a
+ * plugin-provided skill, which has no writable path), create, update (rewrites
+ * an existing SKILL.md in place), delete (move to .trash), import (batch-create
+ * skills from a directory or a .zip archive) and health. Every route carries
+ * the shared trust fence (loopback by default; a live
+ * paired-device cookie is an extra allow
  * path when remote-web-ui is loaded) plus browser same-origin markers — the
  * write routes touch real skill files, so unpaired LAN clients must not reach
- * them, and read/update only touch paths a fresh scan resolves.
+ * them, and read/update only touch paths a fresh scan resolves. Import is the
+ * one creation surface that reads a source outside the skill roots (see
+ * import.ts): it writes only new files under the chosen root and never
+ * mutates an existing one.
  */
 
 import { readFileSync } from 'node:fs'
@@ -17,17 +23,27 @@ import { isSkillExplorerAllowed } from './access.ts'
 import { buildPayload, collectSkills, findProjectRoot, isSkillName, overwriteSkillFile, projectSkillRoot, trashSkillFile, userSkillRoot, writeSkillFile, type CollectOptions, type SkillEntry } from './collect.ts'
 import { parseFrontmatter, setFrontmatterField, stripFrontmatter } from './frontmatter.ts'
 import { readJsonBody, writeJson } from './http.ts'
+import { IMPORT_LIMITS, ImportRequestError, importSkills, type ImportSource } from './import.ts'
+import { providerSkillIdentity, readProviderToggles, setProviderSkillEnabled, type ProviderSkillIdentity } from './provider-toggles.ts'
 
 /** Route paths (client bundle mirrors these literals; tests assert both sides). */
 export const ROUTES = {
   list: '/api/dsh-skill-explorer/list',
   read: '/api/dsh-skill-explorer/read',
   setEnabled: '/api/dsh-skill-explorer/set-enabled',
+  setProviderEnabled: '/api/dsh-skill-explorer/set-provider-enabled',
   create: '/api/dsh-skill-explorer/create',
   update: '/api/dsh-skill-explorer/update',
   delete: '/api/dsh-skill-explorer/delete',
+  import: '/api/dsh-skill-explorer/import',
   health: '/api/dsh-skill-explorer/health',
 } as const
+
+/** Largest import request body: the archive cap plus base64 expansion and JSON. */
+const IMPORT_BODY_MAX_BYTES = Math.ceil(IMPORT_LIMITS.archiveBytes / 3) * 4 + 64 * 1024
+
+/** Base64 payload guard: rejects a body that is not a base64 string at all. */
+const BASE64_PATTERN = /^[A-Za-z0-9+/]+={0,2}$/u
 
 /** URL query helper (first value, decoded). */
 function queryParam(url: URL, name: string): string | undefined {
@@ -57,6 +73,40 @@ export interface SkillRoutesDeps {
 
 /** Default process cwd fallback (overridable in tests). */
 export const DEFAULT_CWD = (): string => process.cwd()
+
+/**
+ * Narrow the request's import source.
+ *
+ * The body carries either a host directory the user typed or an archive the
+ * browser read and base64-encoded; anything else is a client-shape error, and
+ * returning the message here keeps the route's error branch a single
+ * condition.
+ * @param source - the raw `source` field.
+ * @returns the resolved source, or a message describing what is wrong.
+ */
+function resolveImportSource(source: unknown): ImportSource | string {
+  if (typeof source !== 'object' || source === null || Array.isArray(source)) {
+    return 'source must be { kind: "directory", path } or { kind: "archive", data }'
+  }
+  const record = source as Record<string, unknown>
+  if (record.kind === 'directory') {
+    const path = record.path
+    if (typeof path !== 'string' || path.trim() === '') return 'source.path is required for a directory import'
+    return { kind: 'directory', path: path.trim() }
+  }
+  if (record.kind === 'archive') {
+    const data = record.data
+    if (typeof data !== 'string' || data === '') return 'source.data is required for an archive import'
+    if (!BASE64_PATTERN.test(data)) return 'source.data must be a base64 string'
+    const decoded = Buffer.from(data, 'base64')
+    if (decoded.length === 0) return 'source.data decoded to an empty archive'
+    if (decoded.length > IMPORT_LIMITS.archiveBytes) {
+      return `archive exceeds the ${IMPORT_LIMITS.archiveBytes} byte import limit`
+    }
+    return { kind: 'archive', data: decoded }
+  }
+  return 'source.kind must be "directory" or "archive"'
+}
 
 /**
  * Build every /api/dsh-skill-explorer route (exact paths).
@@ -108,14 +158,22 @@ export function makeRoutes(ctx: Context, deps: SkillRoutesDeps): WebRoute[] {
     }
   }
 
-  /** Collect options shared by list/set-enabled/delete/health handlers. */
-  const collectOptions = (cwd: string): CollectOptions => ({
+  /**
+   * Collect options shared by list/set-enabled/set-provider-enabled/delete/
+   * health handlers.
+   *
+   * The panel's provider-skill switches are read per request (not captured at
+   * mount) so a toggle the user just made is honored by the very next list,
+   * and a restart picks the stored set back up.
+   */
+  const collectOptions = async (cwd: string): Promise<CollectOptions> => ({
     cwd,
     projectRoots: sessionProjectRoots(),
     customSkillDirs: resolveCustomSkillDirs(),
     dshHome,
     agentsHome,
     registry,
+    providerDisabledSkills: (await readProviderToggles(dshHome)).disabled,
   })
 
   /**
@@ -133,8 +191,27 @@ export function makeRoutes(ctx: Context, deps: SkillRoutesDeps): WebRoute[] {
 
   /** Find a skill by name from a fresh collection pass (trusts scanned paths only). */
   const findSkill = async (name: string, cwd: string): Promise<SkillEntry | undefined> => {
-    const { skills } = await collectSkills(collectOptions(cwd))
+    const { skills } = await collectSkills(await collectOptions(cwd))
     return skills.find((candidate) => candidate.name === name)
+  }
+
+  /**
+   * Find a currently listed plugin-provided skill by its stable identity.
+   *
+   * The write route for the panel-local switch has no path to certify, so it
+   * uses the identity the panel displayed: a fresh collection must resolve the
+   * same (provider, name) pair to a `provider-file` row. Anything else — an
+   * editable row (its own switch rewrites the file), a virtual row (no file),
+   * or a skill the panel never listed — is not a target.
+   */
+  const findProviderSkill = async (
+    identity: ProviderSkillIdentity,
+    cwd: string,
+  ): Promise<SkillEntry | undefined> => {
+    const { skills } = await collectSkills(await collectOptions(cwd))
+    return skills.find((candidate) => candidate.fileState === 'provider-file'
+      && candidate.name === identity.name
+      && (candidate.provider ?? '') === identity.provider)
   }
 
   /** Resolve the exact file the panel showed, rejecting stale same-name fallbacks. */
@@ -169,7 +246,7 @@ export function makeRoutes(ctx: Context, deps: SkillRoutesDeps): WebRoute[] {
           // write routes resolve their workspace through the same helper).
           const cwd = panelCwd(queryParam(url, 'cwd'))
           const projectRoots = sessionProjectRoots()
-          const { skills, complete } = await collectSkills(collectOptions(cwd))
+          const { skills, complete } = await collectSkills(await collectOptions(cwd))
           writeJson(res, 200, buildPayload(skills, complete, cwd, [...new Set(projectRoots)]))
         } catch (error) {
           logger.warn(error)
@@ -247,6 +324,54 @@ export function makeRoutes(ctx: Context, deps: SkillRoutesDeps): WebRoute[] {
     },
     {
       kind: 'exact',
+      path: ROUTES.setProviderEnabled,
+      handler: async (req: IncomingMessage, res: ServerResponse) => {
+        if (!guard(req, res, 'POST')) return
+        try {
+          const body = await readJsonBody(req, { maxBytes: 8 * 1024, objectOnly: true })
+          if (body === null) {
+            writeJson(res, 400, { error: 'invalid JSON body' })
+            return
+          }
+          const payload = body as Record<string, unknown>
+          const { name, provider, enabled } = payload
+          if (typeof name !== 'string' || typeof enabled !== 'boolean' || (provider !== undefined && typeof provider !== 'string')) {
+            writeJson(res, 400, { error: 'expected { name, provider, enabled }' })
+            return
+          }
+          const identity = providerSkillIdentity(name, provider)
+          if (identity === undefined) {
+            writeJson(res, 400, { error: 'name must be kebab-case (lowercase letters/digits first) and provider a short provider id' })
+            return
+          }
+          if (enabled) {
+            // Enabling only ever drops a record, so it stays allowed for a
+            // skill the panel no longer lists: a plugin can be uninstalled
+            // while its record is still stored, and that record must remain
+            // removable. Nothing is written when it is already absent.
+            await setProviderSkillEnabled(dshHome, identity, true)
+            writeJson(res, 200, { ok: true, name: identity.name, provider: identity.provider, disabled: false })
+            return
+          }
+          // Disabling creates a record the panel will honor from the next list
+          // on, so it must address a skill a fresh collection still lists as
+          // plugin-provided — the same "only what the panel showed" rule the
+          // file write routes follow, here with the identity instead of a path.
+          const skill = await findProviderSkill(identity, panelCwd())
+          if (skill === undefined) {
+            writeJson(res, 404, { error: `skill ${identity.name} is not a plugin-provided skill with a local file` })
+            return
+          }
+          await setProviderSkillEnabled(dshHome, identity, false)
+          writeJson(res, 200, { ok: true, name: identity.name, provider: identity.provider, disabled: true })
+        } catch (error) {
+          logger.warn(error)
+          writeJson(res, 500, { error: error instanceof Error ? error.message : String(error) })
+        }
+      },
+    },
+    {
+      kind: 'exact',
       path: ROUTES.create,
       handler: async (req: IncomingMessage, res: ServerResponse) => {
         if (!guard(req, res, 'POST')) return
@@ -290,6 +415,54 @@ export function makeRoutes(ctx: Context, deps: SkillRoutesDeps): WebRoute[] {
         } catch (error) {
           if (error instanceof Error && /already exists/.test(error.message)) {
             writeJson(res, 409, { error: error.message })
+            return
+          }
+          logger.warn(error)
+          writeJson(res, 500, { error: error instanceof Error ? error.message : String(error) })
+        }
+      },
+    },
+    {
+      kind: 'exact',
+      path: ROUTES.import,
+      handler: async (req: IncomingMessage, res: ServerResponse) => {
+        if (!guard(req, res, 'POST')) return
+        try {
+          const body = await readJsonBody(req, { maxBytes: IMPORT_BODY_MAX_BYTES, objectOnly: true })
+          if (body === null) {
+            writeJson(res, 400, { error: `invalid JSON body (or larger than ${IMPORT_BODY_MAX_BYTES} bytes)` })
+            return
+          }
+          const payload = body as Record<string, unknown>
+          const { root, cwd, source } = payload
+          if (root !== 'user' && root !== 'project') {
+            writeJson(res, 400, { error: 'root must be user (~/.dsh/skills) or project (project .dsh/skills)' })
+            return
+          }
+          if (typeof cwd !== 'string' || cwd.trim() === '') {
+            writeJson(res, 400, { error: 'cwd is required (the workspace shown by the panel)' })
+            return
+          }
+          const resolved = resolveImportSource(source)
+          if (typeof resolved === 'string') {
+            writeJson(res, 400, { error: resolved })
+            return
+          }
+          // The conflict rule reads the catalog of the workspace the panel is
+          // showing, resolved exactly like the list route (and like create):
+          // a different base workspace would rank a project skill against the
+          // wrong root and import a file that is immediately shadowed.
+          const workspace = panelCwd(cwd)
+          const targetLevel = root === 'user' ? 'user-dsh' : 'project-dsh'
+          const baseDir = root === 'user' ? userSkillRoot(dshHome) : projectSkillRoot(findProjectRoot(cwd))
+          const { skills } = await collectSkills(await collectOptions(workspace))
+          const report = await importSkills({ baseDir, targetLevel, source: resolved, existing: skills })
+          writeJson(res, 200, { ok: true, ...report })
+        } catch (error) {
+          // A malformed archive or an unreadable source directory is the
+          // request's problem, not the host's: say so instead of a 500.
+          if (error instanceof ImportRequestError) {
+            writeJson(res, 400, { error: error.message })
             return
           }
           logger.warn(error)
@@ -385,7 +558,7 @@ export function makeRoutes(ctx: Context, deps: SkillRoutesDeps): WebRoute[] {
       handler: async (req: IncomingMessage, res: ServerResponse) => {
         if (!guard(req, res, 'GET')) return
         try {
-          const { skills } = await collectSkills(collectOptions(panelCwd()))
+          const { skills } = await collectSkills(await collectOptions(panelCwd()))
           writeJson(res, 200, { ok: true, plugin: 'skill-explorer', skills: skills.length })
         } catch (error) {
           logger.warn(error)

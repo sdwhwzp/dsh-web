@@ -6,11 +6,9 @@
  * PRESENTATION: the `presentation` config picks how this session's tools sit
  * on the wire, matching the SDK's ToolPresentationMode:
  * - `native`: the assembled native roster, no code transport;
- * - `ptc`: the wire collapses to the single `run_code` transport and every
- *   other tool is reached from inside the program through the generated SDK;
- * - `both` (default): the full native roster plus the `run_code` transport
- *   co-resident on the wire — native calls carry ordinary work, `run_code`
- *   covers programmatic batch computation and overlapped fan-out.
+ * - `ptc` (default): the wire collapses to the single `run_code` transport
+ *   and every other tool is reached from inside the program through the
+ *   generated SDK.
  *
  * The declaration happens once per agent scope (agent.ctx.tools.presentAs) as
  * early as the scope exists — there is no turn-boundary staging: the retired
@@ -43,6 +41,11 @@
  * (`withheldToolNames`) and is lifted before a new one is applied, so repeated
  * collections do not accumulate filters.
  *
+ * WHICH PRESENTATION PAGES WHAT: the registry restriction is installed for
+ * `ptc` alone, because a collapsed wire is the one presentation where the
+ * scope's registry IS the whole reachable surface. `native` carries no
+ * program at all, so the wire partition is the whole of paging there.
+ *
  * TIMING: that restriction is installed from OUTSIDE the assembly waterfall.
  * `SystemPrompt.assemble()` collects the tool providers and calls every
  * section's `text(context)` BEFORE it runs the `system-prompt/assemble`
@@ -56,16 +59,22 @@
  * CATALOG: the durable user message appended after the user's own message
  * names exactly the tools the current request's wire carries (each tool's
  * argument signature plus a one-line summary), then summarizes the paged-out
- * namespaces with their activation pointer. Under 'both' the catalog lists
- * `run_code` like any other tool and notes the programmatic-escape hatch; the
- * 'ptc' program contract only ships when the wire actually collapsed to it.
+ * namespaces with their activation pointer. The 'ptc' program contract ships
+ * when the wire actually collapsed to the transport. A tool the catalog
+ * curates renders the hand-written line from
+ * {@link CURATED_TOOL_SUMMARIES}; only an uncurated tool falls back to the
+ * mechanical `descriptionMaxLength` truncation of its own schema description,
+ * because a character-count cut can slice off exactly the sentence that says
+ * what the tool is for.
  * The catalog republishes only when its content changes or the published copy
  * left the visible surface (compaction, resume).
  *
- * RESIDENT BUDGET: `maxResidentTokens` (default 1500) estimates the
- * always-on-wire surface and warns once when it is crossed. The guard is a
- * diagnostic, never a truncation: silently dropping a tool the session needs
- * would trade a measurable context cost for an unmeasurable capability loss.
+ * RESIDENT BUDGET: `maxResidentTokens` estimates the always-on-wire surface
+ * and warns once when it is crossed; the shipped ceiling is the
+ * `DEFAULT_MAX_RESIDENT_TOKENS` constant below, and a deployment may raise or
+ * lower it through the config. The guard is a diagnostic, never a truncation:
+ * silently dropping a tool the session needs would trade a measurable context
+ * cost for an unmeasurable capability loss.
  */
 
 import {
@@ -91,7 +100,7 @@ export const inject = ['systemPrompt']
 const DEFAULT_DESCRIPTION_MAX_LENGTH = 200
 
 /** The presentation modes the SDK's ToolPresentationMode supports. */
-export const PRESENTATION_MODES = ['native', 'ptc', 'both']
+export const PRESENTATION_MODES = ['native', 'ptc']
 
 /**
  * The default presentation: the wire collapses to the single \`run_code\` transport
@@ -100,7 +109,7 @@ export const PRESENTATION_MODES = ['native', 'ptc', 'both']
  *
  * This is a deliberate trade, not a measured win. Collapsing the wire removes the
  * native roster's schema payload from every request, which is the cheapest static
- * context of the three modes; the official published scaffold comparison, however,
+ * context of the two modes; the official published scaffold comparison, however,
  * places this presentation BELOW the natively presented surface on both code-agent
  * benchmarks (DeepSWE v1.1: 67.6 against 72.6; Terminal-Bench 2.1: 85.8 against
  * 90.6). The default is chosen for its static-context cost on long sessions and is
@@ -173,13 +182,23 @@ function optionalBoolean(value, field, fallback) {
 }
 
 /**
- * Resolve the presentation config: the explicit `presentation` enum wins; the
- * legacy boolean `ptcPresentation` maps onto it (true -> 'ptc', false ->
- * 'native') with a one-time deprecation warning; neither means the default.
+ * Resolve the presentation config: the explicit `presentation` enum wins (with
+ * the pre-0.2.1 `'both'` default mapped to `'ptc'` with a one-time deprecation
+ * warning so older profiles keep booting); the legacy boolean `ptcPresentation`
+ * maps onto it (true -> 'ptc', false -> 'native') with a one-time deprecation
+ * warning; neither means the default.
  */
 function resolvePresentation(config, warn) {
   const explicit = config?.presentation
   if (explicit !== undefined) {
+    if (explicit === 'both') {
+      if (config?.ptcPresentation !== undefined) {
+        optionalBoolean(config.ptcPresentation, 'ptcPresentation', true)
+        warn('the ptcPresentation key is deprecated — presentation takes precedence over it')
+      }
+      warn("the 'both' presentation was removed in 0.2.1; mapping 'both' -> 'ptc'")
+      return 'ptc'
+    }
     if (!PRESENTATION_MODES.includes(explicit)) {
       throw new TypeError(`${name}: presentation must be one of ${JSON.stringify(PRESENTATION_MODES)}`)
     }
@@ -211,6 +230,94 @@ function validateRetiredAnchorTools(value) {
 }
 
 /**
+ * Curated one-line summaries, one per host builtin tool this preset can put on
+ * a wire. Each line says what the tool is FOR and names the arguments that
+ * decide how it is called, kept well inside {@link DEFAULT_DESCRIPTION_MAX_LENGTH}.
+ *
+ * PRECEDENCE: a tool named here renders THIS line; every other tool keeps the
+ * mechanical cap — its own schema description, whitespace collapsed and cut to
+ * `descriptionMaxLength`. Curation therefore wins over truncation and never
+ * replaces it: a tool the table does not name (a paged MCP namespace's tool, a
+ * plugin-registered tool, a tool the harness adds later) still reaches the
+ * model, just at whatever the cap leaves of its own description. A character
+ * count is a poor editor — it slices off the sentence that says what the tool
+ * is for — so the tools this session mounts on every request get a hand-written
+ * line instead.
+ *
+ * SCOPE: exactly the host builtins the preset's own `agent.cordis.yml` rows
+ * mount for a session, which is the surface the paging wildcard leaves resident
+ * (`pagedToolPatterns` defaults to `mcp__*`, so no host builtin is ever paged
+ * out):
+ * - the shell (one of bash / pwsh per platform), the filesystem and discovery
+ *   tools, the background-job controls, and the editor;
+ * - the prompt/skill surface, the todo list, the user question tool, and
+ *   `web_search` (the preset's own `tool-web` row configures `fetch: false`,
+ *   so the session opens the search tool alone);
+ * - the preset's own `tool_activate` and `fact_register`;
+ * - the READ-ONLY MCP resource tools, which the base composition mounts and
+ *   which are reachable whenever the deployment registers an MCP server — even
+ *   though a configured `mcp__*` server's tools are the ones paging withholds.
+ *
+ * Three names a reader might expect are deliberately ABSENT, because this
+ * composition mounts no row that registers them and curating them would write a
+ * catalog line for a tool surface the request never opens — exactly the claim
+ * the declare-exactly-what-the-request-opens contract forbids:
+ * - `present`: only the builtin Standard / PTC / Cordis compositions mount the
+ *   `@deepseek-ai/dsh-tool-present` row, and the web app disables the host one;
+ * - `web_fetch`: the per-session `tool-web` row below sets `fetch: false`,
+ *   so this session opens `web_search` alone;
+ * - `workflow`: the delegation group ships that row `disabled: true` so no
+ *   second model-authored orchestration surface sits beside `run_code`.
+ * The goal tools and `exit_plan_mode` ARE here, because the `tool-goal` and
+ * `plan-mode` rows below mount them.
+ *
+ * `run_code` is also absent: it is the transport the harness adds for a code
+ * presentation, not a row-mounted builtin, and the catalog never lists it as
+ * an entry — under `ptc` the program contract describes it, under `native` the
+ * request does not carry it.
+ *
+ * Adding a tool the preset mounts is the one edit an entry needs, and no test
+ * pins the exact text of any line: an operator reword is not a behavior change.
+ * That is why the table is exported — a test can prove every key is a tool name
+ * and every value is a single bounded line, without freezing the prose.
+ */
+
+export const CURATED_TOOL_SUMMARIES = new Map([
+  ['bash', 'Run a command in a fresh bash shell (`command`, optional `timeoutMs`, `workdir`, `run_in_background`).'],
+  ['pwsh', 'Run a command in a fresh PowerShell process (`command`, optional `timeoutMs`, `workdir`, `run_in_background`); native Windows paths and `$env:NAME` variables.'],
+  ['read', 'Read one UTF-8 text file as line-numbered content (`file_path`, optional `offset` and `limit`).'],
+  ['read_image', 'Read a PNG/JPEG/WebP/GIF image file and return the image itself (`file_path`); large images are downscaled automatically.'],
+  ['write', 'Create or fully replace one UTF-8 text file (`file_path`, `content`).'],
+  ['edit', 'Replace literal text in one existing file (`file_path`, `old_string`, `new_string`, optional `replace_all`).'],
+  ['str_replace_editor', 'View, create, and edit files through one command tool (`command`, `path`, plus `file_text`, `old_str` / `new_str`, `insert_line`, `view_range`).'],
+  ['glob', 'Find files whose paths match a glob pattern (`pattern`, optional `path`); up to 100 paths in modification-time order.'],
+  ['grep', 'Search file contents with a ripgrep expression (`pattern`, optional `path`, optional `include`); matching lines with line numbers.'],
+  ['job_output', 'Read a background job: output since the previous read, or the finished result (`job_id`, optional `wait`, `timeout_ms`).'],
+  ['job_list', 'List the background jobs started by this session with their ids, kinds, and statuses.'],
+  ['job_kill', 'Request cancellation of a running background job (`job_id`, optional `reason`).'],
+  ['todo_write', 'Record and update the plan as one todo per concrete step (`todos`: content and status); skip it for trivial single-step work.'],
+  ['create_goal', 'Create a persisted goal that keeps this session working across automatic continuation rounds (`objective`, optional `max_goal_rounds`).'],
+  ['get_goal', 'Read the current session goal, including the id and revision that update_goal requires.'],
+  ['update_goal', 'Change one goal: edit, pause, resume, complete or blocked (`goal_id`, `revision`, `action`, plus `objective`, `max_goal_rounds`, `blocked_reason`).'],
+  ['exit_plan_mode', 'Present the completed plan for user review (`plan`, markdown starting with a title); approval is the only way out of plan mode.'],
+  ['subagent', 'Delegate a self-contained task to a subagent that works in its own context and returns its result, not its steps (`description`, `prompt`, optional `provider` / `model` / `reasoning_effort`).'],
+  ['subagent_fork', 'Delegate a task to a subagent seeded with this conversation (`description`, `prompt`); it inherits the parent route, so route fields are not accepted.'],
+  ['list_subagent_models', 'Discover the subagent routes this session authorizes (`provider`, optional `model`); the returned ids feed the delegation tools.'],
+  ['send_message', 'Send a message to a subagent started from this session (`agent_id`, `message`); the call confirms delivery, not the answer.'],
+  ['list_agents', 'List the subagents started from this session with their ids, labels, and status (`scope`).'],
+  ['interrupt_agent', 'Ask a subagent to stop its current work (`agent_id`); the call returns without waiting for it to settle.'],
+  ['ask_user_question', 'Ask the user a concise question and wait for the answer (`questions`: id, question, optional header, options, and custom input).'],
+  ['web_search', 'Search the web for current information (one to four `queries`); returns a merged summary and its source URLs.'],
+  ['skill', 'Load the full instructions of one session skill (`name`); call it before acting on a task that names or matches a skill.'],
+  ['tool_activate', 'Load one paged tool namespace back onto the wire and into the generated SDK (`namespace`, exactly as the catalog names it).'],
+  ['fact_register', 'Pin one key fact into the working context (`fact`, optional `tag`), or unpin with `revoke`; at most twelve short facts stay pinned.'],
+  ['ralph', 'Run a foreground fresh-agent Ralph loop toward one immutable objective (`objective`, optional `maxRounds`); only when the human explicitly asks for it.'],
+  ['list_mcp_resources', 'List the resources an MCP server exposes (`server`, optional `cursor`).'],
+  ['list_mcp_resource_templates', 'List the parameterized resource URI templates of one MCP server (`server`, optional `cursor`).'],
+  ['read_mcp_resource', 'Read one MCP resource by URI from the named server (`server`, `uri`).'],
+])
+
+/**
  * One-line model-facing summary of a tool description: whitespace collapsed,
  * truncated with an ellipsis when maxLength is specified.
  */
@@ -218,6 +325,23 @@ export function catalogDescription(value, maxLength) {
   const normalized = String(value ?? '').replaceAll(/\s+/g, ' ').trim()
   if (maxLength === undefined || maxLength <= 0 || normalized.length <= maxLength) return normalized
   return `${normalized.slice(0, maxLength - 3)}...`
+}
+
+/**
+ * The one-line summary one entry renders for a tool: the curated line when the
+ * table names it, otherwise the mechanically capped schema description. The
+ * order is the whole point — curation first, truncation only as the fallback
+ * for a tool nobody has written a line for yet.
+ * @param {{ name?: unknown, description?: unknown }} schema - one tool definition.
+ * @param {number} maxLength - the schema-description cap, in characters.
+ * @returns the summary text for the catalog entry.
+ */
+export function toolSummary(schema, maxLength) {
+  const name = schema?.name
+  if (typeof name === 'string' && CURATED_TOOL_SUMMARIES.has(name)) {
+    return CURATED_TOOL_SUMMARIES.get(name)
+  }
+  return catalogDescription(schema?.description, maxLength)
 }
 
 /** One scalar literal as TypeScript-ish text; non-JSON scalars degrade to the broad type. */
@@ -277,17 +401,19 @@ export function renderSignature(parameters) {
 /**
  * Catalog entries for one tool surface, sorted by name so an unchanged surface
  * renders byte-identical text across assemblies. Nameless definitions are
- * skipped; the `run_code` transport is listed only when the presentation puts
- * it on the wire beside the native tools ('both').
+ * skipped; the `run_code` transport never renders as an entry — under `ptc`
+ * the program contract describes it, under `native` the request does not
+ * carry it. Each entry's summary is resolved by {@link toolSummary}: the
+ * curated line where the table has one, the capped schema description
+ * otherwise.
  */
 export function catalogEntries(schemas, maxLength, options) {
-  const includeRunCode = options?.includeRunCode === true
   const patterns = Array.isArray(options?.patterns) ? options.patterns : []
   const entries = []
   for (const schema of Array.isArray(schemas) ? schemas : []) {
     const toolName = schema?.name
     if (typeof toolName !== 'string' || toolName === '') continue
-    if (toolName === 'run_code' && !includeRunCode) continue
+    if (toolName === 'run_code') continue
     // A tool from a paged family carries its namespace so the catalog can group
     // it the way the model calls it, instead of scattering one server's tools
     // through an alphabetical list.
@@ -295,7 +421,7 @@ export function catalogEntries(schemas, maxLength, options) {
     entries.push({
       name: toolName,
       signature: renderSignature(schema.parameters),
-      description: catalogDescription(schema.description, maxLength),
+      description: toolSummary(schema, maxLength),
       ...(namespace === undefined ? {} : { namespace }),
     })
   }
@@ -320,23 +446,12 @@ const PTC_PROGRAM_LINES = [
 ]
 
 /**
- * The short note the catalog carries when `run_code` sits on the wire beside
- * the native roster ('both'): native calls are the primary surface, and the
- * transport covers programmatic batch work. Paged-out namespaces stay reachable
- * through the SDK inside a program even before activation.
- */
-const BOTH_PROGRAM_LINES = [
-  'Prefer calling the tools above directly by name: ordinary single-step work (read, edit, bash, one search) goes through the native call, never through `run_code`. Reserve `run_code` for what a direct call cannot do — an async TypeScript body (`code`, with a short `description`) that reaches tools as `await tools.<name>({ ... })`, overlaps independent read-only calls under `Promise.all`, and catches `ToolCallError` to continue: programmatic batch computation, wide fan-out, or multi-step data shaping. Routing everyday calls through a program adds a wrapping layer with no payoff.',
-  'Paged-out namespaces below stay off the NATIVE wire but stay reachable through the SDK inside a program even before activation; activating one also puts its tools back on the direct surface.',
-]
-
-/**
  * Model-facing catalog text.
- * - Native presentation: the on-wire tool list plus the paged-out namespace summary.
- * - 'both': the on-wire list INCLUDING `run_code`, the namespace summary, and
- *   the short programmatic-escape note.
+ * - Native presentation: the on-wire tool list plus the paged-out namespace
+ *   summary with its wire-only reachability.
  * - 'ptc' (wire collapsed to `run_code`): the SDK-reachable list plus the full
- *   program contract naming `run_code` the one direct transport.
+ *   program contract naming `run_code` the one direct transport, and a
+ *   namespace summary whose page covers the whole surface.
  */
 export function renderCatalogText(entries, presentation = 'native', inactive = []) {
   // Activated paged families are listed under their namespace heading; every
@@ -364,18 +479,24 @@ export function renderCatalogText(entries, presentation = 'native', inactive = [
   const footer = inactive.length === 0
     ? 'This is the complete current list and replaces any earlier available-tools list in this session.'
     : 'This is the current on-wire list and replaces any earlier available-tools list in this session.'
+  // The paged-out summary states its own reachability per presentation, because
+  // the presentations differ on exactly the fact a reader would otherwise have
+  // to infer from the program contract further down: 'ptc' pages the whole
+  // surface, and 'native' carries no program at all.
+  const inactiveReachability = presentation === 'ptc'
+    ? 'The page covers the whole surface here, not the wire alone: these namespaces are unreachable from inside a program too until they are activated.'
+    : 'This presentation carries no program transport, so the wire is the only surface these namespaces can be reached through.'
   const inactiveBlock = inactive.length === 0 ? [] : [
     '',
     'These tool namespaces are registered but currently paged out of the wire:',
+    inactiveReachability,
     '<inactive_namespaces>',
-    ...inactive.map(ns => `- \`${ns.namespace}\` (${ns.count} tool${ns.count === 1 ? '' : 's'}${ns.sample === '' ? '' : `, e.g. \`${ns.sample}\``}): ${ns.description} Call \`tool_activate({ namespace: "${ns.namespace}" })\` to load them onto the wire.`),
+    ...inactive.map(ns => `- \`${ns.namespace}\` (${ns.count} tool${ns.count === 1 ? '' : 's'}${ns.sample === '' ? '' : `, e.g. \`${ns.sample}\``}): ${ns.description} Call \`tool_activate({ namespace: "${ns.namespace}" })\` to activate it.`),
     '</inactive_namespaces>',
   ]
   const presentationLines = presentation === 'ptc'
     ? ['', ...PTC_PROGRAM_LINES]
-    : presentation === 'both'
-      ? ['', ...BOTH_PROGRAM_LINES]
-      : []
+    : []
   return [
     '<system-reminder>',
     'The following tools are available in this session:',
@@ -534,7 +655,7 @@ export function apply(ctx, config) {
   if (config?.anchorTools !== undefined) {
     warnOnce('anchor', 'anchor-turn staging is retired — the anchorTools key is accepted but no longer narrows the wire')
   }
-  const presentation = resolvePresentation(config, detail => warnOnce('ptcPresentation', detail))
+  const presentation = resolvePresentation(config, detail => warnOnce(`presentation:${detail}`, detail))
 
   // Per-agent fresh state evaluated on every assembly (never stale across steps/turns)
   const agentCatalogState = new WeakMap()
@@ -635,10 +756,8 @@ export function apply(ctx, config) {
    * GATED ON THE WIRE ACTUALLY COLLAPSING, not on the configuration asking for
    * it. Both halves of that gate matter, and each covers a deployment where
    * paging at the registry would be wrong:
-   * - `presentation === 'ptc'` is what the operator configured, and it excludes
-   *   `both`, whose documented contract is that a paged-out namespace stays
-   *   reachable through the SDK inside a program before activation. Installing
-   *   the restriction there would break that contract for the first request;
+   * - `presentation === 'ptc'` is what the operator configured, and it is the
+   *   only presentation whose registry is the whole reachable surface;
    * - `agentDeclared.has(agent)` is the scope's own declaration actually
    *   landing, which is NOT the same as `transportReady()`. A deployment with
    *   no mounted code runtime (and one whose host declines the declaration)
@@ -841,8 +960,7 @@ export function apply(ctx, config) {
       // transport and lists the tools from their SDK projection. Where no
       // projection can be read at all, declaring would collapse the executor and
       // then have to undo it, losing the native wire on the way out. Stay native
-      // instead. Under 'both' the native roster stays on the wire either way, so
-      // the declaration needs no projection guard.
+      // instead.
       const projectable = publicSchemas(agent)
       if (presentation === 'ptc' && (projectable === undefined || projectable.length === 0)) {
         warnOnce('runtime', 'no tool schema projection available — keeping the native tool surface')
@@ -898,17 +1016,14 @@ export function apply(ctx, config) {
 
     // Under a collapsed `ptc` wire the registry is the ONLY surface a tool can
     // be reached through, so the page is expressed as a registry restriction.
-    // Every other wire still carries paging by itself on the assembled array,
-    // and `both` deliberately stays unrestricted: that is what keeps its
-    // documented "paged namespaces stay reachable through the SDK inside a
-    // program" behavior intact. A wire that carries the native roster again (a
-    // reverted declaration) must also drop a page left over from a collapsed
-    // assembly, or the filter would keep hiding tools that wire just handed
-    // back.
+    // The native wire carries paging by itself on the assembled array. A wire
+    // that carries the native roster again (a reverted declaration) must also
+    // drop a page left over from a collapsed assembly, or the filter would keep
+    // hiding tools that wire just handed back.
     let surface = agent !== undefined ? publicSchemas(agent) : undefined
     // The wire partition replays the durable log itself: `pagingState` exists
-    // only where a restriction was installed (the collapsed ptc wire), and
-    // native/both still page the assembled array from the same event stream.
+    // only where a restriction was installed (the collapsed ptc wire), and the
+    // native wire still pages the assembled array from the same event stream.
     const activeNamespaces = new Set(
       replayActivations(sessionEvents(agent?.session), maxActiveNamespaces, pagedToolPatterns).active,
     )
@@ -928,13 +1043,12 @@ export function apply(ctx, config) {
     }
 
     const effectiveWire = correctedWire ?? assembledTools
-    const effectiveHasRunCode = (effectiveWire ?? []).some(t => t?.name === 'run_code')
     const effectiveOnlyRunCode = effectiveWire !== undefined && effectiveWire.length > 0 && effectiveWire.every(t => t?.name === 'run_code')
 
     // The catalog describes the transport this request actually carries, never
-    // the configuration's intent: a collapsed wire is 'ptc', run_code beside the
-    // native roster is 'both', and anything else is native.
-    const effectivePresentation = effectiveOnlyRunCode ? 'ptc' : (effectiveHasRunCode ? 'both' : 'native')
+    // the configuration's intent: a collapsed wire is 'ptc', and anything else
+    // is native.
+    const effectivePresentation = effectiveOnlyRunCode ? 'ptc' : 'native'
 
     // Gentle paging: the active namespaces were replayed from the durable event
     // stream above; here the paged-but-inactive tools come off the wire itself.
@@ -959,8 +1073,7 @@ export function apply(ctx, config) {
     // The catalog describes this request's ACTUAL surface: with a live page it
     // summarizes exactly the namespaces that page withholds (the same fact the
     // restriction was built from), and otherwise the namespaces the WIRE
-    // partition found — which under `both` stay reachable through the SDK
-    // inside a program, as the programmatic-escape note below states.
+    // partition found.
     const catalogInactive = summarizeInactive(
       pagingState?.inactive ?? inactive,
       describe => catalogDescription(describe, descriptionMaxLength),
@@ -973,10 +1086,7 @@ export function apply(ctx, config) {
       entries = catalogEntries(surface ?? [], descriptionMaxLength, { patterns: pagedToolPatterns })
     } else {
       const merged = mergeProjectedSchemas(resident, surface)
-      entries = catalogEntries(merged, descriptionMaxLength, {
-        includeRunCode: effectivePresentation === 'both',
-        patterns: pagedToolPatterns,
-      })
+      entries = catalogEntries(merged, descriptionMaxLength, { patterns: pagedToolPatterns })
     }
     const inactiveSummary = catalogInactive
 

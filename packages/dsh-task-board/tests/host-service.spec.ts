@@ -329,6 +329,192 @@ describe('TaskBoardHostService scheduling without a browser', () => {
     service.dispose()
   })
 
+  it('user arming a one-shot sees it fire once and arm no further timer', async () => {
+    let now = new Date(2026, 7, 16, 10, 0, 30).getTime()
+    const ledger = new HostTaskLedger(root(), () => now)
+    // Given a one-shot plan armed at 10:02
+    const at = new Date(2026, 7, 16, 10, 2, 0).getTime()
+    ledger.applyRequest('create', {
+      kind: 'create', id: 'once', input: {
+        title: 'Once', description: '', prompt: 'work', schedule: { enabled: true, mode: 'once', at },
+      },
+    })
+    const create = vi.fn(async (_request: GatewayRequest) => ({ sessionId: 'session-once' }))
+    const prompt = vi.fn(async (_request: GatewayRequest) => ({ accepted: true }))
+    const { gateway } = makeGateway(request => {
+      if (request.namespace !== 'session') throw new Error('unexpected namespace')
+      if (request.method === 'create') return create(request)
+      if (request.method === 'rename') return { title: 'Once', seq: 1 }
+      if (request.method === 'prompt') return prompt(request)
+      throw new Error('unexpected gateway call')
+    })
+    const probe = timerProbe()
+    const service = new TaskBoardHostService(gateway, {
+      ledger,
+      power: new PowerInhibitor({ platform: 'linux' }),
+      timers: probe.timers,
+      now: () => now,
+    })
+    service.start()
+    // The armed delay is exactly the distance to the planned instant.
+    expect(probe.delay).toBe(at - now)
+
+    // When the planned instant arrives
+    now = at
+    await probe.trigger()
+
+    // Then one real execution was created and the rule spent itself
+    expect(create).toHaveBeenCalledOnce()
+    expect(ledger.state().tasks[0].executions).toHaveLength(1)
+    expect(ledger.state().tasks[0].schedule).toMatchObject({
+      enabled: false, runCount: 1, endedReason: 'fired',
+    })
+    expect(ledger.state().tasks[0].schedule?.nextRunAt).toBeUndefined()
+    // Nothing is armed for later, so the service cannot fire it a second time.
+    expect(probe.delay).toBe(0)
+    service.dispose()
+  })
+
+  it('user capping a recurring rule at two sees it stop after the second fire', async () => {
+    // Given a recurring rule capped at two runs
+    let now = new Date(2026, 7, 16, 10, 0, 30).getTime()
+    const ledger = new HostTaskLedger(root(), () => now)
+    ledger.applyRequest('create', {
+      kind: 'create', id: 'capped', input: {
+        title: 'Capped', description: '', prompt: 'work', schedule: { enabled: true, cron: '* * * * *', maxRuns: 2 },
+      },
+    })
+    let created = 0
+    const { gateway } = makeGateway(request => {
+      if (request.method === 'create') return { sessionId: 'session-' + String(++created) }
+      if (request.method === 'rename') return { title: 'Capped', seq: 1 }
+      if (request.method === 'prompt') return { accepted: true }
+      throw new Error('unexpected gateway call')
+    })
+    const probe = timerProbe()
+    const service = new TaskBoardHostService(gateway, {
+      ledger,
+      power: new PowerInhibitor({ platform: 'linux' }),
+      timers: probe.timers,
+      now: () => now,
+    })
+    service.start()
+    expect(probe.delay).toBe(30_000)
+
+    // When the first occurrence fires
+    now = new Date(2026, 7, 16, 10, 1, 0).getTime()
+    await probe.trigger()
+    expect(ledger.state().tasks[0].executions).toHaveLength(1)
+    expect(ledger.state().tasks[0].schedule?.runCount).toBe(1)
+    // Settle the run so the next occurrence has an idle card; the counter is
+    // driven by the scheduler, not by the outcome.
+    ledger.settle('capped', ledger.state().tasks[0].executions[0].id, 'succeeded')
+    expect(probe.delay).toBe(60_000)
+
+    // When the second occurrence fires
+    now = new Date(2026, 7, 16, 10, 2, 0).getTime()
+    await probe.trigger()
+    // Then two executions exist and the rule stopped itself at its cap
+    expect(ledger.state().tasks[0].executions).toHaveLength(2)
+    expect(ledger.state().tasks[0].schedule).toMatchObject({ enabled: false, runCount: 2, endedReason: 'limit' })
+    // The budget is spent: no timer is armed for 10:03:00 or anything later.
+    expect(probe.delay).toBe(0)
+    service.dispose()
+  })
+
+  it('user restarting after a one-shot instant sees the missed plan skipped', async () => {
+    let now = new Date(2026, 7, 16, 10, 0, 30).getTime()
+    const ledger = new HostTaskLedger(root(), () => now)
+    // Given a one-shot plan armed just after the start time
+    const at = new Date(2026, 7, 16, 10, 1, 0).getTime()
+    ledger.applyRequest('create', {
+      kind: 'create', id: 'once', input: {
+        title: 'Once', description: '', prompt: '', schedule: { enabled: true, mode: 'once', at },
+      },
+    })
+    const create = vi.fn()
+    const { gateway } = makeGateway(request => request.method === 'create' ? create(request) : { items: [] })
+    const probe = timerProbe()
+    const service = new TaskBoardHostService(gateway, {
+      ledger,
+      power: new PowerInhibitor({ platform: 'linux' }),
+      timers: probe.timers,
+      now: () => now,
+    })
+
+    // When the service starts long after the planned instant
+    now = new Date(2026, 7, 16, 10, 5, 0).getTime()
+    service.start()
+
+    // Then the missed instant is skipped, never replayed, and nothing charged
+    expect(create).not.toHaveBeenCalled()
+    expect(ledger.state().tasks[0].schedule).toMatchObject({ enabled: false, endedReason: 'missed', runCount: 0 })
+    expect(probe.delay).toBe(0)
+    service.dispose()
+  })
+
+  it('user whose scheduled launch fails sees the run refunded, not silently spent', async () => {
+    // Given a recurring rule capped at two runs and a gateway whose session
+    // creation fails
+    let now = new Date(2026, 7, 16, 10, 0, 30).getTime()
+    const ledger = new HostTaskLedger(root(), () => now)
+    ledger.applyRequest('create', {
+      kind: 'create', id: 'capped', input: {
+        title: 'Capped', description: '', prompt: 'work', schedule: { enabled: true, cron: '* * * * *', maxRuns: 2 },
+      },
+    })
+    let failCreate = true
+    const { gateway } = makeGateway(request => {
+      if (request.method === 'create') {
+        if (failCreate) throw new Error('session create failed')
+        return { sessionId: 'session-ok' }
+      }
+      if (request.method === 'rename') return { title: 'Capped', seq: 1 }
+      if (request.method === 'prompt') return { accepted: true }
+      throw new Error('unexpected gateway call')
+    })
+    const probe = timerProbe()
+    const service = new TaskBoardHostService(gateway, {
+      ledger,
+      power: new PowerInhibitor({ platform: 'linux' }),
+      timers: probe.timers,
+      now: () => now,
+    })
+    service.start()
+
+    // When the first occurrence fires and its launch fails before a session
+    now = new Date(2026, 7, 16, 10, 1, 0).getTime()
+    await probe.trigger()
+
+    // Then the failure is recorded, the run is refunded rather than spent, and
+    // the rule stays armed at its next occurrence (no immediate retry)
+    const afterFirst = ledger.state().tasks[0]
+    expect(afterFirst.executions).toHaveLength(1)
+    expect(afterFirst.executions[0].result).toBe('failed')
+    expect(afterFirst.schedule?.runCount).toBe(0)
+    expect(afterFirst.schedule?.enabled).toBe(true)
+    expect(afterFirst.schedule?.skippedReason).toBe('launch-failed')
+    expect(probe.delay).toBe(60_000)
+
+    // When the next two occurrences fire and their launches succeed (each
+    // settled so the following one has an idle card)
+    failCreate = false
+    now = new Date(2026, 7, 16, 10, 2, 0).getTime()
+    await probe.trigger()
+    ledger.settle('capped', ledger.state().tasks[0].executions[1].id, 'succeeded')
+    now = new Date(2026, 7, 16, 10, 3, 0).getTime()
+    await probe.trigger()
+
+    // Then exactly two real runs were counted and the rule stopped at its cap:
+    // the refunded failure consumed nothing
+    const afterThird = ledger.state().tasks[0]
+    expect(afterThird.executions).toHaveLength(3)
+    expect(afterThird.schedule?.runCount).toBe(2)
+    expect(afterThird.schedule?.endedReason).toBe('limit')
+    expect(probe.delay).toBe(0)
+    service.dispose()
+  })
+
   it('does not launch an imported archived task with a legacy enabled schedule', async () => {
     const now = new Date(2026, 7, 16, 10, 1, 0).getTime()
     const ledger = new HostTaskLedger(root(), () => now)
@@ -383,6 +569,105 @@ describe('TaskBoardHostService scheduling without a browser', () => {
     expect(ledger.state().tasks[0].schedule?.nextRunAt).toBe(new Date(2026, 7, 16, 10, 3, 0).getTime())
     // The skipped occurrence arms the next one instead of firing the stale one.
     expect(probe.delay).toBe(60_000)
+    service.dispose()
+  })
+
+  it('user saving a new-task card with a cron sees its timer armed without a restart (#1855)', async () => {
+    // Given a board that is already running and holds no schedule of its own
+    let now = new Date(2026, 7, 16, 10, 0, 30).getTime()
+    const ledger = new HostTaskLedger(root(), () => now)
+    const create = vi.fn(async (_request: GatewayRequest) => ({ sessionId: 'session-scheduled' }))
+    const prompt = vi.fn(async (_request: GatewayRequest) => ({ accepted: true }))
+    const { gateway } = makeGateway(request => {
+      if (request.namespace !== 'session') throw new Error('unexpected namespace')
+      if (request.method === 'create') return create(request)
+      if (request.method === 'rename') return { title: 'Scheduled', seq: 1 }
+      if (request.method === 'prompt') return prompt(request)
+      throw new Error('unexpected gateway call')
+    })
+    const probe = timerProbe()
+    const service = new TaskBoardHostService(gateway, {
+      ledger,
+      power: new PowerInhibitor({ platform: 'linux' }),
+      timers: probe.timers,
+      now: () => now,
+    })
+    service.start()
+    // No card is scheduled yet, so there is no occurrence to wait for.
+    expect(probe.delay).toBe(0)
+
+    // When the new-task dialog is saved with the schedule option enabled
+    service.apply('create-1', {
+      kind: 'create', id: 'scheduled', input: {
+        title: 'Scheduled', description: '', prompt: 'work', schedule: { enabled: true, cron: '* * * * *' },
+      },
+    })
+
+    // Then the rule is in the ledger AND the timer is armed for it at once,
+    // rather than waiting out whatever was armed before or for another write
+    const saved = ledger.state().tasks.find(task => task.id === 'scheduled')
+    expect(saved?.schedule).toMatchObject({ enabled: true, cron: '* * * * *' })
+    expect(saved?.schedule?.nextRunAt).toBe(new Date(2026, 7, 16, 10, 1, 0).getTime())
+    expect(probe.delay).toBe(30_000)
+
+    // And the armed occurrence really runs the card at that instant
+    now = new Date(2026, 7, 16, 10, 1, 0).getTime()
+    await probe.trigger()
+    expect(create).toHaveBeenCalledOnce()
+    expect(prompt).toHaveBeenCalledOnce()
+    expect(ledger.state().tasks[0].executions).toHaveLength(1)
+    service.dispose()
+  })
+
+  it('operator whose capped rule refunded a failed launch sees it re-armed', async () => {
+    // Given a rule capped at a single run, and a gateway whose session create fails
+    let now = new Date(2026, 7, 16, 10, 0, 30).getTime()
+    const ledger = new HostTaskLedger(root(), () => now)
+    ledger.applyRequest('create', {
+      kind: 'create', id: 'capped', input: {
+        title: 'Capped', description: '', prompt: 'work', schedule: { enabled: true, cron: '* * * * *', maxRuns: 1 },
+      },
+    })
+    let failCreate = true
+    const create = vi.fn(async (_request: GatewayRequest) => {
+      if (failCreate) throw new Error('session create failed')
+      return { sessionId: 'session-ok' }
+    })
+    const { gateway } = makeGateway(request => {
+      if (request.method === 'create') return create(request)
+      if (request.method === 'rename') return { title: 'Capped', seq: 1 }
+      if (request.method === 'prompt') return { accepted: true }
+      throw new Error('unexpected gateway call')
+    })
+    const probe = timerProbe()
+    const service = new TaskBoardHostService(gateway, {
+      ledger,
+      power: new PowerInhibitor({ platform: 'linux' }),
+      timers: probe.timers,
+      now: () => now,
+    })
+    service.start()
+    expect(probe.delay).toBe(30_000)
+
+    // When the only occurrence of the budget fires and its launch fails before
+    // any session existed: the fire spent the cap and cleared the target, and
+    // the refund then returned the run and restored that target
+    now = new Date(2026, 7, 16, 10, 1, 0).getTime()
+    await probe.trigger()
+    const refunded = ledger.state().tasks[0].schedule
+    expect(refunded).toMatchObject({ enabled: true, runCount: 0 })
+    expect(refunded?.endedReason).toBeUndefined()
+    expect(refunded?.nextRunAt).toBe(new Date(2026, 7, 16, 10, 2, 0).getTime())
+    // The restored occurrence is armed, not left waiting for the next write
+    expect(probe.delay).toBe(60_000)
+
+    // And it serves that occurrence, spending the returned budget exactly once
+    failCreate = false
+    now = new Date(2026, 7, 16, 10, 2, 0).getTime()
+    await probe.trigger()
+    expect(ledger.state().tasks[0].executions).toHaveLength(2)
+    expect(ledger.state().tasks[0].schedule).toMatchObject({ enabled: false, runCount: 1, endedReason: 'limit' })
+    expect(probe.delay).toBe(0)
     service.dispose()
   })
 
@@ -759,10 +1044,10 @@ describe('TaskBoardHostService poll heartbeat', () => {
     const now = new Date(2026, 7, 16, 10, 0, 30).getTime()
     const ledger = new HostTaskLedger(root(), () => now)
     ledger.applyRequest('create-parent', {
-      kind: 'create', id: 'parent', input: { title: 'Parent', description: '', prompt: 'work', permission: 'read-only' },
+      kind: 'create', id: 'parent', input: { title: 'Parent', description: '', prompt: 'work', permission: 'read-only', goalRun: true },
     })
     ledger.applyRequest('create-child', {
-      kind: 'create', id: 'child', input: { title: 'Child', description: '', prompt: 'child work', parentId: 'parent' },
+      kind: 'create', id: 'child', input: { title: 'Child', description: '', prompt: 'child work', parentId: 'parent', goalRun: true },
     })
     const sessions: string[] = []
     const permissions: string[] = []
@@ -781,6 +1066,10 @@ describe('TaskBoardHostService poll heartbeat', () => {
       ledger,
       power: new PowerInhibitor({ platform: 'linux' }),
       now: () => now,
+      // The native-/goal master switch is on AND both cards opted in: the
+      // option is off by default, so this case asserts that every member of a
+      // cascade that asked for it arms its own goal.
+      goalRunEnabled: () => true,
       commandDispatcher: {
         execute: async (_sessionId, line) => { permissions.push(line); return { kind: 'success', text: 'ok' } as const },
       },
@@ -796,8 +1085,8 @@ describe('TaskBoardHostService poll heartbeat', () => {
     })
     expect([...sessions].sort()).toEqual(['session-1', 'session-2'])
     expect(permissions.filter(line => line.startsWith('/permission')).sort()).toEqual(['/permission read-only', '/permission read-only'])
-    // Every member of the run also arms its own goal (the option is on by
-    // default), each with that member's own composed prompt.
+    // Every member of the run also arms its own goal (each card opted in),
+    // each with that member's own composed prompt.
     expect(permissions.filter(line => line.startsWith('/goal '))).toHaveLength(2)
     expect(ledger.state().tasks.map(task => task.status)).toEqual(['running', 'running'])
     service.dispose()

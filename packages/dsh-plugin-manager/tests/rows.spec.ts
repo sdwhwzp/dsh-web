@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bareRowEnabled, bareRowId, claimedIdsOf, parsePatch, rowDefaultEnabledOf, setRowEnabled } from '../src/host/rows.ts'
+import { bareRowEnabled, bareRowId, claimedIdsOf, declaredRowIds, overrideRowId, parsePatch, pruneOrphanRowOverrides, repairStaleRowNames, rowDefaultEnabledOf, setRowEnabled } from '../src/host/rows.ts'
 
 const SAMPLE = `[
   # a top-level comment that must survive every edit
@@ -184,5 +184,252 @@ describe('setRowEnabled', () => {
     const { root } = parsePatch(disabled, 'p')
     expect(root.items).toHaveLength(3)
     expect(disabled).toContain('id: dup')
+  })
+})
+
+/**
+ * A user layer as 0.4.6 wrote it: an override the plugin manager owns for a
+ * row the aggregate has since retired, an override for a row that still
+ * exists, an override on a row the target composition also carries, and a
+ * config row carrying keys this manager never writes.
+ */
+const PROFILE_LAYER = [
+  '# user overrides written by the plugin manager',
+  '- id: web-ui-model-capabilities',
+  '  name: "@linxin666/dsh-model-capabilities"',
+  '  disabled: true',
+  '- id: web-ui-pet',
+  '  name: "@linxin666/dsh-pet"',
+  '  disabled: false',
+  '- id: web-ui-skin-center',
+  '  name: "@linxin666/dsh-web-all/skin-center"',
+  '  config:',
+  '    theme: blue-fantasy',
+  '',
+].join('\n')
+
+const COMPOSED = new Set(['web-ui-pet', 'web-ui-skin-center'])
+
+describe('pruneOrphanRowOverrides', () => {
+  it('operator: drops the override of a retired row and keeps every other line', () => {
+    // Given a profile layer carrying an override for a row the composition no
+    // longer declares, beside rows that still exist and a config row
+    // When the orphan pruning runs against the composed entry ids
+    const { text, pruned } = pruneOrphanRowOverrides(PROFILE_LAYER, 'cordis.patch.yml', COMPOSED)
+
+    // Then only the retired override is gone and the rest is byte-identical
+    expect(pruned).toEqual(['web-ui-model-capabilities'])
+    expect(text).toBe([
+      '# user overrides written by the plugin manager',
+      '- id: web-ui-pet',
+      '  name: "@linxin666/dsh-pet"',
+      '  disabled: false',
+      '- id: web-ui-skin-center',
+      '  name: "@linxin666/dsh-web-all/skin-center"',
+      '  config:',
+      '    theme: blue-fantasy',
+      '',
+    ].join('\n'))
+  })
+
+  it('operator: reports nothing and changes nothing on an already pruned layer', () => {
+    // Given a layer that already went through pruning
+    const first = pruneOrphanRowOverrides(PROFILE_LAYER, 'p', COMPOSED)
+    // When the same pruning runs again
+    const second = pruneOrphanRowOverrides(first.text, 'p', COMPOSED)
+
+    // Then it returns the input text untouched, so the caller writes nothing
+    expect(second.pruned).toEqual([])
+    expect(second.text).toBe(first.text)
+  })
+
+  it('operator: leaves every override alone when the whole composition still carries them', () => {
+    // Given overrides whose row ids the composition all still declares
+    const text = '- id: web-ui-pet\n  name: "@linxin666/dsh-pet"\n  disabled: true\n'
+    // When the orphan pruning runs
+    const result = pruneOrphanRowOverrides(text, 'p', new Set(['web-ui-pet']))
+
+    // Then nothing is pruned and the caller is handed its own text back
+    expect(result.pruned).toEqual([])
+    expect(result.text).toBe(text)
+  })
+
+  it('operator: never removes a row the manager does not own', () => {
+    // Given a config row and an insert wrapper whose ids the composition lost
+    const text = [
+      '- id: retiring-config-row',
+      '  config:',
+      '    port: 3082',
+      '- insert:',
+      '    - id: retiring-insert-row',
+      '      name: retiring-package',
+      '- id: retired-override',
+      '  disabled: true',
+      '',
+    ].join('\n')
+    // When the orphan pruning runs with an empty composed set
+    const { text: next, pruned } = pruneOrphanRowOverrides(text, 'p', new Set())
+
+    // Then only the bare override row this manager writes is removed
+    expect(pruned).toEqual(['retired-override'])
+    expect(next).toContain('id: retiring-config-row')
+    expect(next).toContain('id: retiring-insert-row')
+    expect(next).not.toContain('retired-override')
+  })
+
+  it('operator: recognizes an override row only in the shape this manager writes', () => {
+    // Given rows with a boolean disabled flag, a missing flag, and an extra key
+    const owned = parsePatch('- id: a\n  name: pkg\n  disabled: true\n', 'p').root.items[0]
+    const noFlag = parsePatch('- id: b\n  name: pkg\n', 'p').root.items[0]
+    const extraKey = parsePatch('- id: c\n  disabled: true\n  config:\n    x: 1\n', 'p').root.items[0]
+    const insertWrapper = parsePatch('- insert:\n    - id: d\n      disabled: true\n', 'p').root.items[0]
+
+    // When each item is classified
+    // Then only the override shape is claimed by this manager
+    expect(overrideRowId(owned)).toBe('a')
+    expect(overrideRowId(noFlag)).toBeUndefined()
+    expect(overrideRowId(extraKey)).toBeUndefined()
+    expect(overrideRowId(insertWrapper)).toBeUndefined()
+  })
+})
+
+describe('repairStaleRowNames', () => {
+  it('operator: points a row at the package that now carries its entry id', () => {
+    // Given a profile layer whose row still names the package the aggregate
+    // mounted for that id before issue #1901
+    const text = [
+      '- id: web-ui-task-board-github',
+      '  name: "@linxin666/dsh-web-all/task-board-github"',
+      '  config:',
+      '    repositories: []',
+      '',
+    ].join('\n')
+
+    // When the repair runs against the live name of that id
+    const live = new Map([['web-ui-task-board-github', '@linxin666/dsh-client-ui-task-board-github']])
+    const { text: next, repaired } = repairStaleRowNames(text, 'p', live)
+
+    // Then the row names the live package and keeps its configuration
+    expect(repaired).toEqual([{
+      id: 'web-ui-task-board-github',
+      from: '@linxin666/dsh-web-all/task-board-github',
+      to: '@linxin666/dsh-client-ui-task-board-github',
+    }])
+    expect(next).toContain('name: "@linxin666/dsh-client-ui-task-board-github"')
+    expect(next).toContain('repositories: []')
+  })
+
+  it('operator: repairs an enablement override whose name went stale too', () => {
+    // Given an override row that still names the retired package
+    const text = [
+      '- id: web-ui-ssh',
+      '  name: "@linxin666/dsh-web-all/ssh"',
+      '  disabled: true',
+      '',
+    ].join('\n')
+
+    // When the repair runs against the live name of that id
+    const live = new Map([['web-ui-ssh', '@linxin666/dsh-ssh']])
+    const { text: next, repaired } = repairStaleRowNames(text, 'p', live)
+
+    // Then the override keeps disabling the row and names the live package
+    expect(repaired).toEqual([{ id: 'web-ui-ssh', from: '@linxin666/dsh-web-all/ssh', to: '@linxin666/dsh-ssh' }])
+    expect(next).toContain('name: "@linxin666/dsh-ssh"')
+    expect(next).toContain('disabled: true')
+  })
+
+  it('operator: leaves a row no live bundle claims alone', () => {
+    // Given a row whose id no installed bundle claims
+    const text = [
+      '- id: some-other-row',
+      '  name: "@example/whatever"',
+      '  config:',
+      '    x: 1',
+      '',
+    ].join('\n')
+
+    // When the repair runs with a live map that does not carry that id
+    const { text: next, repaired } = repairStaleRowNames(text, 'p', new Map([['web-ui-pet', '@linxin666/dsh-pet']]))
+
+    // Then nothing is rewritten and the caller is handed its own text back
+    expect(repaired).toEqual([])
+    expect(next).toBe(text)
+  })
+
+  it('operator: changes nothing on a layer whose rows already name the live packages', () => {
+    // Given a layer whose rows already name the live packages
+    const text = [
+      '- id: web-ui-pet',
+      '  name: "@linxin666/dsh-pet"',
+      '  disabled: true',
+      '- id: web-ui-ssh',
+      '  name: "@linxin666/dsh-ssh"',
+      '  disabled: true',
+      '',
+    ].join('\n')
+
+    // When the repair runs against the live names
+    const live = new Map([['web-ui-pet', '@linxin666/dsh-pet'], ['web-ui-ssh', '@linxin666/dsh-ssh']])
+    const { text: next, repaired } = repairStaleRowNames(text, 'p', live)
+
+    // Then the file is not rewritten at all
+    expect(repaired).toEqual([])
+    expect(next).toBe(text)
+  })
+
+  it('operator: leaves a row without a name alone', () => {
+    // Given a nameless row, which the loader applies to its id whatever the
+    // package is called
+    const text = [
+      '- id: web-ui-pet',
+      '  disabled: true',
+      '',
+    ].join('\n')
+
+    // When the repair runs
+    const { text: next, repaired } = repairStaleRowNames(text, 'p', new Map([['web-ui-pet', '@linxin666/dsh-pet']]))
+
+    // Then nothing is rewritten
+    expect(repaired).toEqual([])
+    expect(next).toBe(text)
+  })
+})
+
+describe('declaredRowIds', () => {
+  it('operator: reports every id a layer declares, rows and insert entries alike', () => {
+    // Given a bundle layer carrying an insert list, a config row of its own and
+    // the same id twice
+    const layer = [
+      '- insert:',
+      '    - id: web-ui-remote-web-ui',
+      "      name: '@linxin666/dsh-web-all/remote-web-ui'",
+      '    - id: ui-schedule',
+      "      name: '@deepseek-ai/dsh-client-ui-schedule'",
+      '- id: web-ui-pet',
+      "  name: '@linxin666/dsh-pet'",
+      '  config:',
+      '    size: 160',
+      '    children:',
+      '      - id: nested-child',
+      '- id: ui-schedule',
+      '  disabled: false',
+      '',
+    ].join('\n')
+
+    // When the layer's declarations are read
+    const ids = declaredRowIds(layer, 'cordis.patch.yml')
+
+    // Then every layer entry is declared once, in file order, and an id nested
+    // inside a row's own config stays a child rather than a layer entry
+    expect(ids).toEqual(['web-ui-remote-web-ui', 'ui-schedule', 'web-ui-pet'])
+  })
+
+  it('operator: fails loud on a layer it cannot parse so the caller prunes nothing', () => {
+    // Given a layer that is not a patch list
+    const broken = '- id: [unclosed\n'
+
+    // When its declarations are read
+    // Then the read fails instead of reporting an empty layer
+    expect(() => declaredRowIds(broken, 'cordis.patch.yml')).toThrow()
   })
 })

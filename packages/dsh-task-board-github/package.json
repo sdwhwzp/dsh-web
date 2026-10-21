@@ -1,7 +1,7 @@
 {
   "name": "@linxin666/dsh-client-ui-task-board-github",
   "description": "External provider extension for the dsh Web GUI task board that synchronizes GitHub Issues into the board; shipped as a dsh profile bundle with no DSH source changes.",
-  "version": "0.4.5-dsh.20261008.1",
+  "version": "0.4.8-dsh.20261021.1",
   "icon": "icon.svg",
   "type": "module",
   "engines": {
@@ -23,7 +23,7 @@
   },
   "dsh": {
     "engines": {
-      "dsh": ">=0.2.0-rc.2"
+      "dsh": ">=0.2.1-rc.2"
     },
     "bundle": {
       "patch": "./cordis.patch.yml"
@@ -39,31 +39,31 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && tsdown",
+    "build": "tsc -b tsconfig.build.json && tsdown",
     "bundle": "tsdown",
     "watch": "tsdown --watch",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsgo --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh": ">=0.2.0-rc.2",
+    "@deepseek-ai/dsh": ">=0.2.1-rc.2",
     "react": "^18.2.0"
   },
   "dependencies": {
-    "@deepseek-ai/schemastery": "^3.18.4"
+    "@deepseek-ai/schemastery": "^3.18.5"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "^4.0.4",
-    "@deepseek-ai/dsh-credentials": "^0.2.0-rc.2",
-    "@deepseek-ai/dsh-host-webserver": "^0.2.0-rc.2",
-    "@deepseek-ai/dsh-llm": "^0.2.0-rc.2",
-    "@deepseek-ai/dsh-tools": "^0.2.0-rc.2",
-    "@deepseek-ai/dsh-client-locale": "^0.2.0-rc.2",
-    "@deepseek-ai/dsh-client-store": "^0.2.0-rc.2",
-    "@deepseek-ai/dsh-client-ui-renderer": "^0.2.0-rc.2",
-    "@deepseek-ai/dsh-client-ui-settings": "^0.2.0-rc.2",
-    "@deepseek-ai/dsh-client-ui-slots": "^0.2.0-rc.2",
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-credentials": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-host-webserver": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-llm": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-tools": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-locale": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-store": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-renderer": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-settings": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-slots": "^0.2.1-rc.2",
     "@types/node": "^22.20.0",
     "@types/react": "~18.3.1",
     "@types/react-dom": "^18.3.7",

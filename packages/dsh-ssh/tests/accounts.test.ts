@@ -175,6 +175,9 @@ it('user cannot select Host credentials or another account\'s jump host', async 
   }
   expect(() => store.update('prod', { proxyJump: ['legacy-alice'] })).toThrow('your SSH account')
   expect(() => store.update('prod', { proxyCommand: 'sh -c whoami' })).toThrow('only to administrators')
+  expect(() => store.update('prod', { forwardAgent: true })).toThrow('only to administrators')
+  expect((await request('bob', 'hosts', 'POST', { alias: 'unsafe-forward', host: 'example.com', user: 'root',
+    auth: { kind: 'password', password: 'owned' }, forwardAgent: true })).status).toBe(400)
   expect((await request('bob', 'hosts', 'POST', { alias: 'unsafe-proxy', host: 'example.com', user: 'root',
     auth: { kind: 'password', password: 'owned' }, proxyCommand: 'sh -c whoami' })).status).toBe(400)
   expect((await request('bob', 'hosts/import-ssh-config', 'POST', {})).status).toBe(500)
@@ -200,10 +203,14 @@ it('user cannot connect with persisted local commands or missing jump hosts', as
     auth: { kind: 'password' as const, password: TEST_PASSWORD } }
   const raw = new HostStore(store.path)
   raw.create({ ...payload, alias: 'blocked-proxy', proxyCommand: 'sh -c whoami' })
+  raw.create({ ...payload, alias: 'blocked-forward', forwardAgent: true })
   store.create({ ...payload, alias: 'temporary-jump' })
   store.create({ ...payload, alias: 'dependent-host', proxyJump: ['temporary-jump'] })
   try {
     expect(store.list().some(host => host.alias === 'blocked-proxy')).toBe(true)
+    expect(() => store.find('blocked-forward')).toThrow('only to administrators')
+    store.update('blocked-forward', { forwardAgent: false })
+    expect(store.find('blocked-forward')?.forwardAgent).not.toBe(true)
     expect(() => store.find('blocked-proxy')).toThrow('only to administrators')
     store.update('blocked-proxy', { proxyCommand: '' })
     expect(store.find('blocked-proxy')?.proxyCommand).toBeUndefined()
@@ -213,13 +220,15 @@ it('user cannot connect with persisted local commands or missing jump hosts', as
     expect(result.body.error).toContain('your SSH account')
   } finally {
     store.delete('blocked-proxy')
+    store.delete('blocked-forward')
     store.delete('dependent-host')
   }
   const adminStore = accounts.resolve(admin).store
-  adminStore.create({ ...payload, alias: 'admin-proxy', proxyCommand: 'sh -c whoami' })
+  adminStore.create({ ...payload, alias: 'admin-proxy', proxyCommand: 'sh -c whoami', forwardAgent: true })
   adminStore.create({ ...payload, alias: 'admin-jump', proxyJump: ['root@example.com:2222'] })
   try {
     expect(adminStore.find('admin-proxy')?.proxyCommand).toBe('sh -c whoami')
+    expect(adminStore.find('admin-proxy')?.forwardAgent).toBe(true)
     expect(adminStore.find('admin-jump')?.proxyJump).toEqual(['root@example.com:2222'])
   } finally {
     adminStore.delete('admin-proxy')

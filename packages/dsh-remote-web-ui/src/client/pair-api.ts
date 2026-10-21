@@ -214,21 +214,76 @@ export function stripParam(name: string): string {
   return url.search
 }
 
+/**
+ * The LAN edge forwarder's state (issue #1917: a runtime forwarder replaced the
+ * managed profile block). The wire key of the address is `host`.
+ */
+export interface LanForwardFrame {
+  /** Whether the forwarder is answering on the LAN right now. */
+  listening: boolean
+  /** The address it listens on; absent while it does not listen. */
+  host?: string | null
+  /** The port it listens on; absent while it does not listen. */
+  port?: number | null
+  /**
+   * Why it does not listen: 'off' (toggle off or never flipped), 'host-bind'
+   * (the operator bound a non-loopback address with --host, so the forwarder
+   * yields the port), 'no-address' (this machine has no LAN IPv4 to listen on).
+   */
+  reason?: string | null
+  /** The bind failure verbatim (EADDRINUSE, EADDRNOTAVAIL, ...). */
+  error?: string | null
+}
+
 /** LAN-bind status frame from the loopback-only card endpoint. */
 export interface LanBindFrame {
   profile: string
   /** The config toggle: true/false once flipped, null while untouched. */
   setting: boolean | null
-  /** The bind default the managed patch block currently pins. */
+  /** The bind default a pre-#1917 managed patch block still pins. */
   blockHost: string | null
-  /** The live bind of the running web server. */
-  bindHost: string
+  /** The address LAN clients actually dial: the forwarder, or the running bind. */
+  bindHost?: string
   port: number
   lanUrls: string[]
   firewall: { ok: boolean; managed: boolean; note?: string }
   platform: string
   /** true when the running bind has not caught up with the toggle yet. */
   pendingRestart?: boolean
+  /** The host process's own listener, when the LAN edge sits beside it (issue #1917). */
+  localBindHost?: string | null
+  /** A bind block a previous version wrote was removed by this process (issue #1917). */
+  legacyBlockRemoved?: boolean
+  /** The LAN edge this plugin runs itself; absent on a pre-#1917 host half. */
+  forward?: LanForwardFrame
+  /**
+   * What the next write or start will pin: a concrete LAN literal on a host
+   * that refuses wildcard binds, '0.0.0.0' where the wildcard is still
+   * accepted, and null when the toggle was never set or nothing can be pinned.
+   * Optional so a pre-0.2.1-rc.2 host half still parses.
+   */
+  desiredHost?: string | null
+  /** Whether the running host's webserver schema accepts a wildcard bind. */
+  wildcardSupported?: boolean
+  /** The non-loopback IPv4 addresses of this process this host could pin. */
+  supportedHosts?: string[]
+  /** The toggle is on but nothing bindable could be pinned. */
+  lanBlocked?: boolean
+}
+
+/**
+ * Whether a bind literal reaches the LAN, which is what the card reports as
+ * "LAN access is on". The wildcard counts (legacy blocks written before
+ * 0.2.1-rc.2, and hosts that still accept it), and so does any other
+ * non-loopback literal — a concrete interface address, or an IPv6 literal that
+ * is not the loopback (a zone suffix such as fe80::1%eth0 included).
+ * @param host - the block host, the live bind, or undefined when absent.
+ * @returns whether the address is reachable from another device.
+ */
+export function isLanHost(host: string | null | undefined): boolean {
+  if (typeof host !== 'string' || host === '') return false
+  if (host === '0.0.0.0') return true
+  return host !== '127.0.0.1' && host !== '::1' && host !== 'localhost'
 }
 
 /** A failed LAN-bind read, carrying the HTTP status when the server answered. */

@@ -16,10 +16,24 @@ const API = {
   list: 'api/dsh-skill-explorer/list',
   read: 'api/dsh-skill-explorer/read',
   setEnabled: 'api/dsh-skill-explorer/set-enabled',
+  setProviderEnabled: 'api/dsh-skill-explorer/set-provider-enabled',
   create: 'api/dsh-skill-explorer/create',
   update: 'api/dsh-skill-explorer/update',
   delete: 'api/dsh-skill-explorer/delete',
+  import: 'api/dsh-skill-explorer/import',
 } as const
+
+/**
+ * What backs a skill locally (host-classified).
+ *
+ * - `editable`: a filesystem scan resolved the SKILL.md; `path` is writable.
+ * - `provider-file`: a plugin provider reports a real instruction file the
+ *   panel's scan did not resolve. The file exists, but the write routes do not
+ *   trust this path, so the row offers no file controls — it does carry the
+ *   enable switch, which the host records in the panel's own store (#1854).
+ * - `virtual`: no instruction file exists; "no local file" is accurate.
+ */
+export type SkillFileState = 'editable' | 'provider-file' | 'virtual'
 
 /** One skill entry as served by the host. */
 export interface SkillEntry {
@@ -29,6 +43,8 @@ export interface SkillEntry {
   provider?: string
   level: string
   path?: string
+  /** What backs this skill locally (see SkillFileState). */
+  fileState: SkillFileState
   /** True for skills discovered through a symlink entry (deletion not allowed). */
   linked?: boolean
   modelInvocable: boolean
@@ -65,6 +81,44 @@ export interface ListPayload {
   workspaces?: WorkspaceItem[]
 }
 
+/** Why a candidate the import read was not created. */
+export type ImportSkipReason =
+  | 'invalid-frontmatter'
+  | 'invalid-name'
+  | 'too-large'
+  | 'duplicate'
+  | 'exists'
+  | 'shadowed'
+
+/** One candidate's result from an import run. */
+export interface ImportOutcome {
+  /** The skill name, or the origin when no valid name was found. */
+  name: string
+  /** The archive entry or file path it was read from. */
+  origin: string
+  status: 'imported' | 'skipped'
+  /** Why it was skipped (absent when imported). */
+  reason?: ImportSkipReason
+  /** The written SKILL.md path (imported only). */
+  path?: string
+}
+
+/** The report an import run returns. */
+export interface ImportReport {
+  ok: true
+  /** The source level the files were written into. */
+  level: string
+  /** One outcome per candidate, in source order. */
+  outcomes: ImportOutcome[]
+  imported: number
+  skipped: number
+}
+
+/** Where the skills to import come from. */
+export type ImportSourceRequest =
+  | { kind: 'directory'; path: string }
+  | { kind: 'archive'; data: string }
+
 /** One thrown API error with the host-provided message. */
 export class ApiError extends Error {}
 
@@ -83,6 +137,19 @@ export class SkillApi {
     return this.request(API.setEnabled, { method: 'POST', body: { name, path, enabled } })
   }
 
+  /**
+   * Switch a plugin-provided skill off/on in this panel.
+   *
+   * There is no path to certify: the row's file belongs to the provider and
+   * sits outside the roots this panel scans, so the host records the
+   * (provider, name) pair in the panel's own store instead of rewriting a
+   * SKILL.md the panel does not own. The host answers with the stored state;
+   * the invocable view itself comes from the next list call.
+   */
+  async setProviderEnabled(name: string, provider: string | undefined, enabled: boolean): Promise<{ ok: true; name: string; provider: string; disabled: boolean }> {
+    return this.request(API.setProviderEnabled, { method: 'POST', body: { name, provider, enabled } })
+  }
+
   /** Create a skill file under the user or project root. */
   async create(payload: { root: 'user' | 'project'; name: string; description: string; whenToUse?: string; content: string; cwd: string }): Promise<{ ok: true; name: string; path: string }> {
     return this.request(API.create, { method: 'POST', body: payload })
@@ -96,6 +163,20 @@ export class SkillApi {
   /** Rewrite an existing skill file in place (name and location unchanged). */
   async update(payload: { name: string; path: string; description: string; whenToUse?: string; content: string }): Promise<{ ok: true; name: string; path: string; disabled: boolean }> {
     return this.request(API.update, { method: 'POST', body: payload })
+  }
+
+  /**
+   * Batch-create skills from a host directory or a .zip archive.
+   *
+   * The directory form names a path on the host (the route is loopback-only,
+   * so the browser and the host are the same machine by construction); the
+   * archive form carries the bytes the browser read, base64-encoded, so the
+   * user can pick a file through the ordinary file dialog. Both only ever
+   * create new files under the chosen root; a name that already resolves at
+   * the same or a stronger source comes back skipped with its reason.
+   */
+  async importSkills(payload: { root: 'user' | 'project'; cwd: string; source: ImportSourceRequest }): Promise<ImportReport> {
+    return this.request(API.import, { method: 'POST', body: payload })
   }
 
   /** Delete a skill (moves it into .trash). */

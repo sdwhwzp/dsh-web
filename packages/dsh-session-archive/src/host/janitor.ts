@@ -30,7 +30,7 @@ import type {
   SessionPreviewView,
   WorkspaceView,
 } from '../core/types.ts'
-import { buildInventory, ledgerEntryFor, readProjcacheIndex, type InventorySources, type ProjcacheFileEntry } from './inventory.ts'
+import { buildInventory, ledgerEntryFor, readProjcacheIndex, type BuiltInventory, type InventorySources, type ProjcacheFileEntry, type ProjcacheIndex } from './inventory.ts'
 import {
   capEntries,
   deserializeAutoState,
@@ -39,7 +39,9 @@ import {
   type AutoStateDocument,
   type LedgerDocument,
 } from './ledger.ts'
-import { canonicalSessionId, deleteRdbSession, isSessionRdb, rdbDbPaths, removeSessionDir } from './session-files.ts'
+import { DirIndexCache } from './dir-index-cache.ts'
+import { TtlMemo } from './ttl-memo.ts'
+import { canonicalSessionId, deleteRdbSession, indexSessionDirs, isSessionRdb, rdbDbPaths, removeSessionDir } from './session-files.ts'
 import { dshHome as resolveDshHome } from '../dsh-home.ts'
 import { archiveSession, removeFromWorkspaceRows, unarchiveSessions, unarchiveSeamAvailable } from './workspace-store.ts'
 
@@ -72,6 +74,68 @@ export interface ArchiveServiceOptions {
 const PREVIEW_MESSAGE_CAP = 6
 const PREVIEW_TEXT_CAP = 400
 
+/**
+ * Ids whose archive time is unknown to the ledger even though the session is
+ * archived - sessions archived from the official sidebar, which never reaches
+ * this plugin. Their rows carry no `archivedAt`, so the retention clock cannot
+ * start for them (`autoDeleteSeedCandidates` skips them) until something
+ * records one. The order follows the row order, so a backfill is deterministic.
+ *
+ * Rows flagged `unreadable` or `no-data` are deliberately excluded. Those flags
+ * say the plugin could not read the session's data on this pass, which is
+ * usually transient (an unmounted volume, a drive that is not ready, a failed
+ * read on a busy host) - the session itself is still there. Recording an
+ * archive time for such a row would start a clock that ends in an
+ * unrecoverable physical delete, turning a temporary read failure into
+ * permanent data loss. They keep "archive time unknown" and stay outside
+ * auto-delete, exactly as before this switch existed; once the data reads
+ * again the flag clears and the next pass can record the time.
+ */
+export function observedArchiveIds(rows: readonly ArchiveSessionRow[]): string[] {
+  const ids: string[] = []
+  for (const row of rows) {
+    if (row.archived !== true) continue
+    if (row.archivedAt !== undefined) continue
+    if (row.issues.includes('unreadable') || row.issues.includes('no-data')) continue
+    ids.push(row.id)
+  }
+  return ids
+}
+
+/**
+ * Project a set of just-backfilled ids onto a row array: the named rows gain the
+ * observation time and its `observed` source, every other row is returned as the
+ * very same object. Pure - this is the read-side half of a backfill, so the
+ * candidate rules of one cycle see the archive time that cycle records without a
+ * second inventory pass, and the preview can show it without writing.
+ */
+export function projectObservedArchives(
+  rows: readonly ArchiveSessionRow[],
+  backfilled: ReadonlySet<string>,
+  now: number,
+): ArchiveSessionRow[] {
+  return rows.map((row) => (backfilled.has(row.id) ? { ...row, archivedAt: now, archivedAtSource: 'observed' } : row))
+}
+
+/**
+ * How long one sessions-root directory scan may be reused. The panel loads the
+ * inventory, then issues one batch request per chunk (each rebuilding the
+ * inventory), then refreshes; every one of those passes re-walked the same
+ * unchanged tree. The window covers that burst without letting a scan go stale
+ * enough to matter for the sizes and directory map it supplies, and the
+ * service invalidates the cache itself after a physical delete.
+ */
+const DIR_INDEX_TTL_MS = 2_000
+
+/**
+ * How long one parse of the projection-cache index may be reused. The index is
+ * re-read and re-parsed in full by every inventory pass, and one action issues
+ * several passes, so the same burst window as the directory scan applies; once
+ * the walk is reused the parse is what is left of a warm pass. The service
+ * invalidates the memo itself after the delete pipeline rewrites the index.
+ */
+const PROJCACHE_INDEX_TTL_MS = 2_000
+
 export class ArchiveService {
   private readonly ctx: Context
   private readonly dshHome: string
@@ -83,6 +147,27 @@ export class ArchiveService {
   private config: ResolvedAutoConfig = resolveAutoConfig(undefined)
   /** Per-session projection-cache file facts, memoized across inventory passes. */
   private readonly projcacheFiles = new Map<string, ProjcacheFileEntry | null>()
+  /**
+   * Sessions-root directory index reused across nearby inventory passes. The
+   * scan is the dominant cost of a pass, and one user action triggers several
+   * (a chunk per batch request plus the refresh that follows). Invalidation
+   * after a physical delete keeps the reuse from reporting removed storage.
+   */
+  private readonly dirIndex = new DirIndexCache({
+    ttlMs: DIR_INDEX_TTL_MS,
+    scan: () => indexSessionDirs(join(this.dshHome, 'sessions')),
+  })
+  /**
+   * Parsed projection-cache index reused across nearby inventory passes. The
+   * harness file only changes when another writer touches it, while every pass
+   * re-reads and re-parses the whole document; the delete pipeline invalidates
+   * the memo after it rewrites the index, so a removed session's facts cannot
+   * resurface from memory.
+   */
+  private readonly projcacheIndex = new TtlMemo<ProjcacheIndex>({
+    ttlMs: PROJCACHE_INDEX_TTL_MS,
+    load: () => readProjcacheIndex(this.dshHome),
+  })
 
   private loaded = false
   private disposed = false
@@ -166,6 +251,33 @@ export class ArchiveService {
   }
 
   // ------------------------------------------------------------------
+  // Observed-archive backfill
+  // ------------------------------------------------------------------
+
+  /**
+   * Record an `observed` ledger entry for every archived row whose archive
+   * time is unknown, then persist once - and only when something was written,
+   * so a backfill that finds nothing never touches the ledger file.
+   *
+   * The recorded time is the moment of observation, which is a lower bound on
+   * the real archive moment (the session was archived at or before it). Because
+   * `autoDeleteSeedCandidates` skips archive times at or after the run start,
+   * this also keeps a row out of the delete set of the very cycle that records
+   * it.
+   *
+   * Callers inside a cycle must NOT hold the operation lock (runAutoCycle holds
+   * it); this method deliberately takes none.
+   * @returns the ids written, in row order.
+   */
+  private async recordObservedArchives(built: BuiltInventory, now: number): Promise<string[]> {
+    if (!this.config.recordManualArchive) return []
+    const ids = observedArchiveIds(built.rows)
+    for (const id of ids) this.ledger.entries[id] = { archivedAt: now, source: 'observed' }
+    if (ids.length > 0) await this.flushLedger()
+    return ids
+  }
+
+  // ------------------------------------------------------------------
   // Sources and protection
   // ------------------------------------------------------------------
 
@@ -178,6 +290,8 @@ export class ArchiveService {
       dshHome: this.dshHome,
       ledger: this.ledger,
       projcacheFiles: this.projcacheFiles,
+      dirIndex: this.dirIndex.get(),
+      projcacheIndex: this.projcacheIndex.get(),
     }
   }
 
@@ -460,6 +574,10 @@ export class ArchiveService {
       }
     }
 
+    // The directories this batch removed are gone from here on; a later
+    // inventory pass must re-walk rather than reuse the batch's own scan.
+    if (deleted.size > 0) this.dirIndex.invalidate()
+
     // 4. Projection cache (index entry + per-session file), both spellings.
     await this.scrubProjcache(deleted, built.nativeIds)
 
@@ -485,6 +603,10 @@ export class ArchiveService {
   /** Wait for the aggregate index rewrite; individual cache failures remain best-effort. */
   private async scrubProjcache(ids: ReadonlySet<string>, nativeIds: Record<string, string> = {}): Promise<void> {
     const indexPath = join(this.dshHome, 'storages', 'session_projcache.json')
+    // The index this pass rewrites is the memo's input: drop the retained parse
+    // first, so a pass that follows a physical delete cannot answer with the
+    // removed sessions' facts even while the window is still open.
+    if (ids.size > 0) this.projcacheIndex.invalidate()
     try {
       if (existsSync(indexPath)) {
         const parsed = JSON.parse(this.readSync(indexPath)) as { tables?: { sessions?: Record<string, unknown> } }
@@ -531,8 +653,15 @@ export class ArchiveService {
     const archiveCandidates = this.config.autoArchiveEnabled
       ? autoArchiveCandidates(built.rows, { days: this.config.autoArchiveDays, now, protectedIds: protectedSet })
       : []
+    // A preview never writes: the backfill is projected in memory only, with
+    // `now` as both the observation time and the run start, so these candidates
+    // are the ones the next real cycle will compute (it records the same rows
+    // at its own start and therefore excludes them from that cycle too).
+    const seedRows = this.config.recordManualArchive
+      ? projectObservedArchives(built.rows, new Set(observedArchiveIds(built.rows)), now)
+      : built.rows
     const deleteSeeds = this.config.autoDeleteEnabled
-      ? autoDeleteSeedCandidates(built.rows, { retainDays: this.config.autoDeleteDays, now, runStartedAt: now, protectedIds: protectedSet })
+      ? autoDeleteSeedCandidates(seedRows, { retainDays: this.config.autoDeleteDays, now, runStartedAt: now, protectedIds: protectedSet })
       : []
     const plan = planDelete(built.rows, deleteSeeds.map((seed) => seed.id), this.protectedReason(undefined, built.rows))
     let deleteBytes = 0
@@ -575,7 +704,20 @@ export class ArchiveService {
         const built = await buildInventory(this.sources(), AbortSignal.timeout(30_000))
         const protectedMap = this.protectedReason(currentSessionId, built.rows)
         const protectedSet = new Set(protectedMap.keys())
-        const seeds = autoDeleteSeedCandidates(built.rows, { retainDays: this.config.autoDeleteDays, now: startedAt, runStartedAt: startedAt, protectedIds: protectedSet })
+        // Backfill first, against the same rows this cycle plans with: the
+        // recorded observation time is `startedAt`, so the existing
+        // `archivedAt >= runStartedAt` rule keeps every just-recorded session
+        // out of this cycle's delete set while later cycles count the retention
+        // from here. Zero writes leave the ledger file untouched.
+        const observed = await this.recordObservedArchives(built, startedAt)
+        const seedRows = observed.length === 0 ? built.rows : projectObservedArchives(built.rows, new Set(observed), startedAt)
+        const seeds = autoDeleteSeedCandidates(seedRows, { retainDays: this.config.autoDeleteDays, now: startedAt, runStartedAt: startedAt, protectedIds: protectedSet })
+        // `lastDeleteRun` is a DELETION record: a backfilled archive time is not
+        // a deleted session, and counting it as an `ok` entry would report
+        // "N sessions cleaned up" for a run that removed nothing. That number is
+        // also the field users read to tell whether auto-delete works at all, so
+        // inflating it would fake the very signal issue #1908 was diagnosed with.
+        // A backfill reaches the user through the row's backfilled marker only.
         if (seeds.length === 0) {
           const stats: RunStats = { at: startedAt, total: 0, ok: 0, skipped: 0, failed: 0, entries: [] }
           this.autoState.lastDeleteRun = stats
@@ -591,6 +733,22 @@ export class ArchiveService {
       } finally {
         this.cycleRunning = false
       }
+    })
+  }
+
+  /**
+   * The backfill-only scheduler step: take the lock, run one inventory pass and
+   * record the observed archives. Used when the backfill is the only automatic
+   * behaviour this deployment enables, so the recorded archive times still reach
+   * the list without an auto-delete cycle. It takes the lock itself and must
+   * therefore never be called from inside a cycle (where the lock is held).
+   * @returns the number of entries written.
+   */
+  private cycleObservedArchives(): Promise<number> {
+    return this.withLock(async () => {
+      const now = Date.now()
+      const built = await buildInventory(this.sources(), AbortSignal.timeout(30_000))
+      return (await this.recordObservedArchives(built, now)).length
     })
   }
 
@@ -636,7 +794,9 @@ export class ArchiveService {
 
   private async tick(): Promise<void> {
     if (this.disposed) return
-    const anythingEnabled = this.config.autoArchiveEnabled || this.config.autoDeleteEnabled
+    // The backfill counts as an automatic behaviour: with only that switch on,
+    // the scheduler still has work to do and must keep ticking.
+    const anythingEnabled = this.config.autoArchiveEnabled || this.config.autoDeleteEnabled || this.config.recordManualArchive
     if (anythingEnabled) {
       // runAutoCycle serializes through the lock; a held lock (manual batch)
       // delays this cycle without failing it — catch-up happens next tick.
@@ -651,6 +811,25 @@ export class ArchiveService {
             entries: [{ id: 'cycle', status: 'failed', reason: 'error', detail: error instanceof Error ? error.message.slice(0, 200) : String(error) }],
           }
           await this.flushState()
+        }
+      }
+      // The delete cycle backfills on its own, inside its own lock and against
+      // the rows it plans with, so this step exists for the deployment that
+      // enables the backfill but not auto-delete: the list still shows the
+      // recorded times. Running it here (never inside a cycle) keeps a single
+      // lock acquisition in flight.
+      if (this.config.recordManualArchive && !this.config.autoDeleteEnabled) {
+        try {
+          await this.cycleObservedArchives()
+        } catch (error) {
+          if (!(error instanceof BusyError)) {
+            this.autoState.lastDeleteRun = {
+              at: Date.now(),
+              total: 0, ok: 0, skipped: 0, failed: 1,
+              entries: [{ id: 'cycle', status: 'failed', reason: 'error', detail: `observed-archive backfill: ${error instanceof Error ? error.message.slice(0, 200) : String(error)}` }],
+            }
+            await this.flushState()
+          }
         }
       }
       try {

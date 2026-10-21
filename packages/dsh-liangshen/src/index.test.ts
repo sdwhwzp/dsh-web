@@ -104,21 +104,46 @@ describe('resolveConfig', () => {
       enabled: false,
       announceToAgent: true,
       presentation: 'ptc',
-      guardEnabled: false,
-      guardSensitivity: 'aggressive',
-      guardStallReasoningChars: 12000,
-      guardGlobalStallCap: 6,
-      guardEchoFailures: 2,
+      dispatcher: true,
     })).toEqual({
       enabled: false,
       announceToAgent: true,
       presentation: 'ptc',
-      guardEnabled: false,
-      guardSensitivity: 'aggressive',
-      guardStallReasoningChars: 12000,
-      guardGlobalStallCap: 6,
-      guardEchoFailures: 2,
+      dispatcher: true,
     })
+  })
+
+  it('operator gets the dispatcher switch ON by default, as a volatile field', () => {
+    // Given the shipped schema, When the operator reads the effective settings,
+    // Then the dispatcher block is appended by default: a session that never
+    // touches the switch runs as a dispatcher, and switching it off is what
+    // returns the bare persona. The field is volatile like every other
+    // preset-shaping key, so the Host serves it as this entry's settings form
+    // and commits a write in place instead of remounting the row.
+    expect(DEFAULT_CONFIG.dispatcher).toBe(true)
+    expect(resolveConfig({}).dispatcher).toBe(true)
+    expect(resolveConfig(Config({})).dispatcher).toBe(true)
+    let committed = false
+    expect(resolveConfig({ dispatcher: { get: () => committed } }).dispatcher).toBe(false)
+    committed = true
+    expect(resolveConfig({ dispatcher: { get: () => committed } }).dispatcher).toBe(true)
+  })
+
+  it('operator sees dispatcher and presentation as independent settings', () => {
+    // Given the two orthogonal settings (dispatcher changes the PROMPT, its
+    // appended rule block; presentation changes the WIRE, the tool surface),
+    // When the operator reads every combination, Then each field resolves to
+    // the value it was given with no cross-talk between them.
+    for (const presentation of ['ptc', 'native'] as const) {
+      for (const dispatcher of [true, false]) {
+        expect(resolveConfig({ presentation, dispatcher })).toMatchObject({ presentation, dispatcher })
+      }
+    }
+    // Pre-0.2.1 profiles persisted `presentation: 'both'` (the former default);
+    // both the schema and the reader normalize it to `'ptc'` so upgrading never
+    // degrades the row at startup.
+    expect(resolveConfig(Config({ presentation: 'both' })).presentation).toBe('ptc')
+    expect(resolveConfig({ presentation: 'both' }).presentation).toBe('ptc')
   })
 })
 

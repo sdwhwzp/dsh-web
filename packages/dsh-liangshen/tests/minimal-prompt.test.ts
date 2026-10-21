@@ -14,6 +14,7 @@ import {
   INSTRUCTION_SOURCES,
   isBaselineInstructionPath,
   isMessagePureBaseline,
+  DISPATCHER_RULES_HEADING,
   loadInstructionFiles,
   loadInstructionText,
   name,
@@ -22,6 +23,7 @@ import {
   WORKSPACE_INSTRUCTIONS_SECTION_NAME,
 } from '../presets/liangshen/minimal-prompt.mjs'
 import * as promptModule from '../presets/liangshen/minimal-prompt.mjs'
+import { DISPATCHER_RULES, DISPATCHER_RULES_APPENDIX, DISPATCHER_RULES_WITH_APPENDIX } from '../presets/liangshen/dispatcher-rules.mjs'
 
 type Listener = (first: any, second: any, third: any) => Promise<any>
 
@@ -154,7 +156,10 @@ describe('liangshen-minimal-prompt', () => {
   })
 
   test('narrows the assembled prompt to the persona and the plan policy', async () => {
-    const result = await assemble(register())
+    // Given the dispatcher switch off, When the operator assembles the prompt,
+    // Then only the persona and plan policy survive: this case is about the
+    // narrowing, not about the appended dispatcher block.
+    const result = await assemble(register({ dispatcher: false }))
     expect(result.sections.map((section: any) => section.name)).toEqual(['deployment:persona-prefix', 'plan:policy'])
     expect(result.sections[0].text).toBe(PERSONA.text)
   })
@@ -198,8 +203,10 @@ describe('liangshen-minimal-prompt', () => {
   })
 
   test('appends the session workspace directory to the persona', async () => {
+    // Given the dispatcher switch off, When the operator assembles the prompt,
+    // Then the persona carries the workspace line and nothing else.
     const cwd = project()
-    const result = await assemble(register(), FULL_SECTIONS, undefined, agentAt(cwd))
+    const result = await assemble(register({ dispatcher: false }), FULL_SECTIONS, undefined, agentAt(cwd))
     expect(result.sections[0].text)
       .toBe(`You are a helpful software engineer assistant.\n\nYour working directory is ${cwd}.`)
     // The plan policy is not orientation: it stays verbatim.
@@ -226,9 +233,10 @@ describe('liangshen-minimal-prompt', () => {
   })
 
   test('keeps the bare persona when the session reports no cwd', async () => {
+    // Given the dispatcher switch off, When the session reports no cwd, Then
+    // the bare persona is what remains: no workspace line and no appended block.
     const agent = { session: { header: {} } }
-    const result = await assemble(register(), FULL_SECTIONS, undefined, agent)
-    // No workspace line without a cwd: the bare persona is what remains.
+    const result = await assemble(register({ dispatcher: false }), FULL_SECTIONS, undefined, agent)
     expect(result.sections[0].text).toBe(PERSONA.text)
   })
 
@@ -572,6 +580,277 @@ describe('liangshen-minimal-prompt', () => {
     expect(extractInstructionPaths({})).toEqual([])
   })
 
+  describe('dispatcher rule block', () => {
+    /** The persona section text of one assembly. */
+    function personaText(result: any): string {
+      return result.sections.find((section: any) => section.name === 'deployment:persona-prefix').text
+    }
+
+    test('operator appends nothing at all while the switch is off', async () => {
+      // Given the switch off, When the operator assembles the prompt, Then the
+      // persona is the persona plus its workspace line and no dispatcher prose
+      // reaches the prompt at all.
+      const cwd = project()
+      const agent = agentAt(cwd)
+      const off = await assemble(register({ dispatcher: false }), FULL_SECTIONS, undefined, agent)
+      expect(personaText(off)).toBe(`${PERSONA.text}\n\nYour working directory is ${cwd}.`)
+      expect(off.sections.map((section: any) => section.name))
+        .toEqual(['deployment:persona-prefix', 'plan:policy'])
+      expect(personaText(off)).not.toContain('[Role Identification]')
+      expect(personaText(off)).not.toContain('Dispatcher rules')
+      expect(JSON.stringify(off.sections)).not.toContain('Anti-Patterns')
+    })
+
+    test('operator gets the appended block from a config that never mentions the switch', async () => {
+      // Given a config with no dispatcher key at all, When the operator
+      // assembles the prompt, Then the block is appended anyway: the plugin's
+      // own fallback agrees with the shipped preset row, so an activation that
+      // never states the switch still runs the mode the factory declares.
+      const cwd = project()
+      const absent = await assemble(register(), FULL_SECTIONS, undefined, agentAt(cwd))
+      const on = await assemble(register({ dispatcher: true }), FULL_SECTIONS, undefined, agentAt(cwd))
+      expect(personaText(absent)).toBe(personaText(on))
+      expect(personaText(absent)).toContain('[Role Identification]')
+      expect(personaText(absent)).toContain(DISPATCHER_RULES)
+    })
+
+    test('operator gets a rejected non-boolean switch through config validation', () => {
+      // Given a switch that is not a boolean, When the operator registers the
+      // plugin, Then config validation rejects it instead of silently treating
+      // a truthy string as enabled.
+      expect(() => register({ dispatcher: 'yes' })).toThrow(/dispatcher must be a boolean/)
+      expect(() => register({ dispatcher: 1 })).toThrow(/dispatcher must be a boolean/)
+    })
+
+    test('operator sees the rule block appended after the persona discipline, under a separator', async () => {
+      // Given the switch on, When the operator assembles the prompt, Then the
+      // persona and its discipline stay byte-identical and the heading plus the
+      // rule block follow them, with the rest of the prompt untouched.
+      const cwd = project()
+      const result = await assemble(register({ dispatcher: true }), FULL_SECTIONS, undefined, agentAt(cwd))
+      const text = personaText(result)
+      const off = personaText(await assemble(register({ dispatcher: false }), FULL_SECTIONS, undefined, agentAt(cwd)))
+      expect(text.startsWith(off)).toBe(true)
+      expect(text.slice(off.length)).toBe(`${DISPATCHER_RULES_HEADING}${DISPATCHER_RULES_WITH_APPENDIX}`)
+      // The persona discipline is still ahead of the appended rules.
+      expect(text.indexOf('You are a helpful software engineer assistant.'))
+        .toBeLessThan(text.indexOf('## Dispatcher rules'))
+      // The heading separates the two blocks instead of gluing them together.
+      expect(text).toContain('\n\n---\n\n## Dispatcher rules (a mode-level append)\n')
+      // The switch changes only the persona section: the rest of the prompt is
+      // untouched, and the tool wire is not involved at all.
+      expect(result.sections.map((section: any) => section.name))
+        .toEqual(['deployment:persona-prefix', 'plan:policy'])
+      expect(result.sections.find((section: any) => section.name === 'plan:policy').text).toBe(PLAN.text)
+    })
+
+    test('operator gets the whole rule set: identity, R0 through R8, R-W, and the anti-patterns', async () => {
+      // Given the switch on, When the operator assembles the prompt, Then every
+      // section of the upstream rule set is present verbatim, the text names no
+      // package that LiangShen does not own, and it carries no unbound
+      // template variable the harness renderer would refuse.
+      const result = await assemble(register({ dispatcher: true }), FULL_SECTIONS, undefined, agentAt(project()))
+      const text = personaText(result)
+      for (const marker of [
+        '[Role Identification]',
+        '[Coordinator Identity]',
+        '## R0 · Complexity Triage',
+        '## R0.5 · Compatibility Gate',
+        '## R-G · Clarification Interview',
+        '## R1 · Responsibility Boundary',
+        '## R2 · Model Routing',
+        '## R3 · Subagent Autonomy',
+        '## R4 · Subagent Role',
+        '## R5 · Dispatch Discipline',
+        '## R-W · Turn Boundary',
+        '## R6 · Review & Acceptance',
+        '## R7 · Documentation',
+        '## R8 · Fallback',
+        '## Anti-Patterns (Any Occurrence Is a Violation)',
+        '16. Second-guessing list_subagent_models',
+        'G7 to G14 below are the local additions to G1 to G6 above',
+        'G15 below is a separate addition to R5',
+        '- G7 Asking budget',
+        '- G14 Fact-check dispatches',
+        'A. Asking instead of judging',
+        'B. Asking the same decision twice',
+      ]) {
+        expect(text, marker).toContain(marker)
+      }
+      // The role-recognition paragraph is carried in full, and both role halves
+      // are present: the dispatcher rules identify the executor case too.
+      expect(text).toContain('If your first user message is a task brief')
+      expect(text).toContain('R3 remains in effect')
+      // The guards announced by R2 are sub-agent model authorization guards, and
+      // the subscription repository that happens to own one is not named.
+      expect(text).not.toContain('dsh-chatgpt-subscription')
+      expect(text).not.toContain('subagentModelAuthorization')
+      // No unbound template variables ride in with the block: the renderer
+      // interpolates strictly, so a stray placeholder would fail every request.
+      expect(text).not.toMatch(/\{\{/)
+    })
+
+    test('operator gets the local additions after the reference block, which stays verbatim', async () => {
+      // Given the switch on, When the operator assembles the prompt, Then the
+      // local additions ride after the last reference sentence and the
+      // reference block itself is unchanged: the additions are an appendix,
+      // not a rewrite of the upstream text the block was extracted from.
+      const result = await assemble(register({ dispatcher: true }), FULL_SECTIONS, undefined, agentAt(project()))
+      const text = personaText(result)
+      // The reference block ends at anti-pattern 16 and carries no addition.
+      expect(DISPATCHER_RULES.endsWith('16. Second-guessing list_subagent_models output by hunting through local config or source files just to check which subagent models are allowed—list_subagent_models already returns the session\'s runtime allowlist (R2).')).toBe(true)
+      expect(DISPATCHER_RULES).not.toContain('G7')
+      expect(DISPATCHER_RULES).not.toContain('Task board is not a dispatch')
+      // The reference block is the current upstream text: it carries the R-W
+      // turn-boundary section and the R0.5 compatibility gate, and it carries
+      // no R-T section and no teammate-support section: upstream removed both
+      // when it dropped teammate support, so the block names no teammate
+      // tooling of its own. The gate still names the tools it detects, which is
+      // what makes it a gate rather than a support path.
+      expect(DISPATCHER_RULES).toContain('## R-W · Turn Boundary')
+      expect(DISPATCHER_RULES).toContain('## R0.5 · Compatibility Gate')
+      // Every section heading, in order: an R-T section or any teammate-support
+      // section added upstream would appear here and fail this list.
+      const headings = DISPATCHER_RULES.split('\n').filter(line => line.startsWith('## '))
+      expect(headings).toEqual([
+        '## R0.5 · Compatibility Gate (Once per New Session, Before R0)',
+        '## R0 · Complexity Triage (Triage First, Then Choose the Workflow)',
+        '## R-G · Clarification Interview (L2 Only, Always Before Planning)',
+        '## R1 · Responsibility Boundary (Layered by Tier)',
+        '## R2 · Model Routing (Check Availability First, Then Decide How to Dispatch)',
+        '## R3 · Subagent Autonomy',
+        '## R4 · Subagent Role',
+        '## R5 · Dispatch Discipline',
+        '## R6 · Review & Acceptance',
+        '## R-W · Turn Boundary (Waiting / Goals / Questions)',
+        '## R7 · Documentation',
+        '## R8 · Fallback',
+        '## Anti-Patterns (Any Occurrence Is a Violation)',
+      ])
+      expect(headings.some(heading => heading.includes('R-T'))).toBe(false)
+      expect(DISPATCHER_RULES).not.toContain('team_task_')
+      // It is English, and it names no package this repository does not own.
+      expect(DISPATCHER_RULES).toContain('[Role Identification]')
+      expect(DISPATCHER_RULES).not.toContain('dsh-chatgpt-subscription')
+      // No unbound template variables ride in with the block: the renderer
+      // interpolates strictly, so a stray placeholder would fail every request.
+      expect(DISPATCHER_RULES).not.toMatch(/\{\{/)
+      // The appendix carries no reference section of its own.
+      expect(DISPATCHER_RULES_APPENDIX).not.toContain('## R-G · Clarification Interview')
+      // The composed constant is exactly the two halves with one newline.
+      expect(DISPATCHER_RULES_WITH_APPENDIX).toBe(`${DISPATCHER_RULES}\n${DISPATCHER_RULES_APPENDIX}`)
+      // The appendix follows the reference block, and every addition is
+      // present exactly once.
+      for (const marker of [
+        'G7 to G14 below are the local additions to G1 to G6 above',
+        'G15 below is a separate addition to R5',
+        '- G7 Asking budget: at most 4 questions in a round',
+        '- G8 Assumption exit:',
+        '- G9 New evidence:',
+        '- G10 Where the record lands:',
+        '- G11 Recommendation quality:',
+        '- G12 Presentation and degradation:',
+        '- G13 The minimal L1 form:',
+        '- G14 Fact-check dispatches:',
+        '- G15 Task board is not a dispatch:',
+        'A. Asking instead of judging:',
+        'B. Asking the same decision twice,',
+      ]) {
+        expect(text, marker).toContain(marker)
+        expect(text.split(marker)).toHaveLength(2)
+      }
+      expect(text.indexOf('16. Second-guessing list_subagent_models'))
+        .toBeLessThan(text.indexOf('G7 to G14 below are the local additions'))
+      // The glossary splits the two scopes before the first bullet: G7 through
+      // G14 amend G1 through G6, while G15 amends R5 instead. Widening the
+      // glossary over G15 would silently mis-file a dispatch rule as an
+      // interview rule, so the whole line is pinned verbatim.
+      const glossary = DISPATCHER_RULES_APPENDIX.split('\n')[1]
+      expect(glossary).toBe(
+        'G7 to G14 below are the local additions to G1 to G6 above: where they conflict with G1 to G6, those entries win. G15 below is a separate addition to R5 and has no counterpart upstream.',
+      )
+      // No sentence in the appendix files G15 as an addition to G1 to G6. The
+      // check is per sentence, because the glossary sentence above names both
+      // scopes on one physical line; what must never appear is one sentence
+      // that puts G15 and the G1-to-G6 supplement in the same scope.
+      const sentences = DISPATCHER_RULES_APPENDIX.split(/(?<=\.)\s+/)
+      const g15Sentences = sentences.filter(sentence => sentence.includes('G15'))
+      expect(g15Sentences.length).toBeGreaterThan(0)
+      expect(g15Sentences.filter(sentence => sentence.includes('G1 to G6'))).toEqual([])
+      // G15's own scope sentence names R5, not the interview.
+      expect(g15Sentences.some(sentence => sentence.includes('addition to R5'))).toBe(true)
+      // The task-board rule sits with the other rules, before the violations:
+      // it is a dispatch rule, not an anti-pattern.
+      expect(text.indexOf('- G14 Fact-check dispatches')).toBeLessThan(text.indexOf('- G15 Task board is not a dispatch'))
+      expect(text.indexOf('- G15 Task board is not a dispatch')).toBeLessThan(text.indexOf('Violations added here'))
+      // The appendix is English throughout: no CJK character reaches the
+      // prompt from the local half.
+      expect(DISPATCHER_RULES_APPENDIX).not.toMatch(/[\u3000-\u9fff\uff00-\uffef]/)
+    })
+
+    test('operator keeps the additions when the persona already carries the reference block', async () => {
+      // Given a persona that already holds the reference block but not the
+      // additions, When the block is appended, Then only the additions are
+      // added: the two halves are checked separately so neither is duplicated.
+      const withReference = `persona\n${DISPATCHER_RULES}`
+      const once = promptModule.withDispatcherRules(withReference)
+      expect(once).toBe(`${withReference}\n${DISPATCHER_RULES_APPENDIX}`)
+      expect(promptModule.withDispatcherRules(once)).toBe(once)
+    })
+
+    test('operator sees the appended block rendered by the harness renderer', async () => {
+      // Given the switch on, When the operator renders the assembled sections
+      // through the harness renderer, Then the dispatcher rules and the
+      // workspace line both survive rendering.
+      const cwd = project()
+      const result = await assemble(register({ dispatcher: true }), FULL_SECTIONS, undefined, agentAt(cwd))
+      const rendered = renderPrompt({ sections: result.sections, variables: result.variables })
+      expect(rendered).toContain('[Coordinator Identity]')
+      expect(rendered).toContain('## Anti-Patterns (Any Occurrence Is a Violation)')
+      expect(rendered).toContain(`Your working directory is ${cwd}.`)
+    })
+
+    test('operator gets the rule block even when the session reports no cwd', async () => {
+      // Given a session that reports no cwd, When the operator assembles the
+      // prompt with the switch on, Then the rules still reach the persona while
+      // no workspace line is invented.
+      const result = await assemble(register({ dispatcher: true }), FULL_SECTIONS, undefined, { session: { header: {} } })
+      const text = personaText(result)
+      expect(text).not.toContain('Your working directory is')
+      expect(text).toBe(`${PERSONA.text}${DISPATCHER_RULES_HEADING}${DISPATCHER_RULES_WITH_APPENDIX}`)
+    })
+
+    test('operator does not get the block twice when the persona already carries it', async () => {
+      // Given the switch on, When the operator assembles twice over the sections
+      // the first assembly produced, Then the block appears once: the append is
+      // idempotent, as the workspace line is.
+      const cwd = project()
+      const harness = register({ dispatcher: true })
+      const first = await assemble(harness, FULL_SECTIONS, undefined, agentAt(cwd))
+      const second = await assemble(harness, first.sections, undefined, agentAt(cwd))
+      const text = personaText(second)
+      expect(text.split('[Coordinator Identity]')).toHaveLength(2)
+      expect(text).toBe(personaText(first))
+    })
+
+    test('operator keeps the append out of the workspace-instructions section', async () => {
+      // Given the switch on under the system-prompt instruction source, When
+      // the operator assembles the prompt, Then the appended instruction section
+      // still follows the persona and still carries the variable reference, so
+      // the rules live in the persona alone.
+      writeHome('AGENTS.md', 'user-global rule')
+      const cwd = project({ 'AGENTS.md': 'project rule' })
+      const result = await assemble(register({ dispatcher: true, instructionSource: 'system-prompt' }), FULL_SECTIONS, undefined, agentAt(cwd))
+      expect(result.sections.map((section: any) => section.name)).toEqual([
+        'deployment:persona-prefix',
+        'plan:policy',
+        WORKSPACE_INSTRUCTIONS_SECTION_NAME,
+      ])
+      expect(result.variables.workspace_instructions).not.toContain('[Role Identification]')
+      expect(result.variables.workspace_instructions).toContain('project rule')
+    })
+  })
+
   describe('PTC prompt sections retention', () => {
     const RUN_CODE_WIRE = [{ name: 'run_code', description: 'Run a program.' }]
 
@@ -584,7 +863,7 @@ describe('liangshen-minimal-prompt', () => {
         { name: 'tools:sdk', text: sdkText },
         { name: 'web:surface', text: 'ignore' },
       ]
-      // 'both' / 'ptc' wire: the transport is present, so the SDK sections stay.
+      // 'ptc' wire: the transport is present, so the SDK sections stay.
       const result = await assemble(register(), ptcSections, undefined, agentOf(), RUN_CODE_WIRE)
       const names = result.sections.map((s: any) => s.name)
       expect(names).toContain('tools:ptc-only')
@@ -656,7 +935,7 @@ describe('liangshen-minimal-prompt', () => {
       // The assembled prompt is a pure function of the session cwd, so the two
       // platforms cannot diverge: nothing in the persona depends on the host.
       const cwd = project()
-      const result = await assemble(register(), FULL_SECTIONS, undefined, agentAt(cwd))
+      const result = await assemble(register({ dispatcher: false }), FULL_SECTIONS, undefined, agentAt(cwd))
       const text = result.sections[0].text
       expect(text).toBe(`You are a helpful software engineer assistant.\n\nYour working directory is ${cwd}.`)
       expect(text).not.toContain('Current platform')

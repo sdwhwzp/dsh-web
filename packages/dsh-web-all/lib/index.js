@@ -1,4 +1,4 @@
-//#region ../../node_modules/.pnpm/@deepseek-ai+cosmokit@1.8.5/node_modules/@deepseek-ai/cosmokit/lib/index.js
+//#region ../../node_modules/.pnpm/@deepseek-ai+cosmokit@1.8.6/node_modules/@deepseek-ai/cosmokit/lib/index.js
 /** Return true when a value is `null` or `undefined`. */
 function isNullable(value) {
 	return value === null || value === void 0;
@@ -252,7 +252,7 @@ var Time;
 	Time.template = template;
 })(Time || (Time = {}));
 //#endregion
-//#region ../../node_modules/.pnpm/@deepseek-ai+schemastery@3.18.4/node_modules/@deepseek-ai/schemastery/lib/index.mjs
+//#region ../../node_modules/.pnpm/@deepseek-ai+schemastery@3.18.5/node_modules/@deepseek-ai/schemastery/lib/index.mjs
 const kSchema = Symbol.for("schemastery");
 const kValidationError = Symbol.for("ValidationError");
 globalThis.__schemastery_index__ ??= 0;
@@ -925,40 +925,15 @@ function recordDegraded(plugin, stage, error) {
 function listDegraded() {
 	return [...shellState().degraded.values()];
 }
-//#endregion
-//#region src/rows.ts
-/**
-* Active-row ledger for the dsh-web-all fault-isolation shell. Each family
-* patch row runs one shell apply carrying the real plugin package name in
-* `config.plugin`; the shell records that name here when the row applies and
-* removes it when the entry disposes. The browser half reads the ledger
-* through GET /api/dsh-web-all/rows to gate which folded client children
-* mount: a row the loader never started (disabled by a user patch override)
-* has no shell apply, so its settings tabs and surfaces stay off the page
-* instead of rendering an entry that errors on click (#1372).
-*
-* Recording happens at apply start, not after the real plugin starts: a row
-* whose plugin degraded (import/start failure captured by the shell) is still
-* an ACTIVE row and keeps its UI entry — the degraded state is the honest
-* signal the user must see. Only a row the loader never applied (disabled)
-* drops out of the ledger.
-*
-* The ledger lives in the process-wide shared state (src/state.ts): the shell
-* loads through two entry artifacts whose bundler chunk split would otherwise
-* give each its own copy.
-*/
-/** Mark one family row active (its shell entry applied). */
-function recordActiveRow(plugin) {
-	shellState().activeRows.add(plugin);
-}
-/** Mark one family row inactive (its shell entry disposed). */
-function removeActiveRow(plugin) {
-	shellState().activeRows.delete(plugin);
-}
-/** Snapshot of the active real-plugin package names, in insertion order. */
-function listActiveRows() {
-	return [...shellState().activeRows];
-}
+/** Every retired package name, sorted: what the shell skips without importing. Derived from
+*  RETIRED_FAMILIES so the two can never disagree. */
+const RETIRED_PLUGINS$1 = Object.freeze(Object.values({
+	"describe-image": "@linxin666/dsh-tool-describe-image",
+	"desktop-launcher": "@linxin666/dsh-desktop-launcher",
+	"doctor": "@linxin666/dsh-doctor",
+	"dsh-perf": "@linxin666/dsh-perf",
+	"model-capabilities": "@linxin666/dsh-client-ui-model-capabilities"
+}).sort());
 Schema.any().volatile();
 /**
 * Loopback-fenced degraded-state route (installed once per shell context).
@@ -993,32 +968,9 @@ function makeDegradedRoute() {
 	};
 }
 /**
-* Row-state route: answers the active family rows (real plugin package
-* names) for the browser half's mount gating (#1372). NOT loopback-fenced:
-* remote browsers read it same-origin like every other family /api route;
-* the payload (active family package names) is already public through the
-* served client bundle.
-*/
-function makeRowsRoute() {
-	return {
-		kind: "exact",
-		path: "/api/dsh-web-all/rows",
-		handler: async (_req, res) => {
-			res.writeHead(200, {
-				"content-type": "application/json",
-				"cache-control": "no-store"
-			});
-			res.end(JSON.stringify({
-				ok: true,
-				children: listActiveRows()
-			}));
-		}
-	};
-}
-/**
-* Hold both health routes (degraded + rows) for this shell entry's lifetime.
-* Every shell entry calls this — including the config-less self row — so the
-* rows route stays up even when every family row is disabled.
+* Hold the health route (degraded) for this shell entry's lifetime. Every
+* shell entry calls this — including the config-less self row — so the route
+* stays up even when every family row is disabled.
 *
 * The shell applies with inject=[] (it must activate before anything else),
 * which means it usually runs BEFORE the web app provides webServer. A direct
@@ -1035,19 +987,8 @@ function holdHealthRoutes(ctx) {
 		const routes = shellState().healthRoutes;
 		if (routes.count === 0) try {
 			const unregisterDegraded = webServer.register(makeDegradedRoute());
-			let unregisterRows;
-			try {
-				unregisterRows = webServer.register(makeRowsRoute());
-			} catch (error) {
-				unregisterDegraded();
-				throw error;
-			}
 			routes.unregister = () => {
-				try {
-					unregisterRows?.();
-				} finally {
-					unregisterDegraded();
-				}
+				unregisterDegraded();
 			};
 		} catch (error) {
 			console.warn("[dsh-web-all] failed to register health routes:", error);
@@ -1111,8 +1052,71 @@ function isOverrideShape(config) {
 /**
 * Known retired family plugins: stale rows from older user profiles mount as
 * silent no-ops so upgrading the aggregate package never breaks the host boot.
+*
+* The list is generated from the aggregate.yml `retiredPlugins` section
+* (src/retired-plugins.generated.ts) and is therefore the single source for
+* this behavior: adding a retired family edits the manifest and reruns
+* `node scripts/aggregate.mjs`. It used to be a hand-written literal here,
+* and it drifted — the 2026-09-23 removal of dsh-doctor and
+* dsh-tool-describe-image never added its two package names, so their leftover
+* profile rows fell through to the import below and recorded a normal
+* retirement as a degraded plugin. The semantics are unchanged: a row naming a
+* retired plugin mounts empty and records nothing.
 */
-const RETIRED_PLUGINS = /* @__PURE__ */ new Set(["@linxin666/dsh-perf", "@linxin666/dsh-desktop-launcher"]);
+const RETIRED_PLUGINS = new Set(RETIRED_PLUGINS$1);
+/**
+* Whether a lifecycle transition belongs to the fiber one row mounted.
+*
+* `ctx.plugin()` returns `Object.create(fiber)` — a thin wrapper whose `then`
+* forwards to the fiber's own `await()` — so the mounted handle is NOT the
+* fiber the `internal/status` event reports. The wrapper's prototype is that
+* fiber, which is what makes the two comparable.
+* @param watched - the handle `ctx.plugin()` returned for this row.
+* @param fiber - the fiber an `internal/status` transition reported.
+* @returns whether the transition is this row's own nested plugin.
+*/
+function isNestedFiber(watched, fiber) {
+	return watched === fiber || Object.getPrototypeOf(watched) === fiber;
+}
+/**
+* The fiber, when it can be watched for a start failure that lands LATE.
+*
+* Awaiting the fiber covers the failures that settle while the mount is still
+* in flight. It does NOT cover the shape every real family plugin has: a plugin
+* that declares injected services is created PENDING, so `ctx.plugin()` returns
+* while the plugin body has not run at all — and the promise it returns resolves
+* then. When the injected service finally appears, cordis runs the body, the
+* body throws (the task board's ledger lock: issue #1730/#1850), the fiber goes
+* FAILED — and the shell, having already watched a promise that resolved, hears
+* nothing. The row then keeps its UI entry while `/api/dsh-web-all/degraded`
+* answers an empty ledger, which is exactly the report this covers.
+*
+* So the fiber itself is watched: `fiber.await()` resolves once the fiber
+* settles and rethrows its startup error, whenever that happens. It is only
+* ever consulted on a lifecycle transition, so it adds no polling, and it
+* resolves (rather than throws) for a fiber still waiting for its services, so
+* a healthy row is never recorded as degraded.
+* @param fiber - the nested plugin fiber as `ctx.plugin()` returned it.
+* @returns the watchable face of that fiber, or undefined for a test double.
+*/
+function watchable(fiber) {
+	const candidate = fiber;
+	return candidate !== null && typeof candidate?.await === "function" ? candidate : void 0;
+}
+/**
+* Record a family plugin's start failure, at whichever point it lands.
+*
+* Called on every lifecycle transition of a nested fiber — including the one
+* that fails a plugin whose body only ran once its injected services appeared.
+* A healthy fiber has no startup error, so `await()` resolves and this is a
+* no-op; a fiber that has not finished waiting for its services resolves too,
+* so a row that is merely deferred is never reported as broken.
+* @param spec - the real plugin package name the row named.
+* @param fiber - the nested fiber to settle and inspect.
+*/
+function recordDeferredStartFailure(spec, fiber) {
+	fiber.await().catch((error) => recordDegraded(spec, "start", error));
+}
 /**
 * Apply one shell entry: mount the configured real plugin behind an isolation
 * boundary, and re-mount it whenever the row config changes.
@@ -1128,44 +1132,24 @@ const RETIRED_PLUGINS = /* @__PURE__ */ new Set(["@linxin666/dsh-perf", "@linxin
 async function apply$1(ctx, config) {
 	holdHealthRoutes(ctx);
 	let mounted;
-	let activeRow;
 	/** Serializes config syncs: an update may land while a mount is still running. */
 	let tail = Promise.resolve();
-	/**
-	* Publish the family row this entry currently serves. Only a row the loader
-	* never applied (disabled) stays out of the ledger, so the browser half's
-	* mount gate keeps a row whose plugin degraded.
-	*/
-	const publishRow = (spec) => {
-		if (activeRow === spec) return;
-		if (activeRow !== void 0) removeActiveRow(activeRow);
-		activeRow = spec;
-		if (spec !== void 0) recordActiveRow(spec);
-	};
-	ctx.effect(() => () => {
-		publishRow(void 0);
-	}, "dsh-web-all: active row ledger");
 	/** Mount the real plugin the current row config names, replacing any previous mount. */
 	const sync = async () => {
 		const raw = liveRowConfig(config);
 		const row = isRowConfig(raw) ? raw : void 0;
 		if (row === void 0) {
-			publishRow(void 0);
 			if (raw === void 0) return;
 			recordDegraded("(no plugin)", "shape", /* @__PURE__ */ new Error(`shell row config is not a mapping (row config: ${describeConfig(raw)}); the entry mounted empty`));
 			return;
 		}
 		const spec = row.plugin;
 		if (typeof spec !== "string" || spec === "") {
-			publishRow(void 0);
 			if (isOverrideShape(row)) return;
 			recordDegraded("(no plugin)", "shape", /* @__PURE__ */ new Error(`shell row config is missing the "plugin" package name (row config: ${describeConfig(row)}); the entry mounted empty`));
 			return;
 		}
-		if (RETIRED_PLUGINS.has(spec)) {
-			publishRow(void 0);
-			return;
-		}
+		if (RETIRED_PLUGINS.has(spec)) return;
 		if (row.clientOnly !== void 0 && typeof row.clientOnly !== "boolean") {
 			recordDegraded(spec, "shape", /* @__PURE__ */ new Error("clientOnly must be a boolean"));
 			return;
@@ -1185,7 +1169,6 @@ async function apply$1(ctx, config) {
 				console.warn("[dsh-web-all] unmounting the previous family plugin failed:", error);
 			}
 		}
-		publishRow(spec);
 		if (row.clientOnly === true) {
 			mounted = {
 				spec,
@@ -1215,7 +1198,8 @@ async function apply$1(ctx, config) {
 				spec,
 				config: family,
 				clientOnly: false,
-				dispose: fiber.dispose
+				dispose: fiber.dispose,
+				fiber: watchable(fiber)
 			};
 			Promise.resolve(fiber).then(() => {}, (error) => recordDegraded(spec, "start", error));
 		} catch (error) {
@@ -1230,6 +1214,11 @@ async function apply$1(ctx, config) {
 	};
 	ctx.on("loader/volatile-update", () => {
 		schedule();
+	});
+	ctx.on("internal/status", (fiber) => {
+		const current = mounted;
+		if (current?.fiber === void 0 || !isNestedFiber(current.fiber, fiber)) return;
+		recordDeferredStartFailure(current.spec, current.fiber);
 	});
 	await schedule();
 }

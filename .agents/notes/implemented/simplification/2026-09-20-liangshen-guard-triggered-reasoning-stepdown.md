@@ -4,6 +4,8 @@
 
 Status: implemented
 
+Superseded by [the retirement note](2026-10-17-liangshen-guard-retirement.md): the breaker this note revived has been removed from the preset, the plugin settings, and the documentation.
+
 ## New evidence (published after the earlier note)
 
 The earlier note's third reason for removal was "the persona's reflection-fuse discipline is sufficient to suppress发散 thinking". DeepSeek-V4.1-Flash (released 2026-09-10) disproved it:
@@ -19,15 +21,16 @@ The earlier note's third reason for removal was "the persona's reflection-fuse d
 | When it acts | Every phase boundary | **Only when the breaker detects degeneration** (consecutive zero-output long reasoning, identical-argument repeated failures); otherwise not a single request is touched |
 | Default | Dormant opt-in config | No standing config; the step-down is part of firing the breaker, automatic |
 | Prefix cache | Broken at every phase boundary | Broken once at the fire moment — the session is already out of control, and the cache cost is far below the tokens a loop burns |
-| Step-down target | Fixed execution level low | One notch below the current level (max→high→low), avoiding low's lazy/forgetful feel |
+| Step-down target | Fixed execution level low | One notch below max only (max→high, stopping at the sweet spot); superseded in detail by [the 2026-10-10 note](../../bug-fix/2026-10-10-liangshen-guard-thresholds-and-stepdown.md) |
 | Settings card | Three effort controls | Not restored; the earlier simplification stands |
 | Carrier | Standalone `reasoning-effort.mjs` | Folded into `guard.mjs`, rewriting via the `agent/request` waterfall for a 3-request window |
 
 ## Decision
 
 - Do not restore `reasoning-effort.mjs` or its settings-card controls;
-- Implement in `presets/liangshen/guard.mjs`: on a breaker fire, inject the breaker message and step `reasoningEffort` one notch down through the `agent/request` waterfall for a window of 3 requests;
+- Implement in `presets/liangshen/guard.mjs`: on a breaker fire, inject the breaker message, and — for a stall signal, whose cause is an over-large reasoning budget — step `reasoningEffort` one notch down (`max` to `high`, the ladder's end) through the `agent/request` waterfall for a window of 3 requests; an echo signal gets the message alone. The narrowed target and signal split are owned by [the 2026-10-10 note](../../bug-fix/2026-10-10-liangshen-guard-thresholds-and-stepdown.md);
 - The guard rewrites a request strictly inside a fired episode's window and is a pure pass-through otherwise, satisfying the earlier note's constraints on prefix-cache stability and the user's explicit level.
+- The guard later gained a third signal, **misuse** (presentation misuse): when model-direct calls of the same shell-class tool (the `bash`/`pwsh`/`win_bash` allowlist) settle successfully in a row past a threshold (`DEFAULT_SHELL_BATCH_STEPS` = 4, scaling with guardSensitivity as 6/4/2) without any `run_code` call between them, a one-per-episode nudge rides the same pre-step channel advising that the batch be packed into one program returning only its conclusion. It is deliberately not a degeneration signal: no step-down, no request rewrite, no stop-re-deriving closing, and it is isolated from the degeneration cooldown so it can never delay a stall/echo breaker. Resets: any `run_code` call, any non-shell tool, a failed shell call, or any `tool/ptc-dispatch` (a program's internal sub-calls never count as model-direct). The once-per-episode discipline rides a generation counter folded from the durable stream, replayable across resume and compaction. The signal stays entirely silent where the wire carries no `run_code` (native presentation).
 
 ## Consequences
 

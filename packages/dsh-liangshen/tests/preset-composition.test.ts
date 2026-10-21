@@ -83,6 +83,13 @@ describe('liangshen preset composition', () => {
     expect(persona).toContain('stop thinking and call a native inspection tool')
     expect(persona).toContain('Action-Oriented: Use thinking only to pick the next concrete operation')
     expect(persona).toContain('Parallel Inspection: When several independent inspections, searches, or checks are needed')
+    // The same discipline line carries the batching pointer: two or more targets
+    // of the same kind belong in one run_code program. It rides the SAME line so
+    // the discipline block does not grow a bullet, and it is the only place the
+    // persona names the transport — the contract text lives in the catalog.
+    expect(persona).toContain('batch them into one run_code program instead and keep only its conclusion')
+    const discipline = persona.split('\n').filter(line => line.trim().startsWith('- '))
+    expect(discipline).toHaveLength(7)
     expect(persona).toContain('Follow YAGNI and the PDCA loop')
     expect(persona).toContain('Do not write redundant comments.')
     expect(persona).toContain('Bounded Inspection & Convergence: Do not traverse dependency chains unbounded')
@@ -100,20 +107,25 @@ describe('liangshen preset composition', () => {
     // own agent-instructions row; the other two sources stay opt-in.
     expect(row('minimal-prompt')).toContain('instructionSource: host')
     expect(row('minimal-prompt')).toContain('instructionMaxBytes: 65536')
+    // The dispatcher block ships on: the factory row pins the switch ON, and
+    // the switch shapes the prompt only, never the wire presentation.
+    expect(row('minimal-prompt')).toContain('dispatcher: true')
     expect(row('tool-catalog')).toContain('descriptionMaxLength: 200')
   })
 
-  it("declares the 'both' presentation with MCP paging on by default, and no retired keys", () => {
-    expect(row('tool-catalog')).toContain("presentation: 'both'")
+  it("declares the 'ptc' presentation with MCP paging on by default, and no retired keys", () => {
+    expect(row('tool-catalog')).toContain("presentation: 'ptc'")
     expect(row('tool-catalog')).toContain("pagedToolPatterns: ['mcp__*']")
     expect(row('tool-catalog')).not.toContain('ptcPresentation')
     expect(row('tool-catalog')).not.toContain('anchorTools')
   })
 
-  it('mounts working-context, tool-activate, and the guard', () => {
+  it('mounts working-context and tool-activate, and no retired guard row', () => {
     expect(row('tool-activate')).toContain('name: ./tool-activate.mjs')
     expect(row('working-context')).toContain('name: ./working-context.mjs')
-    expect(row('guard')).toContain('name: ./guard.mjs')
+    // The runtime degeneration circuit breaker is retired: the composition
+    // carries no guard row, so no session mounts its pre-step channel.
+    expect(row('guard')).toBe('')
   })
 
   it('does not mount reasoning-effort plugin', () => {
@@ -122,8 +134,9 @@ describe('liangshen preset composition', () => {
 
   it('keeps the native and ptc presentation variants structurally valid', () => {
     for (const mode of ['native', 'ptc']) {
-      const variant = preset.replace("presentation: 'both'", `presentation: '${mode}'`)
-      expect(variant).not.toBe(preset)
+      const variant = preset.replace("presentation: 'ptc'", `presentation: '${mode}'`)
+      // 'ptc' IS the shipped line, so only the 'native' rewrite changes the text.
+      if (mode !== 'ptc') expect(variant).not.toBe(preset)
       expect(readable(variant), mode).toBe(true)
     }
   })

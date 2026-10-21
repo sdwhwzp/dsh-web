@@ -4,18 +4,22 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import type { BoardController } from '../../core/controller.ts'
+import { resolveCardTargets, type CardTargetSource } from '../../core/card-defaults.ts'
 import { isValidCron, nextRunAtMs } from '../../core/schedule.ts'
 import { parseFreezeRequest } from '../../core/freeze-snapshot.ts'
 import { effectiveTaskPermission } from '../../core/subtask.ts'
-import { collectKnownTags, TASK_PERMISSIONS, type TaskPermission, type TaskRecord, type TaskTag } from '../../core/tasks.ts'
+import { collectKnownTags, TASK_PERMISSIONS, type ScheduleMode, type TaskPermission, type TaskRecord, type TaskTag } from '../../core/tasks.ts'
 import { t, type TaskBoardKey } from '../locales.ts'
 import { SCHEDULE_PRESETS } from '../schedule-presets.ts'
-import { nextRunLabel, zoneChoices } from '../schedule-zone.ts'
+import { defaultZonedInputValue, nextRunLabel, parseZonedInput, runCapOption, zonedInputValue, zoneChoices } from '../schedule-zone.ts'
 import { CollapsibleSection, ModalShell, TaskContentFields, TaskTagFields, cleanTags } from './TaskForm.tsx'
 import type { OverlayPhase } from './overlay.tsx'
 import { formatHostTimestamp } from './TaskCard.tsx'
 import { readParseModelPreference, writeParseModelPreference } from './parse-model-pref.ts'
-import { inheritPresetLabel, isBuiltinPreset, presetLabel } from './preset-label.ts'
+import { inheritPresetLabel, presetChoiceRows, presetLabel } from './preset-label.ts'
+import { ReasoningEffortField } from './ReasoningEffortField.tsx'
+import { reconcileReasoningEffort } from './model-options.ts'
+import { parentAwaitsTeamRunPromotion, promoteParentForTeamRun } from './team-run-promotion.ts'
 import css from '../board.module.css'
 
 export interface NewTaskModalProps {
@@ -46,23 +50,48 @@ export function NewTaskModal({ controller, onClose, initialTask, defaultWorkspac
   const [title, setTitle] = useState(initialTask?.title ?? '')
   const [description, setDescription] = useState(initialTask?.description ?? '')
   const [prompt, setPrompt] = useState(initialTask?.prompt ?? '')
+  // The four execution targets this dialog opens on, resolved by the one rule
+  // the Host create path also uses (core/card-defaults.ts): what the card is
+  // created from (a duplicate's source, a subtask's parent) first, the board's
+  // new-card defaults second, blank when neither supplies a value. Resolving it
+  // from the SAME function the ledger uses is what keeps the dialog from
+  // drifting from what a create without an explicit choice stores.
+  const [seed] = useState(() => {
+    const source: CardTargetSource | undefined = parentTask !== undefined
+      ? { kind: 'parent', task: parentTask }
+      : initialTask !== undefined ? { kind: 'duplicate', task: initialTask } : undefined
+    return resolveCardTargets(controller.getSnapshot().host?.cardDefaults, source)
+  })
   // A subtask starts from its parent's execution contract (issue: subtask
   // inheritance); each picker below still overrides it for this card. The
-  // permission stays UNSET by default: leaving it empty is what makes the Host
-  // inherit the parent's binding together with its human confirmation, while
-  // picking a value pins this card's own binding and re-arms the gate.
+  // permission stays UNSET unless a default supplies one: leaving it empty is
+  // what makes the Host inherit the parent's binding together with its human
+  // confirmation, while picking a value pins this card's own binding and
+  // re-arms the gate. A parent's permission never travels here at all.
   const [workspaceId, setWorkspaceId] = useState(initialTask?.workspaceId ?? parentTask?.workspaceId ?? defaultWorkspaceId ?? '')
-  const [mode, setMode] = useState(initialTask?.mode ?? parentTask?.mode ?? '')
-  const [permission, setPermission] = useState(initialTask?.permission ?? '')
-  const [model, setModel] = useState(initialTask?.model ?? parentTask?.model ?? '')
+  const [mode, setMode] = useState(seed.mode)
+  const [permission, setPermission] = useState(seed.permission)
+  const [model, setModel] = useState(seed.model)
+  // The effort belongs to the model pin: the resolved seed carries the source
+  // card's pair and applies the configured default level only while the final
+  // model IS the configured default model; '' follows the model/Host default.
+  const [reasoningEffort, setReasoningEffort] = useState(seed.reasoningEffort)
   const inheritedPermission = parentTask === undefined ? undefined : effectiveTaskPermission(parentTask)
   const [reuseSession, setReuseSession] = useState(initialTask?.reuseSession ?? false)
-  // Checked by default: a new task starts its runs with dsh's built-in /goal
-  // unless the user opts out here. A duplicate keeps the original card's choice.
-  const [goalRun, setGoalRun] = useState(initialTask?.goalRun ?? true)
+  // Unchecked by default: a new task runs one plain turn unless the user opts
+  // into dsh's built-in /goal here. A duplicate keeps the original card's choice.
+  const [goalRun, setGoalRun] = useState(initialTask?.goalRun ?? false)
   const [skipVerification, setSkipVerification] = useState(initialTask?.skipVerification ?? false)
   const [scheduleEnabled, setScheduleEnabled] = useState(initialTask?.schedule?.enabled ?? false)
+  const [scheduleMode, setScheduleMode] = useState<ScheduleMode>(initialTask?.schedule?.mode ?? 'cron')
   const [scheduleCron, setScheduleCron] = useState(initialTask?.schedule?.cron ?? '')
+  // A duplicate keeps the original card's plan; a fresh one-shot defaults to
+  // the next hour, so the field never opens on a past instant.
+  const [scheduleAt, setScheduleAt] = useState<string>(() => initialTask?.schedule?.mode === 'once' && initialTask.schedule.at !== undefined
+    ? zonedInputValue(initialTask.schedule.at, initialTask.schedule.timeZone)
+    : defaultZonedInputValue(Date.now(), initialTask?.schedule?.timeZone))
+  const [scheduleMaxRunsChoice, setScheduleMaxRunsChoice] = useState<string>(() => runCapOption(initialTask?.schedule?.maxRuns))
+  const [scheduleMaxRunsText, setScheduleMaxRunsText] = useState<string>(initialTask?.schedule?.maxRuns === undefined ? '' : String(initialTask.schedule.maxRuns))
   // '' means "follow the Host zone" (store no zone), which is the default a
   // user gets unless they pick one explicitly.
   const [scheduleZone, setScheduleZone] = useState(initialTask?.schedule?.timeZone ?? '')
@@ -77,6 +106,11 @@ export function NewTaskModal({ controller, onClose, initialTask, defaultWorkspac
   const [error, setError] = useState<string | undefined>(undefined)
   const [pending, setPending] = useState(false)
   const [options, setOptions] = useState(controller.getSnapshot().executionOptions)
+  // Live GLOBAL native-/goal switch. The new-task form never rewrites a stored
+  // preference from it: the checkbox stays operable and is explained while the
+  // master switch is off, and the user's own choice is what a later re-enable
+  // restores.
+  const [goalRunEnabled, setGoalRunEnabled] = useState(controller.getSnapshot().host?.goalRunEnabled === true)
   // "Parse pasted text" (issue #1540) exists only when the deployment carries a
   // parse face; the section stays hidden otherwise.
   const [canParse] = useState(controller.getSnapshot().canParseTask === true)
@@ -87,19 +121,23 @@ export function NewTaskModal({ controller, onClose, initialTask, defaultWorkspac
   const [parsePending, setParsePending] = useState(false)
   const [parseError, setParseError] = useState<string | undefined>(undefined)
   const parseAbort = useRef<AbortController | undefined>(undefined)
-  const parseModels = options.models ?? []
+  const models = options.models ?? []
   // A pinned target may have disappeared from the runtime (workspace deleted,
   // preset removed) — especially when the form starts from a subtask's parent.
   // Keep it selectable as a stale row, so the field shows what the create
   // action will actually send instead of silently displaying the default.
   const workspaceKnown = workspaceId === '' || options.workspaces.some(item => item.workspaceId === workspaceId)
   const modeKnown = mode === '' || options.presets.some(item => item.id === mode)
-  const modelKnown = model === '' || parseModels.some(item => item.id === model)
+  const modelKnown = model === '' || models.some(item => item.id === model)
 
   // The workspace list and preset roster arrive from the runtime after mount;
   // follow them so the pickers never freeze on an empty snapshot.
   useEffect(
-    () => controller.subscribe(() => setOptions(controller.getSnapshot().executionOptions)),
+    () => controller.subscribe(() => {
+      const snapshot = controller.getSnapshot()
+      setOptions(snapshot.executionOptions)
+      setGoalRunEnabled(snapshot.host?.goalRunEnabled === true)
+    }),
     [controller],
   )
 
@@ -107,8 +145,8 @@ export function NewTaskModal({ controller, onClose, initialTask, defaultWorkspac
   // no longer offers falls back to the Host default; an empty value is the
   // Host-default choice and is never overwritten by the roster (issue #1621).
   useEffect(() => {
-    if (parseModel === '' || parseModels.length === 0) return
-    if (parseModels.some(option => option.id === parseModel)) return
+    if (parseModel === '' || models.length === 0) return
+    if (models.some(option => option.id === parseModel)) return
     setParseModel('')
     writeParseModelPreference('')
   }, [parseModel, options.models])
@@ -145,10 +183,25 @@ export function NewTaskModal({ controller, onClose, initialTask, defaultWorkspac
    */
   const submit = async (runAfterCreate: boolean): Promise<void> => {
     if (scheduleEnabled) {
-      const cron = scheduleCron.trim()
-      if (cron === '' || !isValidCron(cron)) {
-        setScheduleError(t('detail.schedule.invalid'))
-        return
+      if (scheduleMode === 'once') {
+        const at = parseZonedInput(scheduleAt, scheduleZone === '' ? hostTimeZone : scheduleZone)
+        if (at === undefined || at <= Date.now()) {
+          setScheduleError(t('detail.schedule.atInvalid'))
+          return
+        }
+      } else {
+        const cron = scheduleCron.trim()
+        if (cron === '' || !isValidCron(cron)) {
+          setScheduleError(t('detail.schedule.invalid'))
+          return
+        }
+        if (scheduleMaxRunsChoice === 'custom') {
+          const cap = Number(scheduleMaxRunsText.trim())
+          if (scheduleMaxRunsText.trim() === '' || !Number.isInteger(cap) || cap < 1) {
+            setScheduleError(t('detail.schedule.maxRunsInvalid'))
+            return
+          }
+        }
       }
     }
     // Optional continuation-card snapshot: parse the freeze block through the
@@ -183,16 +236,36 @@ export function NewTaskModal({ controller, onClose, initialTask, defaultWorkspac
       ...(parentTask === undefined ? {} : { parentId: parentTask.id }),
       freeze,
       handover,
-      workspaceId: workspaceId === '' ? undefined : workspaceId,
-      mode: mode === '' ? undefined : mode,
-      permission: permission === '' ? undefined : permission as TaskPermission,
-      model: model === '' ? undefined : model,
+      // A cleared picker is OMITTED, never sent as an empty value: absence is
+      // how "no pin, resolved at run time" is stored, so blanking a field the
+      // dialog opened prefilled really unpins it. This dialog never sends
+      // `applyCardDefaults` — the prefill above is the whole feature here.
+      ...(workspaceId === '' ? {} : { workspaceId }),
+      ...(mode === '' ? {} : { mode }),
+      ...(permission === '' ? {} : { permission: permission as TaskPermission }),
+      ...(model === '' ? {} : { model }),
+      ...(reasoningEffort === '' ? {} : { reasoningEffort }),
       ...(reuseSession ? { reuseSession: true } : {}),
-      ...(goalRun ? {} : { goalRun: false }),
+      ...(goalRun ? { goalRun: true } : {}),
       ...(skipVerification ? { skipVerification: true } : {}),
       ...(tagList.length > 0 ? { tags: tagList } : {}),
       schedule: scheduleEnabled
-        ? { enabled: true, cron: scheduleCron.trim(), ...(scheduleZone === '' ? {} : { timeZone: scheduleZone }) }
+        ? scheduleMode === 'once'
+          ? {
+              enabled: true,
+              mode: 'once' as const,
+              at: parseZonedInput(scheduleAt, scheduleZone === '' ? hostTimeZone : scheduleZone)!,
+              ...(scheduleZone === '' ? {} : { timeZone: scheduleZone }),
+            }
+          : {
+              enabled: true,
+              mode: 'cron' as const,
+              cron: scheduleCron.trim(),
+              ...(scheduleMaxRunsChoice === 'unlimited' ? {} : {
+                maxRuns: scheduleMaxRunsChoice === 'custom' ? Number(scheduleMaxRunsText.trim()) : Number(scheduleMaxRunsChoice),
+              }),
+              ...(scheduleZone === '' ? {} : { timeZone: scheduleZone }),
+            }
         : undefined,
     })
     if (task === undefined) {
@@ -200,6 +273,11 @@ export function NewTaskModal({ controller, onClose, initialTask, defaultWorkspac
       setError(controller.getSnapshot().transportError ?? t('new.required'))
       return
     }
+    // The join is confirmed, so a parent that just gained a subtask is opted in
+    // where Agent Teams are served. The write is a convenience, not part of the
+    // creation: a refused one (the card was archived meanwhile) already
+    // surfaced through the snapshot and never fails the created task.
+    await promoteParentForTeamRun(controller, parentTask)
     if (isDuplicate && archiveOriginal && initialTask !== undefined) {
       if (onDuplicateSuccess !== undefined) {
         await onDuplicateSuccess(initialTask.id)
@@ -218,23 +296,29 @@ export function NewTaskModal({ controller, onClose, initialTask, defaultWorkspac
     onClose()
   }
 
-  // Next-run preview for a valid armed cron (creation-time only), computed in
-  // the selected zone so it matches what the Host will arm.
+  // Next-run preview for the armed plan (creation-time only), computed in the
+  // selected zone so it matches what the Host will arm. A one-shot's next run
+  // IS its planned instant; a recurring rule resolves its next occurrence.
   const hostTimeZone = controller.getSnapshot().host?.scheduler.timeZone
   const scheduleTimeZone = scheduleZone === '' ? hostTimeZone : scheduleZone
-  const scheduleNextRun = scheduleEnabled && scheduleCron.trim() !== '' && isValidCron(scheduleCron)
-    ? nextRunAtMs(scheduleCron, Date.now(), scheduleTimeZone)
-    : undefined
+  const scheduleNextRun = !scheduleEnabled
+    ? undefined
+    : scheduleMode === 'once'
+      ? parseZonedInput(scheduleAt, scheduleTimeZone)
+      : scheduleCron.trim() !== '' && isValidCron(scheduleCron)
+        ? nextRunAtMs(scheduleCron, Date.now(), scheduleTimeZone)
+        : undefined
 
   const modalTitle = parentTask !== undefined
     ? t('new.subtaskTitle')
     : isDuplicate ? t('new.duplicateTitle') : t('board.new')
 
   // Agent-preset picker rows: the four built-in presets first, then every other
-  // roster row (user presets). The inherit option names the preset a run
-  // actually lands on when the card pins nothing.
-  const builtinPresets = options.presets.filter(preset => isBuiltinPreset(preset.id))
-  const customPresets = options.presets.filter(preset => !isBuiltinPreset(preset.id))
+  // roster row (user presets), each labelled with its default/unavailable
+  // suffixes by the one row builder the settings card's default-preset field
+  // also renders through. The inherit option names the preset a run actually
+  // lands on when the card pins nothing.
+  const presetRows = presetChoiceRows(options.presets)
   const inheritLabel = inheritPresetLabel(options.presets)
   const selectedPreset = options.presets.find(preset => preset.id === mode)
   const modeLabel = mode === '' ? inheritLabel : selectedPreset === undefined ? mode : presetLabel(selectedPreset)
@@ -249,6 +333,9 @@ export function NewTaskModal({ controller, onClose, initialTask, defaultWorkspac
   const modelLabel = model === ''
     ? t('exec.model.default')
     : (options.models ?? []).find(item => item.id === model)?.name ?? model
+  // The effort is part of the model pin, so a pinned one rides the model's own
+  // summary entry instead of standing as a region-level value of its own.
+  const modelSummary = reasoningEffort === '' ? modelLabel : `${modelLabel} · ${reasoningEffort}`
   // Collapsed-region summaries: what each closed region currently holds, so a
   // collapse never hides the configuration without a trace.
   // A host-default model adds only the long parenthetical name to the
@@ -257,12 +344,14 @@ export function NewTaskModal({ controller, onClose, initialTask, defaultWorkspac
     workspaceLabel,
     modeLabel,
     permissionLabel,
-    ...(model === '' ? [] : [modelLabel]),
+    ...(model === '' ? [] : [modelSummary]),
   ].join(' · ')
   const tagCount = cleanTags(tags).length
   const labelsSummary = tagCount === 0 ? t('new.summary.none') : t('new.summary.labelCount', { count: String(tagCount) })
   const runSummary = [
-    goalRun ? t('new.summary.multiRound') : t('new.summary.singleRound'),
+    // A card whose goal option is on but whose master switch is off will run one
+    // plain turn: the collapsed line says the truth rather than the stored value.
+    goalRun && goalRunEnabled ? t('new.summary.multiRound') : t('new.summary.singleRound'),
     ...(reuseSession ? [t('exec.reuseSession')] : []),
   ].join(' · ')
   const handoverSummary = freezeText.trim() !== '' || handoverText.trim() !== ''
@@ -270,7 +359,18 @@ export function NewTaskModal({ controller, onClose, initialTask, defaultWorkspac
     : t('new.summary.none')
   const scheduleSummary = !scheduleEnabled
     ? t('new.summary.scheduleOff')
-    : scheduleCron.trim() === '' ? t('new.summary.none') : scheduleCron.trim()
+    : scheduleMode === 'once'
+      ? `${t('detail.schedule.mode.once')} · ${scheduleAt.replace('T', ' ')}`
+      : scheduleCron.trim() === ''
+        ? t('new.summary.none')
+        : [
+            scheduleCron.trim(),
+            ...(scheduleMaxRunsChoice === 'unlimited'
+              ? []
+              : [t('detail.schedule.maxRunsValue', {
+                  count: scheduleMaxRunsChoice === 'custom' ? scheduleMaxRunsText : scheduleMaxRunsChoice,
+                })]),
+          ].join(' · ')
   const parseSummary = parseText.trim() === '' ? t('new.summary.none') : t('new.summary.filled')
 
   return (
@@ -313,7 +413,7 @@ export function NewTaskModal({ controller, onClose, initialTask, defaultWorkspac
                 }}
               >
                 <option value="">{t('exec.model.default')}</option>
-                {parseModels.map(option => (
+                {models.map(option => (
                   <option key={option.id} value={option.id}>{option.name ?? option.id}</option>
                 ))}
               </select>
@@ -326,7 +426,7 @@ export function NewTaskModal({ controller, onClose, initialTask, defaultWorkspac
                 : (
                   <button
                     type="button"
-                    className={css.primaryButton}
+                    className={css.ghostButton}
                     disabled={parseText.trim() === ''}
                     onClick={() => { void runParse() }}
                   >
@@ -340,9 +440,14 @@ export function NewTaskModal({ controller, onClose, initialTask, defaultWorkspac
       )}
 
       {parentTask !== undefined && (
-        <p className={css.detailText} data-dsh-part="subtask-inherit">
-          {t('detail.parent')}: {parentTask.title} · {t('new.subtaskInherit')}
-        </p>
+        <>
+          <p className={css.detailText} data-dsh-part="subtask-inherit">
+            {t('detail.parent')}: {parentTask.title} · {t('new.subtaskInherit')}
+          </p>
+          {parentAwaitsTeamRunPromotion(controller, parentTask) && (
+            <p className={css.detailText}>{t('exec.teamRunAutoHint')}</p>
+          )}
+        </>
       )}
 
       <CollapsibleSection title={t('new.section.content')} defaultOpen>
@@ -355,7 +460,7 @@ export function NewTaskModal({ controller, onClose, initialTask, defaultWorkspac
           onPromptChange={setPrompt}
         />
         {isDuplicate && (
-          <label className={css.checkboxLabel}>
+          <label className={css.scheduleToggle}>
             <input
               type="checkbox"
               checked={archiveOriginal}
@@ -395,25 +500,17 @@ export function NewTaskModal({ controller, onClose, initialTask, defaultWorkspac
           >
             <option value="">{inheritLabel}</option>
             {!modeKnown && <option value={mode}>{mode}{t('exec.mode.removed')}</option>}
-            {builtinPresets.length > 0 && (
+            {presetRows.builtin.length > 0 && (
               <optgroup label={t('exec.mode.builtinGroup')}>
-                {builtinPresets.map(preset => (
-                  <option key={preset.id} value={preset.id} disabled={preset.broken !== undefined}>
-                    {presetLabel(preset)}
-                    {preset.isDefault ? t('exec.mode.defaultSuffix') : ''}
-                    {preset.broken !== undefined ? t('exec.mode.brokenSuffix') : ''}
-                  </option>
+                {presetRows.builtin.map(row => (
+                  <option key={row.id} value={row.id} disabled={row.disabled}>{row.label}</option>
                 ))}
               </optgroup>
             )}
-            {customPresets.length > 0 && (
+            {presetRows.custom.length > 0 && (
               <optgroup label={t('exec.mode.customGroup')}>
-                {customPresets.map(preset => (
-                  <option key={preset.id} value={preset.id} disabled={preset.broken !== undefined}>
-                    {presetLabel(preset)}
-                    {preset.isDefault ? t('exec.mode.defaultSuffix') : ''}
-                    {preset.broken !== undefined ? t('exec.mode.brokenSuffix') : ''}
-                  </option>
+                {presetRows.custom.map(row => (
+                  <option key={row.id} value={row.id} disabled={row.disabled}>{row.label}</option>
                 ))}
               </optgroup>
             )}
@@ -441,15 +538,29 @@ export function NewTaskModal({ controller, onClose, initialTask, defaultWorkspac
           <select
             className={css.select}
             value={model}
-            onChange={event => { setModel(event.target.value) }}
+            onChange={event => {
+              // The effort belongs to the model: switching to a model that
+              // cannot honor the picked level drops it instead of carrying it.
+              const next = event.target.value
+              setModel(next)
+              setReasoningEffort(current => reconcileReasoningEffort(models, next, current))
+            }}
           >
             <option value="">{t('exec.model.default')}</option>
             {!modelKnown && <option value={model}>{model}{t('exec.model.unknown')}</option>}
-            {options.models?.map(item => (
+            {models.map(item => (
               <option key={item.id} value={item.id}>{item.name ?? item.id}</option>
             ))}
           </select>
         </label>
+
+        <ReasoningEffortField
+          models={models}
+          modelId={model}
+          value={reasoningEffort}
+          pending={pending}
+          onChange={setReasoningEffort}
+        />
       </CollapsibleSection>
 
       <CollapsibleSection title={t('new.section.run')} summary={runSummary}>
@@ -467,11 +578,15 @@ export function NewTaskModal({ controller, onClose, initialTask, defaultWorkspac
           <input
             type="checkbox"
             checked={goalRun}
+            // Always operable: the global switch decides whether the choice
+            // takes effect, never whether it may be stated, and the state (and a
+            // duplicate's template) is never rewritten by it.
             onChange={event => { setGoalRun(event.target.checked) }}
           />
           <span>{t('exec.goalRun')}</span>
         </label>
         <p className={css.detailText}>{t('exec.goalRunHint')}</p>
+        {!goalRunEnabled && <p className={css.detailText}>{t('settings.goalRunGlobalDisabledTaskOption')}</p>}
 
         <label className={css.scheduleToggle}>
           <input
@@ -533,6 +648,32 @@ export function NewTaskModal({ controller, onClose, initialTask, defaultWorkspac
         </label>
         {scheduleEnabled && (
           <>
+            <label className={css.scheduleZone}>
+              <span>{t('detail.schedule.mode')}</span>
+              <select
+                className={css.schedulePreset}
+                value={scheduleMode}
+                aria-label={t('detail.schedule.mode')}
+                onChange={event => { setScheduleMode(event.target.value as ScheduleMode); setScheduleError(undefined) }}
+              >
+                <option value="cron">{t('detail.schedule.mode.cron')}</option>
+                <option value="once">{t('detail.schedule.mode.once')}</option>
+              </select>
+            </label>
+            {scheduleMode === 'once' ? (
+              <label className={css.scheduleZone}>
+                <span>{t('detail.schedule.at')}</span>
+                <input
+                  className={css.input}
+                  type="datetime-local"
+                  value={scheduleAt}
+                  aria-label={t('detail.schedule.at')}
+                  title={t('detail.schedule.atHint')}
+                  onChange={event => { setScheduleAt(event.target.value); setScheduleError(undefined) }}
+                />
+              </label>
+            ) : (
+              <>
             <div className={css.scheduleRow}>
               <input
                 className={`${css.input} ${css.scheduleInput}${scheduleError !== undefined ? ` ${css.scheduleInputInvalid}` : ''}`}
@@ -558,6 +699,42 @@ export function NewTaskModal({ controller, onClose, initialTask, defaultWorkspac
                 ))}
               </select>
             </div>
+                <label className={css.scheduleZone}>
+                  <span>{t('detail.schedule.maxRuns')}</span>
+                  <select
+                    className={css.schedulePreset}
+                    value={scheduleMaxRunsChoice}
+                    aria-label={t('detail.schedule.maxRuns')}
+                    onChange={event => {
+                      setScheduleMaxRunsChoice(event.target.value)
+                      setScheduleError(undefined)
+                      if (event.target.value === 'custom') {
+                        setScheduleMaxRunsText(initialTask?.schedule?.maxRuns === undefined ? '' : String(initialTask.schedule.maxRuns))
+                      }
+                    }}
+                  >
+                    <option value="unlimited">{t('detail.schedule.maxRunsUnlimited')}</option>
+                    <option value="1">{t('detail.schedule.maxRunsValue', { count: '1' })}</option>
+                    <option value="2">{t('detail.schedule.maxRunsValue', { count: '2' })}</option>
+                    <option value="custom">{t('detail.schedule.maxRunsCustom')}</option>
+                  </select>
+                </label>
+                {scheduleMaxRunsChoice === 'custom' && (
+                  <label className={css.scheduleZone}>
+                    <span>{t('detail.schedule.maxRuns')}</span>
+                    <input
+                      className={css.input}
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={scheduleMaxRunsText}
+                      aria-label={t('detail.schedule.maxRuns')}
+                      onChange={event => { setScheduleMaxRunsText(event.target.value); setScheduleError(undefined) }}
+                    />
+                  </label>
+                )}
+              </>
+            )}
             {scheduleError !== undefined && <p className={css.formError}>{scheduleError}</p>}
             <label className={css.scheduleZone}>
               <span>{t('detail.schedule.timeZone')}</span>
@@ -565,7 +742,7 @@ export function NewTaskModal({ controller, onClose, initialTask, defaultWorkspac
                 className={css.schedulePreset}
                 value={scheduleZone}
                 aria-label={t('detail.schedule.timeZone')}
-                title={t('detail.schedule.timeZoneHint')}
+                title={scheduleMode === 'once' ? t('detail.schedule.zoneOnceHint') : t('detail.schedule.timeZoneHint')}
                 onChange={event => { setScheduleZone(event.target.value); setScheduleError(undefined) }}
               >
                 {zoneChoices(hostTimeZone, initialTask?.schedule?.timeZone).map(choice => (

@@ -27,13 +27,23 @@ export const REPO_ROOT = resolve(SCRIPT_DIR, '..')
  * live exactly once under shared/; consumers import the committed copy.
  */
 // Consumers of the settings card trio: one list, three derivations below.
-const SETTINGS_CONSUMERS = ['dsh-task-board', 'dsh-task-board-github', 'dsh-remote-web-ui', 'dsh-market', 'dsh-liangshen']
+// dsh-web-settings consumes the trio too: the family-wide telemetry switch is a
+// page-level setting, so it renders through the same card chrome (a static
+// header plus a trailing switch) instead of a section of its own.
+const SETTINGS_CONSUMERS = ['dsh-web-settings', 'dsh-task-board', 'dsh-task-board-github', 'dsh-remote-web-ui', 'dsh-market', 'dsh-liangshen']
 const SETTINGS_CARD_CONSUMERS = [...SETTINGS_CONSUMERS]
 // Consumers of the entry-bound form fallback: every package whose card binds a
 // family settings namespace through the shared forms service. It is a superset
 // of the card trio — dsh-usage and dsh-session-archive carry their own cards but
 // bind the same way.
-const SETTINGS_ENTRY_FORM_CONSUMERS = [...SETTINGS_CONSUMERS, 'dsh-usage', 'dsh-session-archive']
+// dsh-web-settings is deliberately absent: it renders the card chrome around a
+// local browser preference and binds no Host namespace, so it needs no entry-
+// bound form transport.
+const SETTINGS_ENTRY_FORM_CONSUMERS = [
+  ...SETTINGS_CONSUMERS.filter(pkg => pkg !== 'dsh-web-settings'),
+  'dsh-usage',
+  'dsh-session-archive',
+]
 
 const MANIFEST = [
   {
@@ -76,13 +86,6 @@ const MANIFEST = [
     targets: SETTINGS_ENTRY_FORM_CONSUMERS.map(pkg => `packages/${pkg}/src/client/settings-entry-form.ts`),
   },
   {
-    file: 'poll-guard.ts',
-    source: 'shared/host/poll-guard.ts',
-    targets: [
-      'packages/dsh-git-graph/src/host/poll-guard.ts',
-    ],
-  },
-  {
     file: 'dsh-home.ts',
     source: 'shared/host/dsh-home.ts',
     targets: [
@@ -96,12 +99,8 @@ const MANIFEST = [
       'packages/dsh-git-graph/src/host/dsh-home.ts',
       'packages/dsh-usage/src/dsh-home.ts',
       'packages/dsh-session-archive/src/dsh-home.ts',
+      'packages/dsh-remote-bridge/src/host/dsh-home.ts',
     ],
-  },
-  {
-    file: 'git-runner.ts',
-    source: 'shared/host/git-runner.ts',
-    targets: ['packages/dsh-git-graph/src/host/git-runner.ts'],
   },
   {
     // Tool-surface conventions: the prompt-section order band, the
@@ -116,18 +115,12 @@ const MANIFEST = [
     ],
   },
   {
-    file: 'legacy-migration.ts',
-    source: 'shared/host/legacy-migration.ts',
-    targets: [
-      'packages/dsh-plugin-manager/src/host/legacy-migration.ts',
-    ],
-  },
-  {
     file: 'mount-once.ts',
     source: 'shared/host/mount-once.ts',
     targets: [
       'packages/dsh-ssh/src/mount-once.ts',
       'packages/dsh-remote-web-ui/src/mount-once.ts',
+      'packages/dsh-remote-bridge/src/mount-once.ts',
       'packages/dsh-liangshen/src/mount-once.ts',
       'packages/dsh-task-board/src/mount-once.ts',
       'packages/dsh-task-board-github/src/mount-once.ts',
@@ -138,7 +131,6 @@ const MANIFEST = [
       'packages/dsh-market/src/mount-once.ts',
       'packages/dsh-usage/src/mount-once.ts',
       'packages/dsh-session-archive/src/mount-once.ts',
-      'packages/dsh-model-capabilities/src/mount-once.ts',
       'packages/dsh-update/src/mount-once.ts',
     ],
   },
@@ -158,11 +150,6 @@ const MANIFEST = [
       'packages/dsh-web-settings/src/client/telemetry.ts',
       'packages/dsh-update/src/client/telemetry.ts',
     ],
-  },
-  {
-    file: 'sse-leader.ts',
-    source: 'shared/client/sse-leader.ts',
-    targets: ['packages/dsh-git-graph/src/client/sse-leader.ts'],
   },
   {
     // Main-view Session derivation: the Client Session Controller dropped its
@@ -236,6 +223,11 @@ const MANIFEST = [
       // re-seats itself with the same page-wide invalidation hub the sidebar
       // foot card uses instead of paying for a second body observer.
       'packages/dsh-plugin-manager/src/client/body-mutations.ts',
+      // The task board hides the official automation-tasks sidebar row while
+      // it is on, and the shell owns that row: it may mount or replace it at
+      // any time, so the guard re-applies its write through the same hub
+      // instead of paying for a second body observer.
+      'packages/dsh-task-board/src/client/body-mutations.ts',
     ],
   },
   {

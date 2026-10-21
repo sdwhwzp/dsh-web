@@ -160,7 +160,7 @@ verifier's default acceptance ALGORITHM rather than the verifier.
   able to say WHICH of the two turned the gate off, and a report that renders
   nothing at all would let a user read "the board switch is off" into a card
   they themselves opted out. Only the explicit `true` is persisted (mirroring
-  `goalRun`, which persists only its explicit `false`), the option appears in
+  `goalRun`, which persists only its explicit `true`), the option appears in
   the new-task form and the task detail beside the other card-level execution
   switches, and it is exposed on `task_board_create` / `task_board_update`
   like every other card option. It is an execution-time decision, not a
@@ -177,6 +177,95 @@ verifier's default acceptance ALGORITHM rather than the verifier.
   carries its own report bound to that execution. `GET
   /api/task-board/verification` serves the resolved options and the host model
   catalog behind the board's usual loopback / authenticated-proxy guard.
+
+- **A veto nobody can locate is not a verdict.** A quality verdict is booked
+  only when the acceptance can point at the work. Every criterion whose score
+  makes the run fail must arrive with a STRUCTURED finding — the criterion it
+  belongs to, the requirement it imposes, the actual observation, the
+  difference, and a verbatim citation naming one of the evidence locations the
+  judge was given (`task`, `trajectory`, `workspace`, or `baseline`). The
+  check is program-level (`assessAcceptanceValidity` in `core/verification.ts`),
+  not a stronger prompt: the prompt merely tells the judge how to emit the
+  finding. A rejecting answer with no finding, a vacuous finding, a citation
+  that does not occur verbatim in the reviewed evidence, a citation of the
+  empty-work baseline, a citation shorter than the locating minimum, or a
+  criterion that is failed without its own evidence is recorded as an INVALID
+  acceptance — never as a quality verdict. The judge is told which slot holds
+  the work that round (the odd round swaps A/B), so the citation is mapped back
+  through `workSlotOfRound` and a veto of the work can never silently become a
+  veto of the baseline. Insufficient evidence (a truncated review window that
+  substantiates nothing) is its own invalid reason, because a judge that could
+  not see the output is not a judge that saw the work fail.
+- **An invalid acceptance consumes nothing.** Invalid acceptances are counted
+  separately (`VerificationAttempt.stage: 'invalid'`), bounded by
+  `MAX_INVALID_ATTEMPTS` (2), and consume neither the quality budget nor the
+  anomaly budget; the execution is NOT failed by them and no `failedReason` is
+  written. `verificationPhase` exposes a distinct `invalid` phase, so the card
+  and the report say "awaiting handling" rather than "failed". The agent's
+  feedback says the veto was unusable and explicitly NOT to repair anything
+  blindly; after the bound is spent the gate HOLDS — it opens no further judge
+  call and tells the user to clear the recorded invalid acceptances (the same
+  explicit `reset-verification` action the anomaly hold uses, whose
+  `withoutAcceptanceAnomalies` also drops the cleanup record) or rerun the
+  card. The bound is persisted on the ledger, so a Host restart, a repeated
+  completion call, a new goal round and a plugin reload all reuse it. A run
+  whose ONLY records are invalid still has no matching pass, so it ends — but
+  with `INVALID_ONLY_VERIFICATION_REASON`, which states that the acceptance
+  itself was unusable and explicitly denies being an evidence-backed quality
+  veto; `verificationOnlyInvalid` is the predicate that draws that line.
+- **Acceptance-only detail is cleaned automatically after a pass.** The
+  acceptance mechanism's own bulky material — per-attempt findings, the invalid
+  diagnostics, the structured citations — is removed once the execution PASSED
+  and its settlement is durable, and only a lightweight audit credential
+  remains (stage, pass flag, time, total and per-criterion scores, the judge
+  route, the evidence hash, a one-line problem summary and the cleanup state).
+  `withAcceptanceDetailCleared` is idempotent and purely additive to the
+  persisted block, and the material itself is bounded by construction: the
+  writer caps the finding count, the citation length and each problem/action
+  field, and the READER clips a hand-edited document back to the same bounds
+  (dropping the block outright when an identifier no longer resolves), so no
+  door into the ledger can persist unbounded acceptance prose. Nothing outside
+  that execution's own `verification` field is read or written, so no user file, task artifact, raw session history, host
+  change record or other execution's material is touched. The pass record and
+  the settlement are written FIRST; the cleanup runs after and its failure is
+  recorded as `cleanup.state: 'failed'` with the error and an attempt count —
+  it never revokes the pass. A boot-time catch-up pass completes any cleanup a
+  crash interrupted, and the UI renders the audit credential and labels each
+  emptied attempt as CLEANED rather than as a judge that reported no finding.
+- **GLOBAL native /goal switch, default off.** A new row setting
+  `goalRunEnabled` (volatile, schema default `false`) is the master control
+  over whether this board starts a run with the built-in `/goal` at all. The
+  effective condition is the global switch AND the task's own `goalRun` being
+  ON: both sides must ASK for the goal run, and the card side defaults to off
+  (see below), so with the global switch off every card runs one plain turn. The
+  value is read ONCE per execution at launch and carried by value into the
+  runner, so a live settings edit only affects executions that start afterwards
+  and never arms, disarms or re-judges a run in flight — it covers the manual,
+  scheduled, session-reuse and team paths alike. A run that consequently never
+  became a goal run is recorded with its own applicability reason
+  (`goal-disabled`), distinct from a refused/unavailable `/goal`
+  (`goal-unavailable`), so it is neither reported as accepted nor failed for
+  lacking `update_goal(action: complete)`. The task-level option stays
+  OPERABLE while the master switch is off, with an explanation of what the
+  switch withholds, and its stored value is never rewritten, so re-enabling
+  applies the user's own preference; the collapsed run summary reports a single
+  round when the master switch withholds it. The switch is independent of the
+  acceptance switch.
+- **The per-card goal option defaults OFF.** `TaskRecord.goalRun` is an
+  opt-IN: only an explicit `true` is persisted (creation, update and the load
+  normalizer all store nothing else), the runner arms `/goal` only for a card
+  whose value IS `true`, and the Host service gates on the same test. Absent
+  and `false` therefore behave identically — a card that never touched the
+  option, including every card written before the field existed, runs one plain
+  turn, and the board never begins a multi-round goal run after an upgrade
+  without the user asking for it card by card. The detail-view checkbox is
+  checked only for `true`, the new-task dialog starts unchecked and sends
+  `goalRun: true` only when checked, and `task_board_create` /
+  `task_board_update` follow the same rule (the tool view reports the card's
+  `goalRun: true` as the deviation worth naming). Neither the checkbox nor the
+  tool face is disabled by the global switch: that switch decides whether the
+  preference takes effect, never whether it can be stated, and it never rewrites
+  the stored value.
 
 ## Alternatives considered
 
@@ -268,8 +357,8 @@ verifier's default acceptance ALGORITHM rather than the verifier.
   history, reruns and scheduled occurrences each carry their own report, and the
   per-execution contract is the reason a settings edit mid-run changes nothing
   for the run already going.
-- The gate deliberately does not touch plain chat, a task pinned to
-  `goalRun: false`, or a run whose `/goal` was refused: those are not goal
+- The gate deliberately does not touch plain chat, a card that never opted
+  into `goalRun`, or a run whose `/goal` was refused: those are not goal
   executions, and their records say which case applies.
 - A card that opted out is a COST decision the user makes per card, and it is
   recorded as such: `skipVerification` travels through the legacy import the
@@ -280,10 +369,29 @@ verifier's default acceptance ALGORITHM rather than the verifier.
   row is exactly the additive change the v5 migration already describes, and
   bumping the version for it would make every deployment migrate a document
   whose shape did not change.
+- A judge that vetoes without usable evidence now costs the user a decision
+  instead of costing the agent a blind repair: the card stays open in the
+  `invalid` phase until the invalid acceptances are cleared or the card is
+  rerun. That is the intended trade — the alternative is an unreproducible
+  veto — but it means an unhelpful judge route needs the same explicit human
+  action the anomaly hold already required, and the settings copy tells the
+  user to look at the judge/evidence plumbing first.
+- The global switch defaults OFF and the per-card option defaults OFF, so an
+  existing deployment that upgrades starts running plain single turns, and a
+  card only becomes a goal run when the user opts that card in AND the global
+  switch is on. That is the requested default and it is the safe direction for
+  quota: no card silently begins a multi-round goal run after an upgrade. A
+  card's stored `goalRun` preference is preserved untouched throughout, so a
+  master switch turned back on applies exactly what each card asked for.
+- Cleanup deletes only what the acceptance mechanism itself wrote, and it
+  keeps the hash of the judged evidence: a later review can still prove WHICH
+  evidence backed a pass, but the per-criterion prose is gone. The stored
+  material is deliberately NOT copied anywhere else first — an extra full
+  evidence copy would be the leak the requirement forbids.
 
 ## Testing
 
-- `tests/goal-verification-gate.spec.ts` (27 scenarios): pass on the first
+- `tests/goal-verification-gate.spec.ts` (36 scenarios): pass on the first
   acceptance, fail-then-repair, second-failure closure with a frozen budget, a
   concurrent completion pair sharing one acceptance, a fresh budget on a rerun,
   the budget surviving a Host restart, an unparseable answer and a thrown judge
@@ -304,8 +412,9 @@ verifier's default acceptance ALGORITHM rather than the verifier.
   route produce a real pass, the reset refused on an execution that only holds a
   quality verdict, a budget stop that opens no judge call and spends no budget,
   and the configured per-call ceiling ending the acceptance as a bounded anomaly.
-- `tests/goal-verification-service.spec.ts` (23 scenarios): the contract
-  frozen and bound before the prompt, the switch off, `goalRun: false`, a
+- `tests/goal-verification-service.spec.ts` (26 scenarios): the contract
+  frozen and bound before the prompt, the switch off, a card that did not opt
+  into `goalRun`, a
   refused `/goal`, an explicit route with an unsupported level, a scheduled
   run, the resolved options route, and the settlement rules (completed goal
   without a pass fails, paused goal fails, unreadable projection fails, a pass
@@ -342,3 +451,50 @@ verifier's default acceptance ALGORITHM rather than the verifier.
   itself: only an explicit `true` is stored, a hand-edited `false` normalizes
   back to inheriting, the action gate accepts it on create and update, and the
   legacy import carries it while still stripping the acceptance block.
+- `tests/verification-validity.spec.ts` (15 scenarios) pins the veto-validity
+  rule at the pure layer: a failing criterion with no finding, a vacuous
+  finding, a citation absent from the reviewed evidence, a citation of the
+  empty-work baseline, an unfound second criterion, a workspace citation with
+  and without the host's record, and a citation shorter than the locating
+  minimum are each rejected with their own reason; a real trajectory citation
+  is accepted, and so is a GENUINELY missing required artifact when the finding
+  states the requirement, the inspection it performed and the missing fact.
+  One case is the LIVE incident that motivated the rule: the PRE-CHANGE Host
+  booked total 0.7018 with one criterion at 0.6316, zero findings and 3,769,011
+  of 3,849,011 evidence characters omitted as a quality verdict, and the rule
+  now classifies that verdict as `insufficient-evidence`. It also pins the
+  capacity bound on the READ side: a hand-edited
+  block whose finding text or legacy findings list outgrew what the acceptance
+  writes is clipped back to the same bound (or dropped outright when the
+  criterion identifier no longer resolves), so the persisted detail is bounded
+  by construction on both doors.
+- `tests/verification-cleanup.spec.ts` (8 scenarios) drives the real service,
+  ledger and settlement path: a passed execution's findings removed with the
+  audit credential and the evidence hash kept, a failed and an invalid
+  execution's detail retained, a second boot leaving an already-cleaned
+  execution's revision untouched, a crash-interrupted cleanup completed on the
+  next boot, a failed cleanup keeping the pass and the detail while recording
+  the error, the next boot healing it, only the passed execution of two
+  touched, and no user or unrelated file added or removed.
+- `tests/goal-verification-gate.spec.ts` grows the invalid-acceptance and
+  cleanup cases: an evidence-backed veto spending exactly one quality attempt
+  with locatable feedback, an evidence-free judge bounded to two invalid
+  acceptances and then HELD with no further judge call, the bound preserved
+  across a Host restart, an explicit clear reopening the budget so a later real
+  veto books, and the hold/retry copy proven not to read as a quality failure.
+- `tests/settings-goal-run-switch.spec.ts` (4 scenarios) covers the global
+  switch through the real settings-card controller: its unset default, a turn-on
+  committed alone (acceptance untouched), and an explicit false or a reset
+  behaving like every other boolean field.
+- `tests/goal-run.spec.ts`, `tests/task-detail-edit.spec.tsx`,
+  `tests/new-task-run.spec.tsx` and `tests/goal-verification-service.spec.ts`
+  cover the two-level switch: the global default producing a plain turn, the
+  card-level default producing a plain turn even with the global switch on, a
+  cleared value behaving exactly like one that never opted in, the four
+  combinations of the two switches, a frozen value keeping an in-flight run's
+  goal while a later execution sees the change, the `goal-disabled`
+  applicability being neither a pass nor a failure, the task-level option
+  staying operable and explained under a closed master switch (with the edit it
+  stages accepted and its stored preference surviving), and the collapsed run
+  summary reporting a single round when the master switch withholds the goal
+  and a multi-round goal when the card asked for it.

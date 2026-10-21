@@ -10,6 +10,8 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TaskDetail } from '../src/client/board/TaskDetail.tsx'
 import type { BoardController, ControllerSnapshot } from '../src/core/controller.ts'
+import { t } from '../src/client/locales.ts'
+import { openFormSection } from './form-sections.ts'
 import { createTask, type TaskRecord } from '../src/core/tasks.ts'
 import type { TaskUpdatePatch } from '../src/core/use-cases/task-update.ts'
 
@@ -35,6 +37,7 @@ function controllerFake(
   taskRecord: TaskRecord,
   updateTask: (id: string, patch: TaskUpdatePatch) => Promise<boolean> = async () => true,
   teamRunAvailable = true,
+  goalRunEnabled = true,
 ): { controller: BoardController; snapshot: ControllerSnapshot } {
   const snapshot: ControllerSnapshot = {
     tasks: [taskRecord],
@@ -49,6 +52,7 @@ function controllerFake(
       power: { platform: 'linux', phase: 'unsupported', enabled: false, runningSessions: 0, armedSchedules: 0, sessionStateKnown: true },
       sessionDefaultPermission: 'read-only',
       teamRunAvailable,
+      goalRunEnabled,
     },
   }
   const controller = {
@@ -73,8 +77,15 @@ async function renderDetail(
   taskRecord: TaskRecord,
   updateTask?: (id: string, patch: TaskUpdatePatch) => Promise<boolean>,
   teamRunAvailable = true,
+  /**
+   * The live GLOBAL native-/goal switch. It defaults to ON because most cases
+   * here are about the task-level preference taking effect; the cases that must
+   * observe the master switch pass it explicitly. It never disables or rewrites
+   * the task-level checkbox.
+   */
+  goalRunEnabled = true,
 ): Promise<{ container: HTMLElement; controller: BoardController; snapshot: ControllerSnapshot }> {
-  const { controller, snapshot } = controllerFake(taskRecord, updateTask, teamRunAvailable)
+  const { controller, snapshot } = controllerFake(taskRecord, updateTask, teamRunAvailable, goalRunEnabled)
   const container = document.createElement('div')
   document.body.appendChild(container)
   const root = createRoot(container)
@@ -105,6 +116,7 @@ describe('Agent Team opt-in in the execution settings', () => {
     // Given a task on a deployment that serves Agent Teams
     const updates: TaskUpdatePatch[] = []
     const { container } = await renderDetail(task(), async (id, patch) => { updates.push(patch); return true })
+    openFormSection(container, '高级设置')
     const toggle = teamToggleOf(container)
     if (toggle === undefined) throw new Error('no Agent Team toggle')
 
@@ -119,12 +131,15 @@ describe('Agent Team opt-in in the execution settings', () => {
   it('operator on a deployment without Agent Teams sees the toggle disabled with the reason', async () => {
     // Given a task on a deployment that serves no Agent Teams service
     const { container } = await renderDetail(task(), undefined, false)
+    openFormSection(container, '高级设置')
     const toggle = teamToggleOf(container)
 
     // When the user inspects the execution settings
-    // Then the opt-in is offered read-only and the reason is stated
+    // Then the opt-in is offered read-only, the one-line reason is on the
+    // surface, and the full reason stays on the switch's own title
     expect(toggle?.disabled).toBe(true)
-    expect(container.textContent).toContain('当前部署未提供 Agent Teams 服务')
+    expect(container.textContent).toContain(t('exec.teamRunUnavailable.short'))
+    expect(toggle?.closest('label')?.getAttribute('title')).toBe(t('exec.teamRunUnavailable'))
   })
 })
 describe('task content editing before execution (issue #1110)', () => {
@@ -217,6 +232,7 @@ describe('session reuse toggle (#1419)', () => {
   it('starts unchecked and opts the task in through the controller', async () => {
     const updateTask = vi.fn(async () => true)
     const { container } = await renderDetail(task(), updateTask)
+    openFormSection(container, '高级设置')
     const checkbox = reuseCheckbox(container)
     expect(checkbox.checked).toBe(false)
     await act(async () => { checkbox.click() })
@@ -226,6 +242,7 @@ describe('session reuse toggle (#1419)', () => {
   it('shows an opted-in task as checked and clears the opt-in on unclick', async () => {
     const updateTask = vi.fn(async () => true)
     const { container } = await renderDetail(task({ reuseSession: true }), updateTask)
+    openFormSection(container, '高级设置')
     const checkbox = reuseCheckbox(container)
     expect(checkbox.checked).toBe(true)
     await act(async () => { checkbox.click() })
@@ -240,27 +257,29 @@ describe('goal run toggle', () => {
     return label.querySelector('input') as HTMLInputElement
   }
 
-  it('user opening a card that never touched the option sees it checked and unchecking pins a plain turn', async () => {
-    // Given a card that never touched the option (absent = on by default)
+  it('user opening a card that never touched the option sees it unchecked and checking opts in', async () => {
+    // Given a card that never touched the option (absent = off by default)
     const updateTask = vi.fn(async () => true)
     const { container } = await renderDetail(task(), updateTask)
 
     // When the detail view renders it
+    openFormSection(container, '高级设置')
     const checkbox = goalCheckbox(container)
 
-    // Then the checkbox shows the default, and unchecking writes the opt-out
-    expect(checkbox.checked).toBe(true)
+    // Then the checkbox shows the default, and checking writes the opt-in
+    expect(checkbox.checked).toBe(false)
     await act(async () => { checkbox.click() })
-    expect(updateTask).toHaveBeenCalledWith('t1', { goalRun: false })
+    expect(updateTask).toHaveBeenCalledWith('t1', { goalRun: true })
   })
 
   it('user changing the schedule zone persists it through the controller', async () => {
     // Given a card whose rule is pinned to a zone
     const { container, controller } = await renderDetail(task({
-      schedule: { enabled: true, cron: '0 9 * * *', timeZone: 'Asia/Shanghai', nextRunAt: undefined, lastTriggeredAt: undefined },
+      schedule: { enabled: true, mode: 'cron', cron: '0 9 * * *', timeZone: 'Asia/Shanghai', nextRunAt: undefined, lastTriggeredAt: undefined, runCount: 0 },
     }))
 
     // When the user picks a different zone and then the Host default
+    openFormSection(container, '定时运行')
     const zoneSelect = [...container.querySelectorAll<HTMLSelectElement>('select')]
       .find(candidate => candidate.getAttribute('aria-label') === '时区')!
     expect(zoneSelect.value).toBe('Asia/Shanghai')
@@ -278,17 +297,143 @@ describe('goal run toggle', () => {
     expect(controller.setSchedule).toHaveBeenCalledWith('t1', { timeZone: null })
   })
 
-  it('user opening an opted-out card sees it unchecked and re-checking restores the default', async () => {
-    // Given a card that stored the /goal opt-out
+  it('user opening an opted-in card sees it checked and unchecking returns it to the default', async () => {
+    // Given a card that stored the /goal opt-in
     const updateTask = vi.fn(async () => true)
-    const { container } = await renderDetail(task({ goalRun: false }), updateTask)
+    const { container } = await renderDetail(task({ goalRun: true }), updateTask)
 
     // When the detail view renders it
+    openFormSection(container, '高级设置')
     const checkbox = goalCheckbox(container)
 
-    // Then it shows unchecked, and re-checking writes the default back
-    expect(checkbox.checked).toBe(false)
+    // Then it shows checked, and unchecking writes the default back
+    expect(checkbox.checked).toBe(true)
     await act(async () => { checkbox.click() })
+    expect(updateTask).toHaveBeenCalledWith('t1', { goalRun: false })
+  })
+
+  it('user with the GLOBAL native /goal switch off can still check the task option and the preference is kept', async () => {
+    // Given: the master switch off and a card that never touched its option
+    const updateTask = vi.fn(async () => true)
+    const { container } = await renderDetail(task(), updateTask, true, false)
+
+    // When: the detail view renders and the user checks the option anyway
+    openFormSection(container, '高级设置')
+    const checkbox = goalCheckbox(container)
+    expect(checkbox.checked).toBe(false)
+    expect(checkbox.disabled).toBe(false)
+    // The one-line note sits under the switch; the full explanation stays on
+    // its title so the surface never grows back into a paragraph.
+    expect(container.textContent).toContain(t('exec.goalRunGlobalOff'))
+    expect([...container.querySelectorAll('p')].some(node => node.getAttribute('title') === t('settings.goalRunGlobalDisabledTaskOption'))).toBe(true)
+    await act(async () => { checkbox.click() })
+
+    // Then: the edit is accepted, the stored preference is written, and the
+    // explanation still says the master switch has to be enabled for it to apply
     expect(updateTask).toHaveBeenCalledWith('t1', { goalRun: true })
+    expect(container.textContent).toContain(t('exec.goalRunGlobalOff'))
+  })
+
+  it('operator re-enabling the GLOBAL switch sees the card keep the preference it never rewrote', async () => {
+    // Given: a card with the opt-in stored, rendered while the master switch
+    // was off (the stored value is not touched), then rendered again with it on
+    const optedIn = task({ goalRun: true })
+    const off = await renderDetail(optedIn, undefined, true, false)
+    openFormSection(off.container, '高级设置')
+    expect(goalCheckbox(off.container).checked).toBe(true)
+    expect(goalCheckbox(off.container).disabled).toBe(false)
+
+    // When: the master switch is turned back on
+    const on = await renderDetail(optedIn, undefined, true, true)
+    openFormSection(on.container, '高级设置')
+
+    // Then: the user's own stored preference is exactly what comes back
+    expect(goalCheckbox(on.container).checked).toBe(true)
+    expect(goalCheckbox(on.container).disabled).toBe(false)
+    expect(on.container.textContent).not.toContain('总开关已关闭')
+  })
+})
+
+describe('schedule plan editing', () => {
+  it('user switching a rule to a one-shot persists the planned instant', async () => {
+    // Given a card with no schedule yet
+    const { container, controller } = await renderDetail(task())
+
+    // When the user picks the one-shot plan
+    openFormSection(container, '定时运行')
+    const modeSelect = [...container.querySelectorAll<HTMLSelectElement>('select')]
+      .find(candidate => candidate.getAttribute('aria-label') === '调度方式')!
+    expect(modeSelect.value).toBe('cron')
+    await act(async () => {
+      modeSelect.value = 'once'
+      modeSelect.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+
+    // Then the editor offers a datetime field and the switch submitted a
+    // future instant (its default), not a past one
+    const atInput = container.querySelector<HTMLInputElement>('input[type="datetime-local"]')!
+    expect(atInput.getAttribute('aria-label')).toBe('执行时间')
+    expect(controller.setSchedule).toHaveBeenCalledWith('t1', { mode: 'once', at: expect.any(Number) })
+
+    // And a chosen wall clock is parsed in the rule zone and persisted. A
+    // datetime-local reports through `change`, which jsdom does not derive
+    // from an input event.
+    await act(async () => {
+      setFieldValue(atInput, '2030-01-02T03:04')
+      atInput.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    // React delegates `onBlur` to the bubbling `focusout` event.
+    await act(async () => { atInput.dispatchEvent(new FocusEvent('focusout', { bubbles: true })) })
+    expect(controller.setSchedule).toHaveBeenCalledWith('t1', { mode: 'once', at: Date.UTC(2030, 0, 2, 3, 4) })
+  })
+
+  it('user picking a run cap writes it and reads the rule budget', async () => {
+    // Given a rule that already ran once under a two-run cap
+    const { container, controller } = await renderDetail(task({
+      schedule: { enabled: true, mode: 'cron', cron: '* * * * *', nextRunAt: undefined, lastTriggeredAt: undefined, runCount: 1, maxRuns: 2 },
+    }))
+
+    // Then the ledger's own budget is shown, not a client-side guess
+    openFormSection(container, '定时运行')
+    expect(container.textContent).toContain('1/2')
+
+    // When the user clears the cap
+    const capSelect = [...container.querySelectorAll<HTMLSelectElement>('select')]
+      .find(candidate => candidate.getAttribute('aria-label') === '次数上限')!
+    expect(capSelect.value).toBe('2')
+    await act(async () => {
+      capSelect.value = 'unlimited'
+      capSelect.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    expect(controller.setSchedule).toHaveBeenCalledWith('t1', { maxRuns: null })
+
+    // And cancelling the future plan disarms it
+    const cancel = [...container.querySelectorAll('button')].find(button => button.textContent === '关闭调度')!
+    await act(async () => { cancel.click() })
+    expect(controller.setSchedule).toHaveBeenCalledWith('t1', { enabled: false })
+  })
+
+  it('operator opening a spent one-shot sees the planned instant and the end state', async () => {
+    // Given a one-shot that already fired
+    // When the operator opens its card
+    const { container } = await renderDetail(task({
+      schedule: {
+        enabled: false,
+        mode: 'once',
+        at: Date.UTC(2026, 9, 9, 4, 0),
+        nextRunAt: undefined,
+        lastTriggeredAt: Date.UTC(2026, 9, 9, 4, 0),
+        runCount: 1,
+        endedAt: Date.UTC(2026, 9, 9, 4, 0),
+        endedReason: 'fired',
+      },
+    }))
+
+    // Then the detail states both the planned instant and how it ended
+    openFormSection(container, '定时运行')
+    const atInput = container.querySelector<HTMLInputElement>('input[type="datetime-local"]')!
+    expect(atInput.value).toBe('2026-10-09T04:00')
+    expect(container.textContent).toContain('调度已结束')
+    expect(container.textContent).toContain('单次计划已执行')
   })
 })

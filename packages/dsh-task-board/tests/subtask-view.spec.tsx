@@ -119,6 +119,36 @@ describe('task detail subtask block', () => {
     expect(button(container, t('detail.subtasks.link')).textContent).toBe(t('detail.subtasks.link'))
   })
 
+  it('user opening a parent whose subtasks are all finished is told a run will not repeat them', () => {
+    // Given a root whose subtasks both sit in the done column
+    const parent = task('parent')
+    const first = task('first', { parentId: 'parent', status: 'done' })
+    const second = task('second', { parentId: 'parent', status: 'done' })
+    const { controller } = fakeController([parent, first, second])
+
+    // When the user opens the parent detail
+    const container = render(<TaskDetail controller={controller} task={parent} />)
+
+    // Then the block explains the run instead of promising the subtasks
+    const section = container.querySelector('[data-dsh-part="subtasks"]')
+    expect(section?.textContent).toContain(t('detail.subtasks.runHintSettled'))
+  })
+
+  it('user opening a parent with one unfinished subtask is told which runs are opened', () => {
+    // Given a root with one finished and one unfinished subtask
+    const parent = task('parent')
+    const done = task('done-child', { parentId: 'parent', status: 'done' })
+    const open = task('open-child', { parentId: 'parent' })
+    const { controller } = fakeController([parent, done, open])
+
+    // When the user opens the parent detail
+    const container = render(<TaskDetail controller={controller} task={parent} />)
+
+    // Then the hint counts the unfinished subtask alone
+    const section = container.querySelector('[data-dsh-part="subtasks"]')
+    expect(section?.textContent).toContain(t('detail.subtasks.runHint', { count: '1' }))
+  })
+
   it('user opening a subtask at the depth limit sees the limit instead of the add controls', () => {
     // Given a board limited to one subtask level and a card that already is a subtask
     const parent = task('parent')
@@ -167,8 +197,9 @@ describe('execution history provenance', () => {
       }],
     })])
 
-    // When the user opens the card
+    // When the user opens the card and its execution history
     const container = render(<TaskDetail controller={controller} task={tasks[0]!} />)
+    openFormSection(container, t('detail.execution'))
 
     // Then the row names the outside agent and is marked as external
     expect(container.textContent).toContain('codex')
@@ -191,8 +222,9 @@ describe('execution history provenance', () => {
       }],
     })])
 
-    // When the user opens the card
+    // When the user opens the card and its execution history
     const container = render(<TaskDetail controller={controller} task={tasks[0]!} />)
+    openFormSection(container, t('detail.execution'))
 
     // Then the row still carries the session and is not marked external
     expect(container.textContent).toContain(t('detail.execution.initiator', { session: 'session-a' }))
@@ -226,6 +258,27 @@ describe('linking an existing task', () => {
 
     // Then no candidate is offered and the empty copy is shown
     expect(container.textContent).toContain(t('link.subtask.empty'))
+  })
+
+  it('user picking a candidate gets one secondary action per row, never a second submit', () => {
+    // Given one linkable task and the linker open above its parent
+    const parent = task('parent')
+    const free = task('free')
+    const { controller } = fakeController([parent, free])
+    const container = render(<LinkSubtaskModal controller={controller} parent={parent} onClose={() => {}} />)
+
+    // When the linker paints one row per candidate
+    const buttons = [...container.querySelectorAll<HTMLButtonElement>('button')]
+    const cancel = buttons.find(button => button.textContent === t('new.cancel'))
+    const rowActions = buttons.filter(button => button.textContent === t('link.subtask.confirm'))
+
+    // Then each row action wears the same secondary style as the dismiss, so a
+    // list of candidates never paints several competing primary actions
+    expect(rowActions).toHaveLength(1)
+    expect(rowActions[0].className).toBe(cancel?.className)
+
+    // And the dialog commits nothing of its own: no row is a form submit
+    expect(container.querySelector('button[type="submit"]')).toBeNull()
   })
 })
 

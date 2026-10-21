@@ -25,7 +25,7 @@ class PrototypeMethodForm implements ConfigForm<SessionArchiveConfig> {
   accepted = true
 
   constructor(value: Partial<SessionArchiveConfig>) {
-    this.snapshot = { status: 'ready', value, base: {}, user: {}, revision: 1, writable: true, mode: 'host' }
+    this.snapshot = { status: 'ready', value, base: {}, user: {}, revision: 1, writable: true }
   }
 
   getSnapshot(): ConfigFormSnapshot<SessionArchiveConfig> {
@@ -105,5 +105,23 @@ describe('AutoSettingsPanel', () => {
 
     // Then it throws, exactly like the official controller the panel binds
     expect(() => detached()).toThrow()
+  })
+})
+
+describe('AutoSettingsPanel backfill switch', () => {
+  it('user enables the backfill switch and the bound form carries that exact write', async () => {
+    // Given a panel whose form has all three switches off
+    const form = new PrototypeMethodForm({ autoArchiveEnabled: false, autoDeleteEnabled: false, recordManualArchive: false })
+    const { container } = panelFor(form)
+    const switches = container.querySelectorAll('input[type="checkbox"]')
+    expect(switches).toHaveLength(3)
+
+    // When the user ticks the backfill switch, the one bound to recordManualArchive
+    fireEvent.click(switches[2] as HTMLInputElement)
+
+    // Then the write goes through the same form channel as the other booleans, for this field only
+    await waitFor(() => { expect(form.writes).toEqual([{ field: 'recordManualArchive', value: true }]) })
+    // And the panel shows no failure note, so the switch does not look saved-then-reverted
+    expect(container.querySelector('[data-dsh-part="settings-save-failed"]')).toBeNull()
   })
 })

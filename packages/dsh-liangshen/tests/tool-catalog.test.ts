@@ -5,12 +5,14 @@ import {
   catalogDescription,
   catalogEntries,
   createCatalogMessage,
+  CURATED_TOOL_SUMMARIES,
   estimateSurfaceTokens,
   name,
   PRESENTATION_MODES,
   renderCatalogText,
   renderJsonSchemaType,
   renderSignature,
+  toolSummary,
 } from '../presets/liangshen/tool-catalog.mjs'
 
 type Listener = (first: any, second: any, third: any) => Promise<any>
@@ -186,9 +188,7 @@ async function runAssembly(harness: Harness, agent: any, tools: unknown[] = WIRE
   const input = harness.assemblyInput ?? { tools: WIRE, sections: [] }
   const wire = agent?.mode === 'ptc'
     ? [{ ...RUN_CODE }]
-    : agent?.mode === 'both'
-      ? [...input.tools, { ...RUN_CODE }]
-      : input.tools
+    : input.tools
   harness.declarationsBeforeNext = -1
   const assembled = await listener(harness, 'system-prompt/assemble')(
     { sections: input.sections },
@@ -229,7 +229,7 @@ function durableEvent(seq: number, message: any) {
 describe('liangshen-tool-catalog', () => {
   test('exports a diagnostic plugin name and injects the prompt registry', () => {
     expect(name).toBe('liangshen-tool-catalog')
-    expect(PRESENTATION_MODES).toEqual(['native', 'ptc', 'both'])
+    expect(PRESENTATION_MODES).toEqual(['native', 'ptc'])
   })
 
   test('registers both hooks outermost in their waterfalls', () => {
@@ -247,8 +247,10 @@ describe('liangshen-tool-catalog', () => {
     const catalog = catalogOf(result.messages)
     expect(catalog.role).toBe('user')
     expect(catalog.content[0].text).toContain('The following tools are available in this session:')
-    expect(catalog.content[0].text).toContain('- `bash({ command: string, timeoutMs?: number })`: Run commands in a bash shell * State is persistent across command calls.')
-    expect(catalog.content[0].text).toContain('- `read`: Read a UTF-8 text file and return line-numbered content.')
+    // bash and read are curated host builtins, so both render their hand-written
+    // line instead of the schema description WIRE_SDK_SURFACE carries.
+    expect(catalog.content[0].text).toContain(`- \`bash({ command: string, timeoutMs?: number })\`: ${CURATED_TOOL_SUMMARIES.get('bash')}`)
+    expect(catalog.content[0].text).toContain(`- \`read\`: ${CURATED_TOOL_SUMMARIES.get('read')}`)
   })
 
   test("default presentation is 'ptc': the wire collapses to the run_code transport", async () => {
@@ -261,22 +263,6 @@ describe('liangshen-tool-catalog', () => {
     // Declared once per agent scope.
     await assemble(harness, agent)
     expect(harness.presentCalls).toEqual(['ptc'])
-  })
-
-  test("'both' catalog lists run_code like any other tool and carries no PTC exclusivity contract", async () => {
-    const harness = register({ presentation: 'both' })
-    const agent = agentOf()
-    await assemble(harness, agent)
-    const text = catalogText((await preStep(harness, agent)).messages)
-    expect(text).toContain('- `run_code({ code: string, description: string })`: Execute a TypeScript program against the available tools.')
-    expect(text).toContain('- `bash')
-    expect(text).toContain('Prefer calling the tools above directly by name')
-    expect(text).toContain('`await tools.<name>({ ... })`')
-    expect(text).toContain('`Promise.all`')
-    expect(text).toContain('`ToolCallError`')
-    // The PTC exclusivity contract belongs to the collapsed wire only.
-    expect(text).not.toContain('only tool that can be called directly')
-    expect(text).not.toContain('presents these tools through `run_code`')
   })
 
   test("'ptc' presentation collapses the wire and ships the program contract", async () => {
@@ -308,6 +294,18 @@ describe('liangshen-tool-catalog', () => {
   test('rejects an invalid presentation value', () => {
     expect(() => register({ presentation: 'yes' })).toThrow(/presentation must be one of/)
     expect(() => register({ presentation: '' })).toThrow(/presentation must be one of/)
+  })
+
+  test("maps the retired 'both' presentation onto 'ptc' with one deprecation warning", async () => {
+    // Pre-0.2.1 profiles persisted `presentation: 'both'` (the former default);
+    // mapping it to `'ptc'` with a deprecation warning keeps existing profiles
+    // booting cleanly after the SDK removed `'both'` from ToolPresentationMode.
+    const harness = register({ presentation: 'both' })
+    const agent = agentOf([], undefined, harness)
+    const { assembled } = await assemble(harness, agent)
+    expect(harness.presentCalls).toEqual(['ptc'])
+    expect(assembled.tools.map((tool: any) => tool.name)).toEqual(['run_code'])
+    expect(harness.warnings.filter(w => w.includes("the 'both' presentation was removed in 0.2.1; mapping 'both' -> 'ptc'"))).toHaveLength(1)
   })
 
   test('maps the legacy ptcPresentation key onto the enum with one deprecation warning', async () => {
@@ -415,7 +413,7 @@ describe('liangshen-tool-catalog', () => {
     await assemble(harness, history, [...WIRE, { name: 'edit', description: 'Edit one file.' }])
     const second = await preStep(harness, history)
     const update = catalogOf(second.messages)
-    expect(update.content[0].text).toContain('- `edit`: Edit one file.')
+    expect(update.content[0].text).toContain(`- \`edit\`: ${CURATED_TOOL_SUMMARIES.get('edit')}`)
     expect(update.content[0].text).toContain('replaces any earlier available-tools list')
   })
 
@@ -557,19 +555,6 @@ describe('liangshen-tool-catalog', () => {
     const text = catalogText((await preStep(harness, agent)).messages)
     expect(text).toContain('- `mcp__github__create_issue')
     expect(text).not.toContain('<inactive_namespaces>')
-  })
-
-  test("under 'both' the paged note says the SDK still reaches paged namespaces", async () => {
-    const harness = register({ presentation: 'both' }, { sdk: [...SDK_SURFACE, ...MCP_TOOLS] })
-    const agent = agentOf()
-    await assemble(harness, agent, [...WIRE, ...MCP_TOOLS])
-    const text = catalogText((await preStep(harness, agent)).messages)
-    expect(text).toContain('- `run_code({ code: string, description: string })`')
-    expect(text).toContain('<inactive_namespaces>')
-    // 'both' is the one presentation that leaves the registry unrestricted: the
-    // page is on the NATIVE wire only, so the SDK inside a program still reaches
-    // a paged namespace before activation. Only 'ptc' pages the whole surface.
-    expect(text).toContain('Paged-out namespaces below stay off the NATIVE wire but stay reachable through the SDK inside a program even before activation')
   })
 
   test('stays native and says nothing about run_code without a PTC runtime', async () => {
@@ -715,7 +700,7 @@ describe('liangshen-tool-catalog', () => {
     expect(renderSignature(undefined)).toBe('')
   })
 
-  test('catalogEntries sorts by name, skips nameless tools, and gates run_code on the option', () => {
+  test('catalogEntries sorts by name, skips nameless tools, and never lists the run_code transport', () => {
     const entries = catalogEntries([
       { name: 'b', description: 'second' },
       { description: 'nameless' },
@@ -726,12 +711,79 @@ describe('liangshen-tool-catalog', () => {
       { name: 'a', signature: '(Record<string, JsonValue>)', description: 'first' },
       { name: 'b', signature: '', description: 'second' },
     ])
-    const withRunCode = catalogEntries([
-      { name: 'run_code', description: 'transport' },
-      { name: 'a', description: 'first' },
-    ], 200, { includeRunCode: true })
-    expect(withRunCode.map((entry: any) => entry.name)).toEqual(['a', 'run_code'])
     expect(catalogEntries(undefined, 200)).toEqual([])
+  })
+
+  test('operator gets the curated line ahead of the mechanical cap', () => {
+    // Given one curated host builtin, one uncurated tool and one cap far below
+    // both texts, When each renders its summary, Then the curated name renders
+    // the table line verbatim - never truncated, however small the cap - while
+    // the uncurated name keeps the existing mechanical cap.
+    const curated = new Map(CURATED_TOOL_SUMMARIES)
+    expect(curated.size).toBeGreaterThan(0)
+    expect([...curated.keys()].every(tool => typeof tool === 'string' && tool !== '')).toBe(true)
+
+    const cap = 12
+    for (const [tool, line] of curated) {
+      expect(toolSummary({ name: tool, description: 'a schema description long enough to be cut down' }, cap)).toBe(line)
+    }
+
+    // The fallback survives curation: a tool the table does not name is still
+    // capped the way it always was, and no curated key is truncated.
+    const uncurated = 'An uncurated tool description that outruns any short cap'
+    expect(toolSummary({ name: 'not_a_curated_tool', description: uncurated }, cap))
+      .toBe(catalogDescription(uncurated, cap))
+    expect(toolSummary({ name: 'not_a_curated_tool', description: uncurated }, cap).endsWith('...')).toBe(true)
+    expect([...curated.values()].every(line => line.length <= 200)).toBe(true)
+  })
+
+  test('operator gets curated entries from catalogEntries while uncurated tools still cap', () => {
+    // Given one curated host builtin, one uncurated tool and one cap far below
+    // both texts, When the entries are built, Then the curated name renders the
+    // whole table line and the uncurated name still truncates at the same cap.
+    const entries = catalogEntries([
+      { name: 'read', description: 'Read a UTF-8 text file and return line-numbered content.' },
+      { name: 'vendor_tool', description: 'A'.repeat(60) },
+    ], 20)
+    const byName = new Map(entries.map((entry: any) => [entry.name, entry]))
+    const curatedLine = CURATED_TOOL_SUMMARIES.get('read')!
+    // A curated name ignores the cap entirely: the line ships whole.
+    expect(curatedLine.length).toBeGreaterThan(20)
+    expect(byName.get('read')).toEqual({ name: 'read', signature: '', description: curatedLine })
+    // An uncurated name still truncates at the same cap.
+    expect(byName.get('vendor_tool')).toEqual({ name: 'vendor_tool', signature: '', description: `${'A'.repeat(17)}...` })
+  })
+
+  test('operator gets a curated table covering exactly the host builtins this preset opens', () => {
+    // Given the roster the preset's own rows register for a session, When the
+    // curated table is inspected, Then its key set is exactly that roster: a
+    // tool dropped from the table would silently fall back to the cap, and a
+    // tool added for a row this composition does not mount would announce a
+    // surface the request never opens. Every curated key also wins over a
+    // hostile one-character cap, and every line stays one printable ASCII
+    // line well inside the shipped 200-character summary budget.
+    const hostBuiltins = [
+      'bash', 'pwsh', 'read', 'read_image', 'write', 'edit', 'str_replace_editor',
+      'glob', 'grep', 'job_output', 'job_list', 'job_kill', 'todo_write',
+      'create_goal', 'get_goal', 'update_goal', 'exit_plan_mode',
+      'subagent', 'subagent_fork', 'list_subagent_models', 'send_message', 'list_agents', 'interrupt_agent',
+      'ask_user_question', 'web_search', 'skill', 'tool_activate', 'fact_register', 'ralph',
+      'list_mcp_resources', 'list_mcp_resource_templates', 'read_mcp_resource',
+    ].sort()
+    expect([...CURATED_TOOL_SUMMARIES.keys()].sort()).toEqual(hostBuiltins)
+
+    // The transport itself is deliberately uncurated: the catalog never lists
+    // run_code as an entry — under 'ptc' the program contract describes it,
+    // under 'native' the request does not carry it.
+    expect(CURATED_TOOL_SUMMARIES.has('run_code')).toBe(false)
+
+    for (const tool of hostBuiltins) {
+      expect(toolSummary({ name: tool, description: 'x' }, 1)).toBe(CURATED_TOOL_SUMMARIES.get(tool))
+    }
+    for (const line of CURATED_TOOL_SUMMARIES.values()) {
+      expect(/^[\x20-\x7e]+$/u.test(line)).toBe(true)
+      expect(line.length).toBeLessThanOrEqual(200)
+    }
   })
 
   test('renderCatalogText frames a list, the contracts, and the paged summary', () => {
@@ -745,15 +797,113 @@ describe('liangshen-tool-catalog', () => {
     expect(renderCatalogText([], 'ptc')).toContain('presents these tools through `run_code`')
     expect(renderCatalogText([], 'ptc')).toContain('Compose one program per intent')
     expect(renderCatalogText([], 'native')).not.toContain('Promise.all')
-    const both = renderCatalogText([{ name: 'run_code', signature: '()', description: 'Run a program.' }], 'both')
-    expect(both).toContain('Prefer calling the tools above directly by name')
-    expect(both).not.toContain('only tool that can be called directly')
+    // The transport never renders as a list entry: catalogEntries is the gate
+    // (under 'ptc' the program contract describes run_code, under 'native' the
+    // request does not carry it), so a surface that includes it yields no
+    // entry for it.
+    const entries = catalogEntries([{ name: 'run_code', signature: '()', description: 'Run a program.' }], 200)
+    expect(entries).toEqual([])
+    const ptc = renderCatalogText(entries, 'ptc')
+    expect(ptc).not.toContain('- `run_code')
+    expect(ptc).toContain('only tool that can be called directly')
     const paged = renderCatalogText([], 'native', [
       { namespace: 'github', count: 2, sample: 'mcp__github__create_issue', description: 'Create a GitHub issue.' },
     ])
     expect(paged).toContain('<inactive_namespaces>')
     expect(paged).toContain('`tool_activate({ namespace: "github" })`')
     expect(paged).toContain('This is the current on-wire list')
+  })
+
+  test('operator reads the ptc program contract as the run_code usage note', () => {
+    // Given the collapsed wire, When the contract renders, Then it teaches the
+    // program discipline: one program per intent, SDK access, Promise.all
+    // overlap, ToolCallError handling, and the exclusivity of the transport.
+    // A soft summary would leave the boundary to the model's judgement, which
+    // is exactly what the contract exists to remove.
+    const text = renderCatalogText([], 'ptc')
+    expect(text).toContain('The session presents these tools through `run_code`')
+    expect(text).toContain('Compose one program per intent instead of one tool call per step')
+    expect(text).toContain('`await tools.<name>({ ... })`')
+    expect(text).toContain('`Promise.all`')
+    expect(text).toContain('`ToolCallError`')
+    expect(text).toContain('`run_code` is the only tool that can be called directly once it is on the wire')
+    // The paged-out page covers the whole surface under the collapsed wire.
+    expect(text).toContain('the page is a page on the whole surface, not only on the wire')
+  })
+
+  test('operator sees the ptc contract statement stay byte-stable', () => {
+    // Given the program note a 'ptc' session reads, When it renders twice, Then
+    // the bytes match: the note is part of the durable message and its
+    // republish rule compares text.
+    const first = renderCatalogText([], 'ptc')
+    expect(renderCatalogText([], 'ptc')).toBe(first)
+    // The exclusivity claim and the SDK access shape are both reachable from
+    // the ONE contract the catalog ships, so neither can drift out of it.
+    expect(first).toContain('only tool that can be called directly')
+    expect(first).toContain('Compose one program per intent')
+  })
+
+  test('operator sees the two shell curated lines stay silent about run_code', () => {
+    // Given the curated table, When the bash and pwsh lines are read, Then
+    // each says what its own tool IS and how it is called, and neither names
+    // `run_code`: under `native` no program exists to point at, and under
+    // `ptc` the program contract owns the batching guidance. A shell line that
+    // named the transport would announce a surface the native request never
+    // opens — the one claim this catalog contract forbids.
+    for (const shell of ['bash', 'pwsh']) {
+      const line = CURATED_TOOL_SUMMARIES.get(shell)!
+      expect(line).not.toContain('run_code')
+    }
+    expect(CURATED_TOOL_SUMMARIES.get('bash')).toContain('`command`')
+    expect(CURATED_TOOL_SUMMARIES.get('pwsh')).toContain('native Windows paths')
+  })
+
+  test('operator sees the paged summary state its reachability per presentation', () => {
+    // Given one paged-out namespace and both presentations, When the
+    // operator's catalog renders each of them, Then every presentation names
+    // its own reachability next to the summary, so the model never has to
+    // derive it from the program contract further down.
+    const inactive = [
+      { namespace: 'github', count: 2, sample: 'mcp__github__create_issue', description: 'Create a GitHub issue.' },
+    ]
+    const native = renderCatalogText([], 'native', inactive)
+    const ptc = renderCatalogText([], 'ptc', inactive)
+
+    // Each presentation names its own reachability next to the summary.
+    expect(native).toContain('This presentation carries no program transport, so the wire is the only surface these namespaces can be reached through.')
+    expect(ptc).toContain('The page covers the whole surface here, not the wire alone: these namespaces are unreachable from inside a program too until they are activated.')
+
+    // The sentences are mutually exclusive: a model in one presentation never
+    // reads another presentation's claim.
+    expect(native).not.toContain('unreachable from inside a program too')
+    expect(ptc).not.toContain('This presentation carries no program transport')
+
+    // Nothing paged means no summary and no reachability sentence at all.
+    expect(renderCatalogText([], 'native')).not.toContain('This presentation carries no program transport')
+    expect(renderCatalogText([], 'ptc')).not.toContain('unreachable from inside a program')
+  })
+
+  test('operator sees repeated renders of one tool surface be byte-identical', () => {
+    // Given one tool surface and both presentations, When the catalog
+    // renders that surface twice and then renders an equal copy of it, Then the
+    // bytes match every time, because the catalog is republished only when its
+    // text changes; the paged summary and the program notes are part of it.
+    const entries = [
+      { name: 'run_code', signature: '({ code: string, description: string })', description: 'Run a program.' },
+      { name: 'bash', signature: '({ command: string })', description: 'Shell.' },
+      { name: 'mcp__github__create_issue', signature: '()', description: 'Issue.', namespace: 'github' },
+    ]
+    const inactive = [
+      { namespace: 'codegraph', count: 1, sample: 'mcp__codegraph__explore', description: 'Explore the graph.' },
+    ]
+    for (const presentation of PRESENTATION_MODES) {
+      const first = renderCatalogText(entries, presentation, inactive)
+      expect(renderCatalogText(entries, presentation, inactive)).toBe(first)
+      // A fresh, equal entry list renders the same bytes too: nothing in the
+      // renderer depends on object identity or iteration order.
+      const copy = entries.map(entry => ({ ...entry }))
+      expect(renderCatalogText(copy, presentation, inactive.map(ns => ({ ...ns })))).toBe(first)
+    }
   })
 
   test('groups activated paged families under their namespace heading', () => {

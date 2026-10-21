@@ -285,21 +285,41 @@ describe('task_board_list and task_board_get', () => {
 
 describe('task_board_create', () => {
   it('user creating a subtask gets the parent execution targets inherited', async () => {
-    // Given a parent pinned to a permission and a model
+    // Given a parent pinned to a permission, a model and a reasoning effort
     const live = harness()
-    await call(live, 'task_board_create', { title: 'parent', permission: 'workspace-write', model: 'p/m' })
+    await call(live, 'task_board_create', { title: 'parent', permission: 'workspace-write', model: 'p/m', reasoningEffort: 'high' })
     const parentId = await onlyTaskId(live)
 
     // When the user creates a subtask without its own targets
     const created = await call(live, 'task_board_create', { title: 'child', parentId })
 
-    // Then the subtask stores the parent model and the link, while the
-    // permission is left unset so it can only be inherited while attached
-    const task = created.task as { parentId: string; permission?: string; model: string }
+    // Then the subtask stores the parent model and effort plus the link, while
+    // the permission is left unset so it can only be inherited while attached
+    const task = created.task as { parentId: string; permission?: string; model: string; reasoningEffort?: string }
     expect(created.ok).toBe(true)
     expect(task.parentId).toBe(parentId)
     expect(task.model).toBe('p/m')
+    expect(task.reasoningEffort).toBe('high')
     expect(task.permission).toBeUndefined()
+  })
+
+  it('operator setting and clearing a card reasoning effort through the tool surface', async () => {
+    // Given a card that pins a model
+    const live = harness()
+    const created = await call(live, 'task_board_create', { title: 'card', model: 'p/m' })
+    const taskId = (created.task as { id: string }).id
+
+    // When the operator sets an effort, reads the card, then clears it
+    const pinned = await call(live, 'task_board_update', { taskId, reasoningEffort: 'high' })
+    const read = await call(live, 'task_board_get', { taskId })
+    const cleared = await call(live, 'task_board_update', { taskId, reasoningEffort: '' })
+
+    // Then every edit is reported back and the cleared card pins nothing
+    expect(pinned.ok).toBe(true)
+    expect((pinned.task as { reasoningEffort?: string }).reasoningEffort).toBe('high')
+    expect((read.task as { reasoningEffort?: string }).reasoningEffort).toBe('high')
+    expect(cleared.ok).toBe(true)
+    expect((cleared.task as { reasoningEffort?: string }).reasoningEffort).toBeUndefined()
   })
 
   it('user creating a subtask of a subtask is refused at the default depth', async () => {
@@ -686,6 +706,42 @@ describe('task_board_schedule', () => {
     expect((get.task as { schedule?: unknown }).schedule).toBeUndefined()
   })
 
+  it('user arming a one-shot from the conversation sees its planned instant and budget', async () => {
+    // Given a plain card and a future instant
+    const live = harness()
+    await call(live, 'task_board_create', { title: 'once' })
+    const taskId = await onlyTaskId(live)
+    const at = NOW + 3_600_000
+
+    // When the model arms a single planned instant
+    const armed = await call(live, 'task_board_schedule', { taskId, mode: 'once', at, enabled: true })
+
+    // Then the rule is a one-shot: no cron, one run budgeted, armed at the instant
+    const schedule = armed.schedule as { enabled: boolean; mode: string; at?: number; cron?: string; runCount: number; nextRunAt?: number }
+    expect(schedule.mode).toBe('once')
+    expect(schedule.at).toBe(at)
+    expect(schedule.cron).toBeUndefined()
+    expect(schedule.runCount).toBe(0)
+    expect(schedule.nextRunAt).toBe(at)
+  })
+
+  it('user capping a recurring rule from the conversation carries and clears the cap', async () => {
+    // Given a plain card
+    const live = harness()
+    await call(live, 'task_board_create', { title: 'capped' })
+    const taskId = await onlyTaskId(live)
+
+    // When the model caps the rule and then clears the cap with 0
+    const capped = await call(live, 'task_board_schedule', { taskId, enabled: true, cron: '* * * * *', maxRuns: 2 })
+    expect((capped.schedule as { maxRuns?: number }).maxRuns).toBe(2)
+    const cleared = await call(live, 'task_board_schedule', { taskId, maxRuns: 0 })
+    expect((cleared.schedule as { maxRuns?: number }).maxRuns).toBeUndefined()
+
+    // And a one-shot in the past is refused instead of firing at once
+    const past = await call(live, 'task_board_schedule', { taskId, mode: 'once', at: NOW - 1_000, enabled: true })
+    expect(past.ok).toBe(false)
+  })
+
   it('user arming a schedule on an unknown card is told the card is missing', async () => {
     // Given an empty board
     const live = harness()
@@ -810,7 +866,7 @@ describe('team-run opt-in through the tools', () => {
 })
 
 describe('/goal opt-in through the tools', () => {
-  it('user creating a card gets a goal run by default and the model can pin a plain turn', async () => {
+  it('user creating a card gets one plain turn by default and the model can opt it in', async () => {
     // Given a fresh board
     const live = harness()
 
@@ -818,16 +874,16 @@ describe('/goal opt-in through the tools', () => {
     const defaulted = await call(live, 'task_board_create', { title: 'default' })
     const defaultTask = defaulted.task as { id: string; goalRun?: boolean }
 
-    // Then the default is on, and the view reports no deviation from it
+    // Then the default is off, and the view reports no deviation from it
     expect(defaultTask.goalRun).toBeUndefined()
 
-    // And an explicit false pins a single plain turn, which the view reports
-    const opted = await call(live, 'task_board_create', { title: 'plain', goalRun: false })
+    // And an explicit true opts the card into goal runs, which the view reports
+    const opted = await call(live, 'task_board_create', { title: 'goal', goalRun: true })
     const optedTask = opted.task as { id: string; goalRun?: boolean }
-    expect(optedTask.goalRun).toBe(false)
+    expect(optedTask.goalRun).toBe(true)
 
-    // And switching it back to the default clears the stored opt-out
-    const updated = await call(live, 'task_board_update', { taskId: optedTask.id, goalRun: true })
+    // And returning it to the default clears the stored opt-in
+    const updated = await call(live, 'task_board_update', { taskId: optedTask.id, goalRun: false })
     expect((updated.task as { goalRun?: boolean }).goalRun).toBeUndefined()
   })
 })

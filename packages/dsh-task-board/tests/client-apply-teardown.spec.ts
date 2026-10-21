@@ -26,7 +26,6 @@ function unavailableSettingsForm() {
       user: undefined,
       revision: undefined,
       writable: false,
-      mode: 'host',
     }),
     subscribe: () => () => {},
     mutate: async () => false,
@@ -92,6 +91,10 @@ function applyContext() {
     },
     get: (name: string) => services[name],
     on: () => () => {},
+    // The preset roster namespace mounts with the official api-remotes
+    // assembly; this harness serves none, so the scoped feed stays parked
+    // (cordis would run the callback only once the service exists).
+    inject: (_names: readonly string[], _callback: unknown) => ({ dispose: async () => {} }),
     locale: {
       register: () => () => {},
       bind: () => (key: string) => key,

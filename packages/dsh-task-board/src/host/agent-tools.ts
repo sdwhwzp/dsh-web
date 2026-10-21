@@ -23,11 +23,13 @@ import {
   TASK_PERMISSIONS,
   type ExecutionRecord,
   type NewTaskInput,
+  type ScheduleMode,
   type ScheduleRule,
   type TaskPermission,
   type TaskRecord,
   type TaskTag,
 } from '../core/tasks.ts'
+import type { SetSchedulePatch } from '../core/use-cases/task-schedule.ts'
 import type { TaskUpdatePatch } from '../core/use-cases/task-update.ts'
 import type { TaskBoardAction, TaskBoardSnapshot } from '../protocol.ts'
 
@@ -96,11 +98,22 @@ export function callingSessionId(exec: { agent?: unknown }): string | undefined 
 function scheduleView(schedule: ScheduleRule): Record<string, unknown> {
   return {
     enabled: schedule.enabled,
-    cron: schedule.cron,
+    mode: schedule.mode,
+    // A one-shot has no cron, and carries its planned instant instead.
+    ...(schedule.cron === undefined ? {} : { cron: schedule.cron }),
+    ...(schedule.at === undefined ? {} : { at: schedule.at }),
     // Absent means the rule follows the Host zone, which the board view reports.
     ...(schedule.timeZone === undefined ? {} : { timeZone: schedule.timeZone }),
     ...(schedule.nextRunAt === undefined ? {} : { nextRunAt: schedule.nextRunAt }),
     ...(schedule.lastTriggeredAt === undefined ? {} : { lastTriggeredAt: schedule.lastTriggeredAt }),
+    // The run budget: what the scheduler has already opened, its cap (absent =
+    // unlimited), and how the rule stopped or what it last skipped.
+    runCount: schedule.runCount,
+    ...(schedule.maxRuns === undefined ? {} : { maxRuns: schedule.maxRuns }),
+    ...(schedule.endedAt === undefined ? {} : { endedAt: schedule.endedAt }),
+    ...(schedule.endedReason === undefined ? {} : { endedReason: schedule.endedReason }),
+    ...(schedule.skippedAt === undefined ? {} : { skippedAt: schedule.skippedAt }),
+    ...(schedule.skippedReason === undefined ? {} : { skippedReason: schedule.skippedReason }),
   }
 }
 
@@ -156,10 +169,11 @@ function taskSummary(
     ...(task.mode === undefined ? {} : { mode: task.mode }),
     ...(task.permission === undefined ? {} : { permission: task.permission }),
     ...(task.model === undefined ? {} : { model: task.model }),
+    ...(task.reasoningEffort === undefined ? {} : { reasoningEffort: task.reasoningEffort }),
     ...(task.reuseSession === true ? { reuseSession: true } : {}),
     ...(task.teamRun === true ? { teamRun: true } : {}),
-    // Default-ON switch: only the opt-out is a deviation worth reporting.
-    ...(task.goalRun === false ? { goalRun: false } : {}),
+    // Default-OFF opt-in: only a card that asked for the goal run reports it.
+    ...(task.goalRun === true ? { goalRun: true } : {}),
     // Default-OFF opt-out: the deviation is what a reader must be told.
     ...(task.skipVerification === true ? { skipVerification: true } : {}),
     ...(task.schedule === undefined ? {} : { schedule: scheduleView(task.schedule) }),
@@ -267,7 +281,7 @@ function buildSetParentTool(host: ToolHost): ToolDefinition {
       'Attach an existing task under a parent (making it a subtask) or detach it back to the root board by setting its parentId.',
       'Pass an empty parentId to detach.',
       'The Host refuses the link when the parent is unknown or archived, when the moved task is one of its own descendants, when the resulting depth exceeds the deployment subtask limit (default one level, maximum three), or while the task has an unsettled execution (its link may still be a running cascade parent pointer).',
-      'Running a task runs its whole subtree concurrently; a parent card settles only after its own turn and every direct subtask settle.',
+      'Running a task opens one run group over its subtree concurrently and leaves a subtask that already sits in the done column alone; a parent card settles only after its own turn and every direct subtask it opened have settled.',
     ].join(' '),
     parameters: {
       taskId: { type: 'string', required: true, description: 'The task whose parent link changes.' },
@@ -304,7 +318,7 @@ function buildRunTool(host: ToolHost): ToolDefinition {
       'Executions consume real API quota. Sessions are created asynchronously, so read their ids and outcomes back with task_board_get.',
     ].join(' '),
     parameters: {
-      taskId: { type: 'string', required: true, description: 'The task to run; running a root task runs its whole subtree.' },
+      taskId: { type: 'string', required: true, description: 'The task to run; running a root task runs its whole subtree, minus the subtasks that are already in the done column.' },
       rerun: { type: 'boolean', description: 'Re-run a settled task: reset its column to todo before starting (default false).' },
     },
     output: { schema: { type: 'json' }, render: renderJson },
@@ -448,38 +462,47 @@ function buildScheduleTool(host: ToolHost): ToolDefinition {
   return defineTool({
     name: 'task_board_schedule',
     description: [
-      'Arm, change, or disarm a task scheduled runs (5-field cron; day-of-month and day-of-week follow Vixie semantics: both restricted means OR, otherwise AND).',
-      'The cron wall clock is read in the rule stored IANA time zone; omit timeZone to use the Host zone reported by task_board_list/task_board_get. DST gaps are skipped and an ambiguous fall-back time fires once, at the earlier instant.',
-      'A due scheduled task runs the same cascade a manual run does, so a root task runs its whole subtask tree.',
-      'A schedule whose tree contains an unconfirmed above-default permission is refused and rolls to its next occurrence; the reason is reported in the list board summary as schedulerError.',
-      'Missed occurrences during Host downtime are skipped, never queued; a task that is already running skips its occurrence.',
+      'Arm, change, or disarm a task scheduled runs. Two kinds of plan exist: a recurring 5-field cron rule (day-of-month and day-of-week follow Vixie semantics: both restricted means OR, otherwise AND), and a one-shot that runs once at a future instant.',
+      'For a one-shot pass mode "once" with at (the planned instant, ms since epoch UTC). For a recurring rule pass mode "cron" (or omit mode) with a cron expression, optionally capped by maxRuns (a positive whole number of scheduled executions; omit for unlimited, pass 0 to clear a cap).',
+      'The wall clock is read in the rule stored IANA time zone; omit timeZone to use the Host zone reported by task_board_list/task_board_get. DST gaps are skipped and an ambiguous fall-back time fires once, at the earlier instant.',
+      'A due scheduled task runs the same cascade a manual run does, so a root task runs its whole subtask tree minus the subtasks already in the done column.',
+      'The scheduler counts executions it actually starts; once a rule reaches its run budget it stops itself in the ledger, and a manual run never consumes the budget. A schedule whose tree contains an unconfirmed above-default permission is refused and does not consume the budget; the reason is reported in the list board summary as schedulerError.',
+      'Missed occurrences during Host downtime are skipped, never queued (a one-shot whose instant passed while the Host was down is stopped as missed); a task that is already running skips its occurrence without consuming the budget.',
     ].join(' '),
     parameters: {
       taskId: { type: 'string', required: true, description: 'The task whose schedule changes.' },
       enabled: { type: 'boolean', description: 'Arm (true) or disarm (false) the schedule.' },
-      cron: { type: 'string', description: '5-field cron expression: minute hour day-of-month month day-of-week.' },
+      mode: { type: 'string', enum: ['cron', 'once'], description: 'The kind of plan: "cron" for a recurring rule, "once" for a single future instant. Omit to keep the stored kind.' },
+      cron: { type: 'string', description: '5-field cron expression of a recurring rule: minute hour day-of-month month day-of-week.' },
+      at: { type: 'integer', description: 'Planned instant of a one-shot, in milliseconds since the Unix epoch (UTC). Must be in the future.' },
       timeZone: {
         type: 'string',
-        description: 'IANA zone the cron wall clock is read in (for example Asia/Shanghai). Omit to keep the stored zone, or pass an empty string to clear it back to the Host zone.',
+        description: 'IANA zone the wall clock is read in (for example Asia/Shanghai). Omit to keep the stored zone, or pass an empty string to clear it back to the Host zone.',
       },
+      maxRuns: { type: 'integer', description: 'Maximum scheduled executions of a recurring rule (positive whole number). Omit to keep the stored cap; pass 0 to clear it back to unlimited.' },
     },
     output: { schema: { type: 'json' }, render: renderJson },
     async execute(args, exec) {
       const activeHost = typeof host === 'function' ? host(exec) : host
-      if (args.enabled === undefined && args.cron === undefined && args.timeZone === undefined) {
-        return refused('nothing-to-change', 'pass enabled and/or cron and/or timeZone')
+      if (args.enabled === undefined && args.mode === undefined && args.cron === undefined && args.at === undefined
+        && args.timeZone === undefined && args.maxRuns === undefined) {
+        return refused('nothing-to-change', 'pass enabled, mode, cron, at, timeZone and/or maxRuns')
       }
       // A missing card must read as a missing card: the ledger reports an
       // unknown id through the same refusal as a malformed cron.
       if (!activeHost.snapshot().tasks.some(task => task.id === args.taskId)) {
         return refused('task-not-found', 'no task with id ' + args.taskId)
       }
-      const patch: { enabled?: boolean; cron?: string; timeZone?: string | null } = {
+      const patch: SetSchedulePatch = {
         ...(args.enabled === undefined ? {} : { enabled: args.enabled }),
+        ...(args.mode === undefined ? {} : { mode: args.mode as ScheduleMode }),
         ...(args.cron === undefined ? {} : { cron: args.cron }),
+        ...(args.at === undefined ? {} : { at: args.at }),
         // An empty string is the documented way to clear the stored zone, so
         // the model never has to emit an explicit null through JSON args.
         ...(args.timeZone === undefined ? {} : { timeZone: args.timeZone === '' ? null : args.timeZone }),
+        // 0 is the documented way to clear a run cap back to unlimited.
+        ...(args.maxRuns === undefined ? {} : { maxRuns: args.maxRuns <= 0 ? null : args.maxRuns }),
       }
       try {
         const snapshot = await activeHost.apply(crypto.randomUUID(), { kind: 'set-schedule', taskId: args.taskId, patch }, callingSessionId(exec))
@@ -573,7 +596,7 @@ function buildCreateTool(host: ToolHost): ToolDefinition {
     name: 'task_board_create',
     description: [
       'Create a task on the DSH task board, or a subtask by passing parentId.',
-      'A subtask inherits every execution target it does not override (workspace, agent preset, permission, model) from its parent, and inherits the parent human permission confirmation together with an inherited binding.',
+      'A subtask inherits every execution target it does not override (workspace, agent preset, permission, model, reasoning effort) from its parent, and inherits the parent human permission confirmation together with an inherited binding.',
       'The deployment caps subtask depth (default one level, maximum three): a subtask of a subtask is refused unless the board is configured deeper.',
       'The task lands in the todo column and does NOT run; call task_board_run to execute it.',
     ].join(' '),
@@ -583,12 +606,13 @@ function buildCreateTool(host: ToolHost): ToolDefinition {
       prompt: { type: 'string', description: 'The instruction sent to the execution agent; the title is used when blank.' },
       parentId: { type: 'string', description: 'Parent task id, making this a subtask. Omit for a root task.' },
       workspaceId: { type: 'string', description: 'Workspace id the execution must run in; omit to inherit the workspace this session is in (root task) or the parent value (subtask).' },
-      mode: { type: 'string', description: 'Agent preset id the execution session is composed from; omit for the deployment default or the parent value.' },
-      permission: { type: 'string', enum: [...TASK_PERMISSIONS], description: 'Permission preset for the execution session. Omit to inherit the parent binding; a value above the session default needs a human confirmation in the board UI before the card can run.' },
-      model: { type: 'string', description: 'Pinned model as provider/model (or a model id); omit for the host default or the parent value.' },
+      mode: { type: 'string', description: 'Agent preset id the execution session is composed from; omit to adopt the board new-card default, and the deployment default when none is configured.' },
+      permission: { type: 'string', enum: [...TASK_PERMISSIONS], description: 'Permission preset for the execution session; omit to adopt the board new-card default. An omitted permission is never taken from a parent: the launch resolves the parent binding instead. A value above the session default needs a human confirmation in the board UI before the card can run.' },
+      model: { type: 'string', description: 'Pinned model as provider/model (or a model id); omit to adopt the board new-card default, and the host default when none is configured.' },
+      reasoningEffort: { type: 'string', description: 'Reasoning effort id for that model (an adapter-owned level such as "high"); omit to adopt the board new-card default for that model, and the model own default when none applies. Only an effort the target model declares is sent; an empty string clears it back to the default.' },
       reuseSession: { type: 'boolean', description: 'Continue later runs in the previous execution session instead of a fresh conversation.' },
       teamRun: { type: 'boolean', description: 'Run this task as an Agent Team: running it starts one Team Lead session and the Host spawns a teammate per subtask inside it. Omit or false for one independent session per member. Refused when the deployment serves no Agent Teams service.' },
-      goalRun: { type: 'boolean', description: 'Start each run with dsh built-in /goal so the session keeps working continuation rounds until the goal completes. Default true (omit to keep it); pass false for a single plain turn.' },
+      goalRun: { type: 'boolean', description: 'Start each run with dsh built-in /goal so the session keeps working continuation rounds until the goal completes. Off by default: omit (or pass false) for a single plain turn, and pass true to opt this card in. It only takes effect while the deployment global native /goal switch is on.' },
       skipVerification: { type: 'boolean', description: 'Run this task without the board acceptance gate: update_goal may mark the goal complete without a passing acceptance, and the execution record is marked skipped. Default false (omit to inherit the board-wide acceptance switch). Only affects executions started afterwards.' },
       tags: {
         type: 'array',
@@ -605,10 +629,13 @@ function buildCreateTool(host: ToolHost): ToolDefinition {
       schedule: {
         type: 'object',
         additionalProperties: false,
-        description: 'Arm a 5-field cron schedule at creation time (Host local time zone).',
+        description: 'Arm a schedule at creation time. Use mode "once" with at for a single future run, or mode "cron" (or omit mode) with a 5-field cron expression, optionally capped by maxRuns.',
         properties: {
           enabled: { type: 'boolean', required: true, description: 'Whether the schedule is armed.' },
-          cron: { type: 'string', required: true, description: '5-field cron: minute hour day-of-month month day-of-week.' },
+          mode: { type: 'string', enum: ['cron', 'once'], description: 'The kind of plan: "cron" for a recurring rule, "once" for a single future instant.' },
+          cron: { type: 'string', description: '5-field cron of a recurring rule: minute hour day-of-month month day-of-week.' },
+          at: { type: 'integer', description: 'Planned instant of a one-shot, in milliseconds since the Unix epoch (UTC). Must be in the future.' },
+          maxRuns: { type: 'integer', description: 'Maximum scheduled executions of a recurring rule (positive whole number); omit for unlimited.' },
         },
       },
     },
@@ -630,12 +657,26 @@ function buildCreateTool(host: ToolHost): ToolDefinition {
         ...(args.mode === undefined || args.mode === '' ? {} : { mode: args.mode }),
         ...(args.permission === undefined ? {} : { permission: args.permission }),
         ...(args.model === undefined || args.model === '' ? {} : { model: args.model }),
+        ...(args.reasoningEffort === undefined || args.reasoningEffort === '' ? {} : { reasoningEffort: args.reasoningEffort }),
+        // This tool creates cards on behalf of a deployment that configured its
+        // new-card defaults once: an omitted target adopts them instead of
+        // leaving the card to resolve the host default at run time. Only the
+        // targets the caller omitted are filled.
+        applyCardDefaults: true,
         ...(args.reuseSession === true ? { reuseSession: true } : {}),
         ...(args.teamRun === true ? { teamRun: true } : {}),
-        ...(args.goalRun === false ? { goalRun: false } : {}),
+        ...(args.goalRun === true ? { goalRun: true } : {}),
     ...(args.skipVerification === true ? { skipVerification: true } : {}),
         ...(tags.length === 0 ? {} : { tags }),
-        ...(args.schedule === undefined ? {} : { schedule: { enabled: args.schedule.enabled, cron: args.schedule.cron } }),
+        ...(args.schedule === undefined ? {} : {
+          schedule: {
+            enabled: args.schedule.enabled,
+            ...(args.schedule.mode === undefined ? {} : { mode: args.schedule.mode as ScheduleMode }),
+            ...(args.schedule.cron === undefined ? {} : { cron: args.schedule.cron }),
+            ...(args.schedule.at === undefined ? {} : { at: args.schedule.at }),
+            ...(args.schedule.maxRuns === undefined ? {} : { maxRuns: args.schedule.maxRuns }),
+          },
+        }),
       }
       try {
         const snapshot = await activeHost.apply(crypto.randomUUID(), { kind: 'create', id, input }, callingSessionId(exec))
@@ -653,7 +694,7 @@ function buildUpdateTool(host: ToolHost): ToolDefinition {
   return defineTool({
     name: 'task_board_update',
     description: [
-      'Edit a task board card: title, description, prompt, labels, and the execution targets (workspace, agent preset, permission, model, session reuse).',
+      'Edit a task board card: title, description, prompt, labels, and the execution targets (workspace, agent preset, permission, model, reasoning effort, session reuse).',
       'Only the fields you pass change; pass an empty string to clear a target, or an empty labels array to clear the labels.',
       'Title, description and prompt freeze once the task has started executing; the execution targets stay editable because they only affect future runs.',
       'Changing the pinned permission re-arms the permission confirmation gate.',
@@ -681,9 +722,10 @@ function buildUpdateTool(host: ToolHost): ToolDefinition {
         description: 'New permission preset; an empty string clears it back to the session default.',
       },
       model: { type: 'string', description: 'New pinned model; an empty string clears it.' },
+      reasoningEffort: { type: 'string', description: 'New reasoning effort id for the pinned model; an empty string clears it back to the model own default. Only an effort the target model declares is sent at run time.' },
       reuseSession: { type: 'boolean', description: 'Continue later runs in the previous execution session.' },
       teamRun: { type: 'boolean', description: 'Switches this task between a plain cascade (one session per member) and an Agent Team run (Lead session plus a teammate per subtask).' },
-      goalRun: { type: 'boolean', description: 'Whether each run starts with dsh built-in /goal (default true). Pass false to run one plain turn instead.' },
+      goalRun: { type: 'boolean', description: 'Whether each run starts with dsh built-in /goal (default false, one plain turn). Pass true to opt this card in, or false to return it to the default.' },
       skipVerification: { type: 'boolean', description: 'Whether this task runs without the board acceptance gate (default false, inherit the board-wide switch). Pass true to opt out; pass false to opt back in. Only affects executions started afterwards.' },
       tags: {
         type: 'array',
@@ -708,13 +750,17 @@ function buildUpdateTool(host: ToolHost): ToolDefinition {
       if (has(args, 'workspaceId') && typeof args.workspaceId === 'string') patch.workspaceId = args.workspaceId
       if (has(args, 'mode') && typeof args.mode === 'string') patch.mode = args.mode
       if (has(args, 'model') && typeof args.model === 'string') patch.model = args.model
+      // An empty effort is the wire's clearing value (back to the model's own default).
+      if (has(args, 'reasoningEffort') && typeof args.reasoningEffort === 'string') {
+        patch.reasoningEffort = args.reasoningEffort
+      }
       // An empty permission is the wire's clearing value (back to the session default).
       if (has(args, 'permission') && typeof args.permission === 'string') {
         patch.permission = args.permission === '' ? undefined : args.permission
       }
       if (has(args, 'reuseSession')) patch.reuseSession = args.reuseSession === true
       if (has(args, 'teamRun')) patch.teamRun = args.teamRun === true
-      if (has(args, 'goalRun')) patch.goalRun = args.goalRun === false ? false : true
+      if (has(args, 'goalRun')) patch.goalRun = args.goalRun === true ? true : false
       if (has(args, 'skipVerification')) patch.skipVerification = args.skipVerification === true ? true : false
       if (has(args, 'tags')) {
         const tags = args.tags ?? []

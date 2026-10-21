@@ -9,6 +9,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { ROUTES, makeRoutes } from '../src/routes.ts'
+import { providerToggleFile } from '../src/provider-toggles.ts'
+import { buildZip } from './zip-builder.ts'
 
 const TMP = mkdtempSync(join(tmpdir(), 'skill-explorer-routes-'))
 const HOME = join(TMP, 'home')
@@ -571,7 +573,6 @@ describe('update', () => {
   })
 })
 
-
 describe('custom provider row roots (#1801)', () => {
   /** Isolated host whose skill-filesystem row owns a custom root. */
   function customRowFixture(): {
@@ -751,5 +752,519 @@ describe('registry degradation', () => {
     // Filesystem entries still present.
     const names = payload.groups.flatMap((g: { skills: Array<{ name: string }> }) => g.skills.map((s) => s.name))
     expect(names).toContain('poc-first')
+  })
+})
+
+/** One set-enabled request with a raw (possibly malformed) body, plus its destroy spy. */
+function rawSetEnabledRequest(rawBody: string): { req: IncomingMessage; destroy: ReturnType<typeof vi.fn> } {
+  const destroy = vi.fn()
+  const req = {
+    method: 'POST',
+    url: ROUTES.setEnabled,
+    socket: { remoteAddress: '127.0.0.1' },
+    headers: { host: 'localhost:3080', 'content-type': 'application/json' },
+    destroy,
+    [Symbol.asyncIterator]: async function* iterate() {
+      if (rawBody !== '') yield Buffer.from(rawBody)
+    },
+  } as unknown as IncomingMessage
+  return { req, destroy }
+}
+
+/** One ServerResponse capturing status and headers as well as the body. */
+function responseWithHeaders(): { res: ServerResponse; status: () => number; headers: () => Record<string, unknown>; body: () => string } {
+  const state = { status: 0, headers: {} as Record<string, unknown>, body: '' }
+  const res = {
+    writeHead(status: number, headers: Record<string, unknown> = {}) {
+      state.status = status
+      state.headers = headers
+    },
+    end(body: string) { state.body = body },
+  } as unknown as ServerResponse
+  return { res, status: () => state.status, headers: () => state.headers, body: () => state.body }
+}
+
+describe('set-enabled json body failure contract (128 KiB object-only reader)', () => {
+  it('user posting invalid JSON gets 400 and the request is not destroyed', async () => {
+    // Given: a loopback set-enabled request whose body is not JSON
+    const { req, destroy } = rawSetEnabledRequest('{not json')
+
+    // When: the route handler reads the body
+    const res = responseWithHeaders()
+    await find(ROUTES.setEnabled)!.handler(req, res.res)
+
+    // Then: the route answers 400 and the connection stays up
+    expect(res.status()).toBe(400)
+    expect(JSON.parse(res.body())).toEqual({ error: 'invalid JSON body' })
+    expect(destroy).not.toHaveBeenCalled()
+  })
+
+  it('user posting an empty body gets 400 and the request is not destroyed', async () => {
+    // Given: a loopback set-enabled request with no bytes to read
+    const { req, destroy } = rawSetEnabledRequest('')
+
+    // When: the route handler reads the body
+    const res = responseWithHeaders()
+    await find(ROUTES.setEnabled)!.handler(req, res.res)
+
+    // Then: the route answers 400 and the connection stays up
+    expect(res.status()).toBe(400)
+    expect(JSON.parse(res.body())).toEqual({ error: 'invalid JSON body' })
+    expect(destroy).not.toHaveBeenCalled()
+  })
+
+  it('user posting a non-object payload gets 400 (objectOnly reader) and the request is not destroyed', async () => {
+    // Given: a loopback set-enabled request whose body is a JSON array
+    const { req, destroy } = rawSetEnabledRequest('[]')
+
+    // When: the route handler reads the body
+    const res = responseWithHeaders()
+    await find(ROUTES.setEnabled)!.handler(req, res.res)
+
+    // Then: the object-only reader yields null and the route answers 400
+    expect(res.status()).toBe(400)
+    expect(JSON.parse(res.body())).toEqual({ error: 'invalid JSON body' })
+    expect(destroy).not.toHaveBeenCalled()
+  })
+
+  it('user posting a body past the 128 KiB cap gets 400 and the request is destroyed', async () => {
+    // Given: a loopback set-enabled request one byte past the route family cap
+    const { req, destroy } = rawSetEnabledRequest('x'.repeat(128 * 1024 + 1))
+
+    // When: the route handler reads the body
+    const res = responseWithHeaders()
+    await find(ROUTES.setEnabled)!.handler(req, res.res)
+
+    // Then: the route answers 400 and the shared reader tore the connection down
+    expect(res.status()).toBe(400)
+    expect(JSON.parse(res.body())).toEqual({ error: 'invalid JSON body' })
+    expect(destroy).toHaveBeenCalledTimes(1)
+  })
+
+  it('user reading the 400 refusal sees the family JSON headers', async () => {
+    // Given: a loopback set-enabled request with an unreadable body
+    const { req } = rawSetEnabledRequest('{not json')
+
+    // When: the route handler answers it
+    const res = responseWithHeaders()
+    await find(ROUTES.setEnabled)!.handler(req, res.res)
+
+    // Then: the shared writer's family headers are on the response
+    expect(res.headers()['content-type']).toBe('application/json; charset=utf-8')
+    expect(res.headers()['referrer-policy']).toBe('no-referrer')
+  })
+})
+
+describe('plugin-provided skill switch (#1854)', () => {
+  /**
+   * Isolated host whose registry contributes one plugin-provided skill — a
+   * provider reports a real instruction file the panel's scan cannot resolve —
+   * while a scanned project skill keeps its own writable path, so the two
+   * switches can be told apart.
+   */
+  function providerFixture(): {
+    root: string
+    home: string
+    /** Mount the route family over the fixture home (again, as a restart does). */
+    mount(): ReturnType<typeof makeRoutes>
+  } {
+    const root = mkdtempSync(join(tmpdir(), 'skill-explorer-provider-'))
+    const home = join(root, 'home')
+    const project = join(root, 'project')
+    mkdirSync(join(project, '.git'), { recursive: true })
+    mkdirSync(join(project, '.dsh', 'skills', 'scanned-skill'), { recursive: true })
+    writeFileSync(
+      join(project, '.dsh', 'skills', 'scanned-skill', 'SKILL.md'),
+      '---\nname: scanned-skill\ndescription: project skill\n---\n',
+      'utf8',
+    )
+    return {
+      root,
+      home,
+      mount: () => makeRoutes(emptyCtx, {
+        ...deps,
+        dshHome: home,
+        agentsHome: join(root, 'agents'),
+        customSkillDirs: [],
+        activeSessionCwds: () => [project],
+        registry: {
+          snapshot: async () => ({
+            complete: true,
+            skills: [{
+              name: 'computer-use',
+              description: 'plugin-provided skill',
+              provider: 'orca',
+              source: 'bundled',
+              path: join(root, 'bundled', 'computer-use', 'SKILL.md'),
+            }],
+          }),
+        },
+      }),
+    }
+  }
+
+  /** Post one switch request through a route set. */
+  async function switchSkill(
+    routes: ReturnType<typeof makeRoutes>,
+    body: Record<string, unknown>,
+  ): Promise<{ status: number; payload: { error?: string; ok?: boolean; disabled?: boolean } }> {
+    const captured = response()
+    await routes.find(route => route.path === ROUTES.setProviderEnabled)!.handler(
+      request(ROUTES.setProviderEnabled, 'POST', { body }),
+      captured.res,
+    )
+    return { status: captured.status(), payload: JSON.parse(captured.body()) }
+  }
+
+  /** Serve the panel's list request and return one row of it. */
+  async function listedRow(routes: ReturnType<typeof makeRoutes>, name: string) {
+    const captured = response()
+    await routes.find(route => route.path === ROUTES.list)!.handler(request(ROUTES.list, 'GET'), captured.res)
+    expect(captured.status()).toBe(200)
+    const payload = JSON.parse(captured.body())
+    return payload.groups
+      .flatMap((group: { skills: Array<{ name: string }> }) => group.skills)
+      .find((skill: { name: string }) => skill.name === name)
+  }
+
+  it('user switching off a plugin-provided skill sees it as not model invocable in the next list', async () => {
+    // Given a panel that listed the plugin-provided skill as model invocable
+    const fixture = providerFixture()
+    try {
+      const routes = fixture.mount()
+      expect((await listedRow(routes, 'computer-use')).modelInvocable).toBe(true)
+
+      // When the user flips that row's switch
+      const switched = await switchSkill(routes, { name: 'computer-use', provider: 'orca', enabled: false })
+
+      // Then the route confirms the stored state
+      expect(switched.status).toBe(200)
+      expect(switched.payload).toEqual({ ok: true, name: 'computer-use', provider: 'orca', disabled: true })
+      // And the next list shows the row as switched off, still pathless
+      const row = await listedRow(routes, 'computer-use')
+      expect(row.modelInvocable).toBe(false)
+      expect(row.userInvocable).toBe(true)
+      expect(row.fileState).toBe('provider-file')
+      expect(row.path).toBeUndefined()
+      // And the scanned skill keeps its own switch untouched
+      const scanned = await listedRow(routes, 'scanned-skill')
+      expect(scanned.modelInvocable).toBe(true)
+      expect(scanned.path).toBe(join(fixture.root, 'project', '.dsh', 'skills', 'scanned-skill', 'SKILL.md'))
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true })
+    }
+  })
+
+  it('user switching the same plugin-provided skill off twice stores one record', async () => {
+    // Given the same skill already recorded as switched off
+    const fixture = providerFixture()
+    try {
+      const routes = fixture.mount()
+      await switchSkill(routes, { name: 'computer-use', provider: 'orca', enabled: false })
+
+      // When the user flips the switch again (a double click, a retried request)
+      const repeated = await switchSkill(routes, { name: 'computer-use', provider: 'orca', enabled: false })
+
+      // Then the record is not duplicated
+      expect(repeated.status).toBe(200)
+      const stored = JSON.parse(readFileSync(providerToggleFile(fixture.home), 'utf8'))
+      expect(stored.disabled).toEqual([{ name: 'computer-use', provider: 'orca' }])
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true })
+    }
+  })
+
+  it('user whose host restarts still sees the plugin-provided skill switched off', async () => {
+    // Given a host that recorded the switch and went away
+    const fixture = providerFixture()
+    try {
+      await switchSkill(fixture.mount(), { name: 'computer-use', provider: 'orca', enabled: false })
+
+      // When the routes are mounted again over the same home (a restart)
+      const restarted = await listedRow(fixture.mount(), 'computer-use')
+
+      // Then the stored switch is still honored
+      expect(restarted.modelInvocable).toBe(false)
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true })
+    }
+  })
+
+  it('user switching the plugin-provided skill back on restores its invocable view', async () => {
+    // Given a plugin-provided skill the user switched off
+    const fixture = providerFixture()
+    try {
+      const routes = fixture.mount()
+      await switchSkill(routes, { name: 'computer-use', provider: 'orca', enabled: false })
+
+      // When the user flips the switch back
+      const restored = await switchSkill(routes, { name: 'computer-use', provider: 'orca', enabled: true })
+
+      // Then the record is gone and the row is invocable again
+      expect(restored.payload.disabled).toBe(false)
+      expect(JSON.parse(readFileSync(providerToggleFile(fixture.home), 'utf8')).disabled).toEqual([])
+      expect((await listedRow(routes, 'computer-use')).modelInvocable).toBe(true)
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true })
+    }
+  })
+
+  it('user switching off a skill the panel does not list as plugin-provided is refused', async () => {
+    // Given two identities the panel never showed as plugin-provided: a name no
+    // registry reports, and a scanned skill that has its own writable path
+    const fixture = providerFixture()
+    try {
+      const routes = fixture.mount()
+
+      // When the user posts a switch for either of them
+      const unknown = await switchSkill(routes, { name: 'ghost-skill', provider: 'orca', enabled: false })
+      const scanned = await switchSkill(routes, { name: 'scanned-skill', provider: 'filesystem', enabled: false })
+
+      // Then both are refused, exactly like a write route addressing a stale row
+      expect(unknown.status).toBe(404)
+      expect(scanned.status).toBe(404)
+      expect(scanned.payload.error).toContain('scanned-skill')
+      // And the store is never created by a refused request
+      expect(existsSync(providerToggleFile(fixture.home))).toBe(false)
+      // And the scanned row still reads as invocable
+      expect((await listedRow(routes, 'scanned-skill')).modelInvocable).toBe(true)
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true })
+    }
+  })
+
+  it('user switching a skill back on is allowed even for a skill the panel no longer lists', async () => {
+    // Given no store at all — a plugin can be uninstalled while its record is gone
+    const fixture = providerFixture()
+    try {
+      const routes = fixture.mount()
+
+      // When the user posts an enable for a name the panel does not list
+      const restored = await switchSkill(routes, { name: 'ghost-skill', provider: 'orca', enabled: true })
+
+      // Then it succeeds: removing a record can never widen anything
+      expect(restored.status).toBe(200)
+      expect(restored.payload.disabled).toBe(false)
+      expect(existsSync(providerToggleFile(fixture.home))).toBe(false)
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true })
+    }
+  })
+
+  it('user posting a malformed switch request gets 400 and writes nothing', async () => {
+    // Given requests missing the state, carrying an ungrammatical name, and
+    // carrying a provider id no provider could have
+    const fixture = providerFixture()
+    try {
+      const routes = fixture.mount()
+
+      // When each one reaches the route
+      const missingState = await switchSkill(routes, { name: 'computer-use', provider: 'orca' })
+      const badName = await switchSkill(routes, { name: 'Not_A_Skill', provider: 'orca', enabled: false })
+      const badProvider = await switchSkill(routes, { name: 'computer-use', provider: 'p'.repeat(201), enabled: false })
+
+      // Then each is refused before any store is touched
+      expect(missingState.status).toBe(400)
+      expect(badName.status).toBe(400)
+      expect(badProvider.status).toBe(400)
+      expect(existsSync(providerToggleFile(fixture.home))).toBe(false)
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('import (#1881)', () => {
+  /** Isolated route family with its own user and project roots. */
+  function importFixture(): {
+    root: string
+    home: string
+    project: string
+    mount(): ReturnType<typeof makeRoutes>
+  } {
+    const root = mkdtempSync(join(tmpdir(), 'skill-explorer-import-route-'))
+    const project = join(root, 'project')
+    const home = join(root, 'home')
+    mkdirSync(join(project, '.git'), { recursive: true })
+    mkdirSync(home, { recursive: true })
+    return {
+      root,
+      home,
+      project,
+      mount: () => makeRoutes({} as never, {
+        dshHome: home,
+        agentsHome: join(root, 'agents'),
+        customSkillDirs: [],
+        registry: { snapshot: async () => ({ skills: [], complete: true }) },
+        activeSessionCwds: () => [project],
+        logger: { warn: () => {} },
+      }),
+    }
+  }
+
+  /** Post one import body and capture the answer. */
+  async function postImport(
+    mounted: ReturnType<typeof makeRoutes>,
+    body: unknown,
+  ): Promise<{ status: number; payload: Record<string, unknown> }> {
+    const route = mounted.find(candidate => candidate.path === ROUTES.import)!
+    const captured = response()
+    await route.handler(request(ROUTES.import, 'POST', body === undefined ? {} : { body }), captured.res)
+    const answer = captured.body()
+    return { status: captured.status(), payload: answer === '' ? {} : JSON.parse(answer) }
+  }
+
+  /** A source directory holding one skill folder. */
+  function sourceDir(root: string, name: string, skillName: string): string {
+    const source = join(root, `source-${name}`)
+    mkdirSync(join(source, name), { recursive: true })
+    writeFileSync(join(source, name, 'SKILL.md'), `---\nname: ${skillName}\ndescription: imported\n---\nbody\n`, 'utf8')
+    return source
+  }
+
+  it('operator importing a directory creates the skill under the user root', async () => {
+    // Given a source directory holding one skill
+    const fixture = importFixture()
+    try {
+      const source = sourceDir(fixture.root, 'alpha-skill', 'alpha-skill')
+      // When the operator posts the import into the user root
+      const result = await postImport(fixture.mount(), {
+        root: 'user',
+        cwd: fixture.project,
+        source: { kind: 'directory', path: source },
+      })
+      // Then the file lands under ~/.dsh/skills and the report counts it
+      expect(result.status).toBe(200)
+      expect(result.payload.imported).toBe(1)
+      expect(result.payload.skipped).toBe(0)
+      expect(existsSync(join(fixture.home, 'skills', 'alpha-skill', 'SKILL.md'))).toBe(true)
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true })
+    }
+  })
+
+  it('operator importing into the project root writes into the shown workspace', async () => {
+    // Given a source directory holding one skill
+    const fixture = importFixture()
+    try {
+      const source = sourceDir(fixture.root, 'beta-skill', 'beta-skill')
+      // When the operator posts the import into the project root
+      const result = await postImport(fixture.mount(), {
+        root: 'project',
+        cwd: fixture.project,
+        source: { kind: 'directory', path: source },
+      })
+      // Then the file lands under the workspace's own .dsh/skills
+      expect(result.status).toBe(200)
+      expect(existsSync(join(fixture.project, '.dsh', 'skills', 'beta-skill', 'SKILL.md'))).toBe(true)
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true })
+    }
+  })
+
+  it('operator importing a name the project already owns into the user root is reported shadowed', async () => {
+    // Given a project skill that already owns the name
+    const fixture = importFixture()
+    try {
+      const projectSkill = join(fixture.project, '.dsh', 'skills', 'shared-skill', 'SKILL.md')
+      mkdirSync(join(projectSkill, '..'), { recursive: true })
+      writeFileSync(projectSkill, '---\nname: shared-skill\ndescription: project copy\n---\n', 'utf8')
+      const source = sourceDir(fixture.root, 'shared-skill', 'shared-skill')
+      // When the same name is imported into the user root
+      const result = await postImport(fixture.mount(), {
+        root: 'user',
+        cwd: fixture.project,
+        source: { kind: 'directory', path: source },
+      })
+      // Then nothing is written, because the project copy outranks it
+      expect(result.status).toBe(200)
+      expect(result.payload.imported).toBe(0)
+      expect((result.payload.outcomes as Array<{ reason?: string }>)[0].reason).toBe('shadowed')
+      expect(existsSync(join(fixture.home, 'skills', 'shared-skill', 'SKILL.md'))).toBe(false)
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true })
+    }
+  })
+
+  it('operator importing a posted archive creates every skill it carries', async () => {
+    // Given a zip archive the browser read, base64-encoded
+    const fixture = importFixture()
+    try {
+      const archive = buildZip([
+        { path: 'alpha-skill/SKILL.md', content: '---\nname: alpha-skill\ndescription: one\n---\n' },
+        { path: 'beta-skill/SKILL.md', content: '---\nname: beta-skill\ndescription: two\n---\n' },
+      ])
+      // When the operator posts it
+      const result = await postImport(fixture.mount(), {
+        root: 'user',
+        cwd: fixture.project,
+        source: { kind: 'archive', data: archive.toString('base64') },
+      })
+      // Then both land under the user root
+      expect(result.status).toBe(200)
+      expect(result.payload.imported).toBe(2)
+      expect(existsSync(join(fixture.home, 'skills', 'alpha-skill', 'SKILL.md'))).toBe(true)
+      expect(existsSync(join(fixture.home, 'skills', 'beta-skill', 'SKILL.md'))).toBe(true)
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true })
+    }
+  })
+
+  it('operator posting a broken archive gets the archive reason instead of a server error', async () => {
+    // Given bytes that are not an archive
+    const fixture = importFixture()
+    try {
+      // When the operator posts them as an archive
+      const result = await postImport(fixture.mount(), {
+        root: 'user',
+        cwd: fixture.project,
+        source: { kind: 'archive', data: Buffer.from('not a zip').toString('base64') },
+      })
+      // Then the request is refused as a client error that names the problem
+      expect(result.status).toBe(400)
+      expect(String(result.payload.error)).toContain('not a zip archive')
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true })
+    }
+  })
+
+  it('operator posting a malformed import request gets 400 and writes nothing', async () => {
+    // Given requests missing the body, the root, the workspace, the source, or
+    // carrying an unimplemented source kind
+    const fixture = importFixture()
+    try {
+      const mounted = fixture.mount()
+      // When each one reaches the route
+      const noBody = await postImport(mounted, undefined)
+      const badRoot = await postImport(mounted, { root: 'elsewhere', cwd: fixture.project, source: { kind: 'directory', path: fixture.root } })
+      const noCwd = await postImport(mounted, { root: 'user', source: { kind: 'directory', path: fixture.root } })
+      const noSource = await postImport(mounted, { root: 'user', cwd: fixture.project })
+      const badKind = await postImport(mounted, { root: 'user', cwd: fixture.project, source: { kind: 'url', path: 'x' } })
+      const blankPath = await postImport(mounted, { root: 'user', cwd: fixture.project, source: { kind: 'directory', path: '   ' } })
+      const notBase64 = await postImport(mounted, { root: 'user', cwd: fixture.project, source: { kind: 'archive', data: '!!!' } })
+      // Then each is refused before any file is created
+      expect([
+        noBody.status, badRoot.status, noCwd.status, noSource.status,
+        badKind.status, blankPath.status, notBase64.status,
+      ]).toEqual([400, 400, 400, 400, 400, 400, 400])
+      expect(existsSync(join(fixture.home, 'skills'))).toBe(false)
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true })
+    }
+  })
+
+  it('operator importing with a GET gets 405 before any directory is read', async () => {
+    // Given the import route
+    const fixture = importFixture()
+    try {
+      const route = fixture.mount().find(candidate => candidate.path === ROUTES.import)!
+      const captured = response()
+      // When it is requested with the wrong method
+      await route.handler(request(ROUTES.import, 'GET'), captured.res)
+      // Then the method check answers before the handler runs
+      expect(captured.status()).toBe(405)
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true })
+    }
   })
 })

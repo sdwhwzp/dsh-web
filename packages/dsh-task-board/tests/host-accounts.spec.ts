@@ -194,7 +194,7 @@ describe('task-board deployment identities', () => {
     // Then the owner and occurrence survive, and the persisted rule has the Host zone.
     expect(migrated.taskPrincipal('scheduled')).toEqual(alice)
     expect(migrated.state().tasks[0].schedule).toMatchObject({ nextRunAt, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })
-    expect(JSON.parse(readFileSync(migrated.file, 'utf8')).schemaVersion).toBe(5)
+    expect(JSON.parse(readFileSync(migrated.file, 'utf8')).schemaVersion).toBe(6)
   })
 
   it('admin uses the same identity throughout task execution and inspection', async () => {
@@ -219,18 +219,18 @@ describe('task-board deployment identities', () => {
     }
     const execute = vi.fn(async () => ({ kind: 'success' as const }))
     const runner = new HostExecutionRunner(gateway, { execute }, undefined, undefined, p => fixture.accounts.assert(p))
-    const task = { ...createTask(input(), 1, 'a'), permission: 'read-only' as const, model: 'fake/model' }
-    await expect(runner.launch(task, { principal: alice })).resolves.toBe('session-a')
+    const task = { ...createTask(input(), 1, 'a'), permission: 'read-only' as const, model: 'fake/model', goalRun: true }
+    await expect(runner.launch(task, { principal: alice, goalEnabled: true })).resolves.toBe('session-a')
     expect(execute).toHaveBeenCalledTimes(2)
     expect(execute).toHaveBeenNthCalledWith(1, 'session-a', '/permission read-only', expect.any(AbortSignal))
     expect(execute).toHaveBeenNthCalledWith(2, 'session-a', '/goal ' + task.prompt, expect.any(AbortSignal))
     expect((await runner.listRunning(alice)).known).toBe(true)
     expect(await runner.inspect('session-a', 1, undefined, {}, alice)).toEqual({ outcome: 'succeeded' })
     expect(calls.map(call => call.method)).toEqual(['create', 'rename', 'selectModel', 'prompt', 'list', 'list', 'follow', 'page', 'projections'])
-    await expect(runner.launch(task, { principal: alice, reuseSessionId: 'session-a' })).resolves.toBe('session-a')
+    await expect(runner.launch(task, { principal: alice, reuseSessionId: 'session-a', goalEnabled: true })).resolves.toBe('session-a')
     expect(calls.slice(-2).map(call => call.method)).toEqual(['selectModel', 'prompt'])
     fixture.revoke()
-    await expect(runner.launch(task, { principal: alice })).rejects.toThrow('revoked')
+    await expect(runner.launch(task, { principal: alice, goalEnabled: true })).rejects.toThrow('revoked')
     expect(gateway.invoke).toHaveBeenCalledTimes(10)
   })
 
@@ -296,7 +296,11 @@ describe('task-board deployment identities', () => {
     })
     let fire: (() => void) | undefined
     const timers = { timeout: (callback: () => void) => { fire = callback; return () => { fire = undefined } }, interval: () => () => {} }
-    const service = new TaskBoardHostService({ invoke } as unknown as TypertGateway, { ledger: ledger(dir, () => now), accounts: fixture.accounts, now: () => now, timers, power: new PowerInhibitor({ platform: 'linux' }) })
+    const verificationCatalog = vi.fn(async (principal?: TaskBoardPrincipal) => {
+      expect(principal).toEqual(alice)
+      return undefined
+    })
+    const service = new TaskBoardHostService({ invoke } as unknown as TypertGateway, { ledger: ledger(dir, () => now), accounts: fixture.accounts, verificationCatalog, now: () => now, timers, power: new PowerInhibitor({ platform: 'linux' }) })
     disposers.push(() => service.dispose())
     const runtime = service as unknown as { pollSessions(): Promise<void> }
     service.refreshSchedule()
@@ -306,6 +310,7 @@ describe('task-board deployment identities', () => {
     await vi.waitFor(() => expect(service.snapshot().tasks.find(task => task.id === 'scheduled')?.executions[0].sessionId).toBe('owned-session'))
     expect(service.snapshot().tasks.find(task => task.id === 'unowned')?.executions[0].result).toBe('failed')
     expect(invoke.mock.calls.map(([call]) => call.method)).toEqual(['create', 'rename', 'prompt'])
+    expect(verificationCatalog).toHaveBeenCalledOnce()
     await runtime.pollSessions()
     expect(service.snapshot().power.sessionStateKnown).toBe(true)
     service.ledger.settle('scheduled', service.snapshot().tasks.find(task => task.id === 'scheduled')!.executions[0].id, 'succeeded')

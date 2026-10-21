@@ -13,6 +13,12 @@
  *   crashed. The plugin therefore stops the host and lets the shell run the
  *   restart it already owns (app.relaunch(), the same recovery action the
  *   Desktop app offers after installing a downloaded update). Mode 'shell'.
+ *   That only holds for a shell that ACTUALLY restarts a host that exits. A
+ *   shell that merely reports the stop leaves a dead window with no host —
+ *   strictly worse than not restarting at all — so the shell must announce the
+ *   guarantee in {@link SHELL_RESTART_CAPABILITY_ENV}; a host that sees no such
+ *   marker answers 'manual' instead of stopping itself (see
+ *   {@link shellRestartIsSupported}).
  * - A host this plugin can prove is a terminal launch (an interactive stdio
  *   pair, no Electron in the environment) is restarted in place: a detached
  *   helper waits for this process to exit and re-executes the same command
@@ -70,6 +76,27 @@ export interface RestartFacts {
 /** Grace period between answering the restart request and leaving the process. */
 export const RESTART_EXIT_DELAY_MS = 400
 
+/**
+ * Environment marker a Desktop shell sets when it guarantees that a host which
+ * exits is replaced by a fresh host (rather than reported as stopped).
+ *
+ * The packaged Desktop shell owns the process tree but has no obligation to
+ * respawn it: the shipped shell in this repository's compat matrix answers a
+ * host exit with `desktop host stopped` and an error page. Stopping ourselves
+ * under such a shell turns the restart button into "kill the app", so the mode
+ * requires proof of the opposite behaviour.
+ */
+export const SHELL_RESTART_CAPABILITY_ENV = 'DSH_SHELL_RESTARTS_HOST'
+
+/**
+ * Whether the launching shell promises to bring the host back after it exits.
+ * @param env - the environment the host was launched with.
+ * @returns true only for an opt-in marker value of `1`.
+ */
+export function shellRestartIsSupported(env: NodeJS.ProcessEnv): boolean {
+  return env[SHELL_RESTART_CAPABILITY_ENV] === '1'
+}
+
 /** How long the helper waits for this process to disappear before giving up on the wait. */
 export const RESTART_WAIT_MS = 30_000
 
@@ -88,8 +115,12 @@ export function planRestart(facts: RestartFacts): RestartPlan {
   // relaunch the application, and it already offers that action when the host
   // stops. ELECTRON_RUN_AS_NODE is the second, launcher-independent signal for
   // a host started by an Electron shell (the packaged Desktop sets it; a
-  // command-line launch never does).
-  if (facts.desktop === true || facts.env.ELECTRON_RUN_AS_NODE === '1') return { mode: 'shell' }
+  // command-line launch never does). Owning the tree is not the same as
+  // replacing it, though: without the shell's restart guarantee, exiting here
+  // leaves the user with a stopped host and an error page, so keep serving.
+  if (facts.desktop === true || facts.env.ELECTRON_RUN_AS_NODE === '1') {
+    return shellRestartIsSupported(facts.env) ? { mode: 'shell' } : { mode: 'manual' }
+  }
   // Without a terminal this process was started by something that watches it
   // (a supervisor, an editor task, another app's child process). Re-executing
   // ourselves there would duplicate a server the watcher believes it owns.
@@ -132,11 +163,13 @@ const launch = (attempt) => {
   const child = cp.spawn(job.execPath, job.argv, { cwd: job.cwd, env: process.env, detached: true, stdio: ['ignore', fd, fd] });
   child.unref();
   let code = null;
+  let spawnError = null;
   child.on('exit', (value) => { code = value; });
+  child.on('error', (err) => { spawnError = err; log('relaunch spawn error: ' + err.message); });
   setTimeout(() => {
-    if (code === null) { log('relaunch started (pid ' + child.pid + ')'); fs.closeSync(fd); return; }
-    if (attempt < 4) { log('relaunch exited with ' + code + '; retrying'); launch(attempt + 1); return; }
-    log('relaunch gave up after exit ' + code);
+    if (code === null && spawnError === null) { log('relaunch started (pid ' + child.pid + ')'); fs.closeSync(fd); return; }
+    if (attempt < 4) { log('relaunch failed (' + (spawnError === null ? 'exit ' + code : spawnError.message) + '); retrying'); launch(attempt + 1); return; }
+    log('relaunch gave up after ' + (spawnError === null ? 'exit ' + code : spawnError.message));
     fs.closeSync(fd);
   }, 3000);
 };
@@ -183,6 +216,17 @@ export function startRelaunchHelper(command: RelaunchCommand, logPath: string = 
       stdio: 'ignore',
     })
     helper.unref()
+    // A spawn that fails after the call returns is an unhandled `error` event,
+    // which is an uncaught exception and would take the dsh host down with it.
+    // Journal it instead: the exit this helper was going to replace simply does
+    // not happen, and the journal says why.
+    helper.on('error', (error: Error) => {
+      try {
+        appendFileSync(logPath, new Date().toISOString() + ' helper spawn error: ' + error.message + '\n')
+      } catch {
+        // A missing log is not worth failing the restart over.
+      }
+    })
     return helper.pid !== undefined
   } catch (error) {
     try {

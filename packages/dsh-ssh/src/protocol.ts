@@ -31,7 +31,7 @@ export interface SshHostEntry {
     /**
      * ssh-agent endpoint for 'agent' auth. A socket path, the special value
      * 'pageant' (PuTTY Pageant on Windows), or undefined for auto-detect
-     * (SSH_AUTH_SOCK, then Pageant on Windows).
+     * (SSH_AUTH_SOCK, then the native OpenSSH named pipe on Windows).
      */
     agentPath?: string
   }
@@ -52,6 +52,12 @@ export interface SshHostEntry {
   tags: string[]
   /** Physical location note. */
   location?: string
+  /**
+   * Opt-in ssh-agent forwarding (OpenSSH ForwardAgent / ssh -A): the host's
+   * sessions request agent forwarding so the remote can sign with this
+   * machine's agent. Default off; stored only when enabled.
+   */
+  forwardAgent?: boolean
   createdAt: number
   updatedAt: number
 }
@@ -72,6 +78,12 @@ export interface SshHostSummary {
   environment?: string
   tags: string[]
   location?: string
+  /**
+   * Whether agent forwarding is enabled. Always projected as a definite
+   * boolean: the browser and the tool bridge need a value even for entries
+   * stored before the feature existed.
+   */
+  forwardAgent: boolean
   createdAt: number
   updatedAt: number
 }
@@ -162,6 +174,11 @@ export interface HostPayload {
   environment?: string
   tags?: string[]
   location?: string
+  /**
+   * Agent forwarding for this host. Omitted on update keeps the stored value;
+   * false clears it (PATCH semantics).
+   */
+  forwardAgent?: boolean
 }
 
 /** Why one ssh_config Host block was not imported. */

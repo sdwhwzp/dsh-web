@@ -245,7 +245,7 @@ describe('withSchedule', () => {
   it('creates a schedule rule on a task without one and bumps updatedAt', () => {
     const task = sampleTask()
     const scheduled = withSchedule(task, { enabled: true, cron: '0 9 * * *', nextRunAt: NOW + 100 }, NOW + 1)
-    expect(scheduled.schedule).toEqual({ enabled: true, cron: '0 9 * * *', nextRunAt: NOW + 100, lastTriggeredAt: undefined })
+    expect(scheduled.schedule).toEqual({ enabled: true, mode: 'cron', cron: '0 9 * * *', nextRunAt: NOW + 100, lastTriggeredAt: undefined, runCount: 0 })
     expect(scheduled.updatedAt).toBe(NOW + 1)
     expect(task.schedule).toBeUndefined() // original untouched
   })
@@ -257,7 +257,7 @@ describe('withSchedule', () => {
       NOW,
     )
     const rolled = withSchedule(task, { nextRunAt: NOW + 200 }, NOW + 2)
-    expect(rolled.schedule).toEqual({ enabled: true, cron: '0 9 * * *', nextRunAt: NOW + 200, lastTriggeredAt: NOW })
+    expect(rolled.schedule).toEqual({ enabled: true, mode: 'cron', cron: '0 9 * * *', nextRunAt: NOW + 200, lastTriggeredAt: NOW, runCount: 0 })
   })
 
   it('keeps executions and other task fields intact', () => {
@@ -281,12 +281,12 @@ describe('withSchedule', () => {
 })
 
 describe('goal run opt-in', () => {
-  it('user leaving the option alone gets goal-driven runs and only an explicit false is stored', () => {
+  it('user leaving the option alone gets one plain turn and only an explicit true is stored', () => {
     // Given cards created without the option, with it true, and with it false
     // When the created records are read
-    // Then absent is the canonical on-state and only the opt-out is persisted
+    // Then absent is the canonical off-state and only the opt-in is persisted
     expect(sampleTask().goalRun).toBeUndefined()
-    expect(createTask({ title: 'x', description: '', prompt: '', goalRun: true }, NOW, 'task-on').goalRun).toBeUndefined()
-    expect(createTask({ title: 'x', description: '', prompt: '', goalRun: false }, NOW, 'task-off').goalRun).toBe(false)
+    expect(createTask({ title: 'x', description: '', prompt: '', goalRun: true }, NOW, 'task-on').goalRun).toBe(true)
+    expect(createTask({ title: 'x', description: '', prompt: '', goalRun: false }, NOW, 'task-off').goalRun).toBeUndefined()
   })
 })

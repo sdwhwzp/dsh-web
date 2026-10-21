@@ -136,6 +136,49 @@ describe('cascade run groups', () => {
     expect((result.runs ?? []).map(run => run.task.id)).toEqual(['root', 'b'])
     expect(find(ledger, 'a')?.executions).toHaveLength(1)
   })
+
+  it('operator running a parent leaves a subtask they already finished out of the group', () => {
+    // Given a subtask the operator ran to completion on its own first
+    const ledger = new HostTaskLedger(tempRoot(), () => NOW)
+    seedTree(ledger)
+    ledger.applyRequest('run-a', { kind: 'run', taskId: 'a' })
+    const settledA = latest(find(ledger, 'a'))?.id
+    if (settledA === undefined) throw new Error('the subtask run opened no execution')
+    ledger.settle('a', settledA, 'succeeded')
+
+    // When the operator runs the parent
+    const result = ledger.applyRequest('run-root', { kind: 'run', taskId: 'root' })
+
+    // Then the finished subtask is not executed a second time and stays in its column
+    expect((result.runs ?? []).map(run => run.task.id)).toEqual(['root', 'b'])
+    expect(find(ledger, 'a')?.executions).toHaveLength(1)
+    expect(find(ledger, 'a')?.status).toBe('done')
+    expect(find(ledger, 'a')?.executions[0].runGroupId).not.toBe(result.runs?.[0].execution.runGroupId)
+  })
+
+  it('operator re-running a parent whose subtasks are all done runs the parent alone and settles it at once', () => {
+    // Given a parent whose subtasks were each run to completion on their own
+    const ledger = new HostTaskLedger(tempRoot(), () => NOW)
+    seedTree(ledger)
+    for (const id of ['a', 'b']) {
+      ledger.applyRequest(`run-${id}`, { kind: 'run', taskId: id })
+      const execution = latest(find(ledger, id))?.id
+      if (execution === undefined) throw new Error(`the run of ${id} opened no execution`)
+      ledger.settle(id, execution, 'succeeded')
+    }
+
+    // When the operator re-runs the parent
+    const result = ledger.applyRequest('rerun-root', { kind: 'rerun', taskId: 'root' })
+
+    // Then the group holds the parent alone and its own turn is the whole verdict
+    expect((result.runs ?? []).map(run => run.task.id)).toEqual(['root'])
+    const rootExecution = latest(find(ledger, 'root'))?.id
+    if (rootExecution === undefined) throw new Error('the parent run opened no execution')
+    ledger.settle('root', rootExecution, 'succeeded')
+    expect(find(ledger, 'root')?.status).toBe('done')
+    expect(find(ledger, 'a')?.executions).toHaveLength(1)
+    expect(find(ledger, 'b')?.executions).toHaveLength(1)
+  })
 })
 
 describe('lineage gates at the Host boundary', () => {
@@ -228,11 +271,32 @@ describe('permission gates on a cascade', () => {
     ledger.applyRequest('create-child', { kind: 'create', id: 'child', input: { title: 'child', description: '', prompt: 'child', parentId: 'root' } })
 
     // When the schedule comes due
-    const opened = ledger.openScheduled('root', NOW + 60_000, NOW)
+    const opened = ledger.openScheduled('root', NOW)
 
     // Then both run under one group
     expect(opened.map(run => run.task.id)).toEqual(['root', 'child'])
     expect(new Set(opened.map(run => run.execution.runGroupId)).size).toBe(1)
+  })
+
+  it('operator sees a due schedule leave a subtask that is already done out of the group', () => {
+    // Given a scheduled root whose first subtask is already finished
+    const ledger = new HostTaskLedger(tempRoot(), () => NOW)
+    ledger.applyRequest('create-root', {
+      kind: 'create', id: 'root', input: { title: 'root', description: '', prompt: 'root', schedule: { enabled: true, cron: '* * * * *' } },
+    })
+    ledger.applyRequest('create-a', { kind: 'create', id: 'a', input: { title: 'a', description: '', prompt: 'a', parentId: 'root' } })
+    ledger.applyRequest('create-b', { kind: 'create', id: 'b', input: { title: 'b', description: '', prompt: 'b', parentId: 'root' } })
+    ledger.applyRequest('run-a', { kind: 'run', taskId: 'a' })
+    const settledA = latest(find(ledger, 'a'))?.id
+    if (settledA === undefined) throw new Error('the subtask run opened no execution')
+    ledger.settle('a', settledA, 'succeeded')
+
+    // When the schedule comes due
+    const opened = ledger.openScheduled('root', NOW)
+
+    // Then the occurrence opens the root and the unfinished subtask only
+    expect(opened.map(run => run.task.id)).toEqual(['root', 'b'])
+    expect(find(ledger, 'a')?.executions).toHaveLength(1)
   })
 
   it('operator due schedule is refused while a subtask permission is unconfirmed', () => {
@@ -245,12 +309,15 @@ describe('permission gates on a cascade', () => {
       kind: 'create', id: 'child', input: { title: 'child', description: '', prompt: 'child', parentId: 'root', permission: 'danger-full-access' },
     })
 
-    // When the schedule comes due
-    const opened = ledger.openScheduled('root', NOW + 60_000, NOW)
+    // When the scheduled occurrence comes due
+    const due = find(ledger, 'root')!.schedule!.nextRunAt!
+    const opened = ledger.openScheduled('root', due)
 
-    // Then nothing ran, the schedule rolled forward, and the reason is recorded
+    // Then nothing ran, the schedule rolled one occurrence forward without
+    // consuming the run budget, and the reason is recorded
     expect(opened).toEqual([])
-    expect(find(ledger, 'root')?.schedule?.nextRunAt).toBe(NOW + 60_000)
+    expect(find(ledger, 'root')?.schedule?.nextRunAt).toBe(due + 60_000)
+    expect(find(ledger, 'root')?.schedule?.runCount).toBe(0)
     expect(ledger.state().scheduler.error).toContain('unconfirmed')
   })
 })
@@ -446,7 +513,7 @@ describe('Agent Team runs', () => {
     const triggeredAt = Date.UTC(2026, 8, 29, 1, 0)
 
     // When the prompt is built for a cron trigger
-    const scheduled = promptText(root, { schedule: { triggeredAt, timeZone: 'Asia/Shanghai', cron: '0 9 * * *' } })
+    const scheduled = promptText(root, { schedule: { triggeredAt, timeZone: 'Asia/Shanghai', mode: 'cron', cron: '0 9 * * *' } })
 
     // Then the run is told when it fired and in which zone its clock is read
     expect(scheduled).toContain('定时规则自动触发')
@@ -530,7 +597,7 @@ describe('Agent Team runs', () => {
     })
 
     // When the schedule comes due
-    const opened = ledger.openScheduled('root', NOW + 60_000, NOW)
+    const opened = ledger.openScheduled('root', NOW)
 
     // Then nothing ran and the recorded reason names the team-mode limitation
     expect(opened).toEqual([])

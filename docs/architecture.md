@@ -78,9 +78,9 @@ flowchart LR
 flowchart LR
     A["aggregate.yml：patchFrom、deps、rows、inactive"] -- "node scripts/aggregate.mjs 生成" --> B["dsh-web-all：cordis.patch.yml + package.json"]
     B -- "dsh plugin --profile web add link" --> C["web profile（hoisted 布局）"]
-    C -- "web-ui-* 行逐条挂载" --> D["14 个仓内家族子包 + 4 个卫星仓外部行"]
+    C -- "web-ui-* 行逐条挂载" --> D["15 个仓内家族子包 + 4 个卫星仓外部行"]
     E["mount-once 防重：双源只注册一次"] -.-> D
-    F["inactive：ssh、liangshen、skill-explorer 出厂默认关闭"] -.-> D
+    F["inactive：ssh、skill-explorer 出厂默认关闭"] -.-> D
 ```
 
 ## 设置页槽位体系
@@ -101,11 +101,11 @@ flowchart TB
 
 ## 皮肤系统
 
-皮肤是纯资产目录：事实源在独立仓 [dsh-skins](https://github.com/zhu1090093659/dsh-skins) 的 `skins/`（47 个内置皮肤，本仓以 submodule `satellites/dsh-skins` 的 gitlink 固定要读的提交），npm 包 `files` 白名单只随发默认皮肤 blue-fantasy，其余由创意工坊按需安装到 `$DSH_HOME/skins/<id>/`（同 id 遮蔽内置）。skin-repo 双源发现并做 v2 manifest fail-closed 校验；样式经 `transformSkinCss` 安全管线强制作用域到 `html[data-dsh-skin]` 并按白名单过滤；启用互斥由 `dsh-skin use` 客户端原子切换管理，不改 `cordis.patch.yml`。插件输出语义属性（`data-dsh-plugin` / `data-dsh-part`）才承诺完整换肤覆盖，契约见 [semantic-attrs-v1.md](https://github.com/zhu1090093659/dsh-skins/blob/main/contracts/semantic-attrs-v1.md)。
+皮肤是纯资产目录：事实源在独立仓 [dsh-skins](https://github.com/zhu1090093659/dsh-skins) 的 `skins/`（60 个内置皮肤，本仓以 submodule `satellites/dsh-skins` 的 gitlink 固定要读的提交），npm 包 `files` 白名单只随发默认皮肤 blue-fantasy，其余由创意工坊按需安装到 `$DSH_HOME/skins/<id>/`（同 id 遮蔽内置）。skin-repo 双源发现并做 v2 manifest fail-closed 校验；样式经 `transformSkinCss` 安全管线强制作用域到 `html[data-dsh-skin]` 并按白名单过滤；启用互斥由 `dsh-skin use` 客户端原子切换管理，不改 `cordis.patch.yml`。插件输出语义属性（`data-dsh-plugin` / `data-dsh-part`）才承诺完整换肤覆盖，契约见 [semantic-attrs-v1.md](https://github.com/zhu1090093659/dsh-skins/blob/main/contracts/semantic-attrs-v1.md)。
 
 ```mermaid
 flowchart LR
-    B["内置：独立仓 dsh-skins 的 skins/ 下 47 个皮肤目录（按 gitlink 固定提交）"] --> R["skin-repo 双源发现：v2 manifest fail-closed 校验"]
+    B["内置：独立仓 dsh-skins 的 skins/ 下 60 个皮肤目录（按 gitlink 固定提交）"] --> R["skin-repo 双源发现：v2 manifest fail-closed 校验"]
     U["$DSH_HOME/skins/：工坊按需安装，同 id 遮蔽内置"] --> R
     R -- "transformSkinCss：作用域 + 白名单" --> CSS["html data-dsh-skin 作用域样式"]
     CSS --> SW["运行时无刷新原子切换（dsh-skin use 互斥）"]
@@ -144,15 +144,15 @@ flowchart LR
 
 ## 共享层与同步管线
 
-[shared/](../shared/tsdown.client.ts) 是跨包事实源：构建预设与平台模块表之外，`host/` 提供 dsh-home 解析、mount-once、poll-guard、run-guarded、loopback 等宿主侧模块，`client/` 提供设置卡三件套、侧栏入口、sse-leader 等浏览器侧模块。[scripts/sync-shared.mjs](../scripts/sync-shared.mjs) 把副本生成进各消费包（带 generated 头，禁手改），`test:scripts` 的 drift 门禁防副本漂移。两个包（dsh-market、dsh-web-all）提交 `lib/` 构建产物，卫星仓各自在自己的 CI 里守同样的规则，指纹由 `libs:write` 记录、`libs:check` 把关。
+[shared/](../shared/tsdown.client.ts) 是跨包事实源：构建预设与平台模块表之外，`host/` 提供 dsh-home 解析、mount-once、http、loopback 等宿主侧模块，`client/` 提供设置卡三件套、telemetry、main-session 等浏览器侧模块；只被一个包使用的模块归该包所有，不进 `shared/`。权威清单是 [scripts/sync-shared.mjs](../scripts/sync-shared.mjs) 的 manifest：它把副本生成进各消费包（带 generated 头，禁手改），`test:scripts` 的 drift 门禁防副本漂移。两个包（dsh-market、dsh-web-all）提交 `lib/` 构建产物，卫星仓各自在自己的 CI 里守同样的规则，指纹由 `libs:write` 记录、`libs:check` 把关。
 
 ```mermaid
 flowchart LR
     subgraph sharedbox["shared/（唯一事实源）"]
         PRESET["tsdown.client.ts 构建预设"]
         PLATFORM["web-platform.ts 平台模块表"]
-        HOSTM["host/：dsh-home、mount-once、poll-guard、loopback 等"]
-        CLIENTM["client/：设置卡三件套、sidebar-entry、sse-leader 等"]
+        HOSTM["host/：dsh-home、mount-once、http、loopback 等"]
+        CLIENTM["client/：设置卡三件套、telemetry、main-session 等"]
     end
     sharedbox -- "scripts/sync-shared.mjs 生成副本（generated 头）" --> PKGS["消费包 src/ 内同步副本"]
     GATE["test:scripts drift 门禁"] -.-> PKGS
@@ -191,8 +191,8 @@ flowchart LR
 | dsh-session-id | 侧栏底部 Session ID 面板（纯浏览器半区） |
 | dsh-usage | 用量统计：provider 余额、套餐配额与实时 token 流水 |
 | dsh-skill-explorer | 技能中心：按来源浏览、启停、创建技能 |
-| dsh-model-capabilities | 自定义 provider 的按模型能力声明 |
 | dsh-liangshen | 梁神 agent 预设与模式拨杆 |
+| dsh-win-bash | Windows 钉摘要私有 bash（win_bash 持久 shell 工具，仅 win32 x64） |
 | dsh-i18n | 俄语语言包与全家族 ru 词典 |
 
 ## 门禁与发布流

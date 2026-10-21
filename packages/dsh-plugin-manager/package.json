@@ -1,7 +1,7 @@
 {
   "name": "@linxin666/dsh-client-ui-plugin-manager",
   "description": "Update checking for the dsh web GUI's official Plugins page: compares installed plugins against the version their registry source serves, gates the update on the DSH runtime minimum the release declares, and drives the update through the official installer channel or this package's loopback CLI gateway.",
-  "version": "0.4.5-dsh.20261008.1",
+  "version": "0.4.8-dsh.20261021.1",
   "icon": "icon.svg",
   "type": "module",
   "main": "lib/index.js",
@@ -20,7 +20,7 @@
   },
   "dsh": {
     "engines": {
-      "dsh": ">=0.2.0-rc.2"
+      "dsh": ">=0.2.1-rc.2"
     },
     "bundle": {
       "patch": "./cordis.patch.yml"
@@ -34,32 +34,33 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && tsdown",
+    "build": "tsc -b tsconfig.build.json && tsdown",
     "prepare": "tsdown",
     "watch": "tsdown --watch",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsgo --noEmit"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh": ">=0.2.0-rc.2",
+    "@deepseek-ai/dsh": ">=0.2.1-rc.2",
     "react": "^18.2.0"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "^4.0.4",
-    "@deepseek-ai/dsh-api-session-controller": "^0.2.0-rc.2",
-    "@deepseek-ai/dsh-api-workspace-controller": "^0.2.0-rc.2",
-    "@deepseek-ai/dsh-client-connection": "^0.2.0-rc.2",
-    "@deepseek-ai/dsh-client-locale": "^0.2.0-rc.2",
-    "@deepseek-ai/dsh-client-ui-primitives": "^0.2.0-rc.2",
-    "@deepseek-ai/dsh-client-ui-renderer": "^0.2.0-rc.2",
-    "@deepseek-ai/dsh-client-ui-settings": "^0.2.0-rc.2",
-    "@deepseek-ai/dsh-client-ui-slots": "^0.2.0-rc.2",
-    "@deepseek-ai/dsh-client-ui-workspace": "^0.2.0-rc.2",
-    "@deepseek-ai/dsh-host-webserver": "^0.2.0-rc.2",
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-api-session-controller": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-api-workspace-controller": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-connection": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-locale": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-primitives": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-renderer": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-settings": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-slots": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-workspace": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-host-webserver": "^0.2.1-rc.2",
     "@testing-library/react": "^16.1.0",
     "@types/node": "^22.20.0",
     "@types/react": "~18.3.1",
     "@types/react-dom": "^18.3.5",
+    "@types/semver": "^7.8.0",
     "jsdom": "^26.0.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -68,7 +69,10 @@
     "vitest": "^4.1.1"
   },
   "files": [
-    "lib",
+    "lib/**/*.js",
+    "lib/**/*.js.map",
+    "lib/**/*.d.ts",
+    "lib/**/*.d.ts.map",
     "cordis.patch.yml",
     "README.md",
     "README.zh.md",
@@ -77,6 +81,7 @@
   ],
   "license": "BSD-3-Clause",
   "dependencies": {
+    "semver": "^7.8.5",
     "yaml": "^2.8.2"
   }
 }

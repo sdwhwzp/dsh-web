@@ -3,7 +3,7 @@ import path, { isAbsolute, join, sep } from "node:path";
 import { homedir } from "node:os";
 import { isAbsolute as isAbsolute$1, join as join$1 } from "node:path/posix";
 import { createHash } from "node:crypto";
-//#region ../../node_modules/.pnpm/@deepseek-ai+cosmokit@1.8.5/node_modules/@deepseek-ai/cosmokit/lib/index.js
+//#region ../../node_modules/.pnpm/@deepseek-ai+cosmokit@1.8.6/node_modules/@deepseek-ai/cosmokit/lib/index.js
 /** Return true when a value is `null` or `undefined`. */
 function isNullable(value) {
 	return value === null || value === void 0;
@@ -257,7 +257,7 @@ var Time;
 	Time.template = template;
 })(Time || (Time = {}));
 //#endregion
-//#region ../../node_modules/.pnpm/@deepseek-ai+schemastery@3.18.4/node_modules/@deepseek-ai/schemastery/lib/index.mjs
+//#region ../../node_modules/.pnpm/@deepseek-ai+schemastery@3.18.5/node_modules/@deepseek-ai/schemastery/lib/index.mjs
 const kSchema = Symbol.for("schemastery");
 const kValidationError = Symbol.for("ValidationError");
 globalThis.__schemastery_index__ ??= 0;
@@ -1059,12 +1059,26 @@ function isLoopbackHostname(hostname) {
 	return isIPv4Loopback(hostname);
 }
 /**
+* Whether a reverse proxy stood between the client and this host: the request
+* carries CF-Connecting-IP or X-Forwarded-For. Either header is stamped by a
+* hop that forwards traffic, so the request did not originate on this machine.
+* @param request - node HTTP request.
+* @returns true when a forwarding header is present.
+*/
+function isProxiedRequest(request) {
+	return request.headers["cf-connecting-ip"] !== void 0 || request.headers["x-forwarded-for"] !== void 0;
+}
+/**
 * Request-level trust fence: a loopback socket address AND a loopback Host
 * header, plus browser same-origin markers. The socket address is
-* authoritative; X-Forwarded-For is never trusted.
+* authoritative for a direct connection; a request that carries a forwarding
+* header is refused outright, because a proxy in front of the host makes both
+* the socket address and the Host header describe the proxy rather than the
+* client. X-Forwarded-For is therefore never evidence *for* loopback.
 */
 function isLoopbackRequest(request) {
 	if (!isLoopbackAddress(request.socket.remoteAddress)) return false;
+	if (isProxiedRequest(request)) return false;
 	const host = request.headers.host;
 	if (typeof host !== "string") return false;
 	let hostUrl;

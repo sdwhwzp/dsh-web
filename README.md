@@ -2,10 +2,10 @@
 
 中文 | [English](README.en.md)
 
-dsh-web 是面向 DeepSeek Harness（DSH）Web GUI 与官方桌面客户端的模块化插件生态与 AI 智能体开发工作台。它为深度用户与开发者提供任务自动化看板（Cron 定时调度）、手机与跨设备远程控制、SSH 远程终端与集群运维、Git 提交历史图谱与多 Agent Worktree 隔离、全量会话归档管理、Token 用量与成本统计，以及一站式主题皮肤与桌面宠物工坊。用户既可以通过官方 profile 机制将插件全家桶一键挂载至已有的 `dsh web` 实例，也可以直接在官方 DeepSeek Harness 桌面客户端中开箱即用。
+dsh-web 是面向 DeepSeek Harness（DSH）Web GUI、DeepSeek 网页版与官方桌面客户端（DeepSeek Desktop）的模块化插件生态与 AI 智能体开发工作台。全面支持 DeepSeek-V3 与 DeepSeek-R1 等前沿推理模型，为开发者与重度用户提供自主任务自动化看板（Cron 定时后台执行）、手机与跨设备远程访问控制、Web SSH 终端与 Linux 集群运维、Git 可视化提交图谱与多 Agent Worktree 隔离开发、全量会话检索与归档管理、Token 用量与成本监控（含 Token 银行），以及一站式主题皮肤与桌面宠物工坊。用户既可以通过官方 profile 机制将插件全家桶一键挂载至已有的 `dsh web` 实例，也可以直接在官方 DeepSeek Harness 桌面客户端中开箱即用。
 
 <p align="center">
-  <img src="docs/dsh-web-banner.zh.jpg" alt="dsh-web — DeepSeek Harness (DSH) Web GUI 插件生态与模块化智能体工作台架构图" width="100%">
+  <img src="docs/dsh-web-banner.zh.jpg" alt="dsh-web — DeepSeek Harness (DSH) Web GUI 插件全家桶与 AI 智能体工作台架构图（任务看板、手机远程、SSH 运维、Git Worktree、Token 统计、主题皮肤）" width="100%">
 </p>
 
 <p align="center">
@@ -23,14 +23,14 @@ dsh-web 是面向 DeepSeek Harness（DSH）Web GUI 与官方桌面客户端的�
   &nbsp;
   <a href="https://dsh-market.com"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fdsh-market.com%2Fapi%2Ftelemetry%2Fbadge%2Fusers&style=flat-square&label=users" alt="users"></a>
   &nbsp;
-  <a href="https://www.npmjs.com/package/@deepseek-ai/dsh"><img src="https://img.shields.io/badge/DSH-%3E%3D0.2.0--rc.2-4c6ef5?style=flat-square&amp;labelColor=454a54" alt="DSH"></a>
+  <a href="https://www.npmjs.com/package/@deepseek-ai/dsh"><img src="https://img.shields.io/badge/DSH-%3E%3D0.2.1--rc.2-4c6ef5?style=flat-square&amp;labelColor=454a54" alt="DSH"></a>
   &nbsp;
   <img src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" alt="License">
 </p>
 
 <p align="center">
   <strong>DeepSeek Harness（DSH）Web 插件生态 · 模块化智能体工作台</strong><br>
-  <em>创意工坊 · 任务看板 · 移动端远程 · SSH 运维 · Git 图谱 · 使用统计 · 会话归档</em>
+  <em>全功能 Web UI · 任务自动化看板 · 移动端远程控制 · Web SSH 运维 · Git 图谱与 Worktree · Token 成本统计 · 视觉工坊</em>
 </p>
 
 <div align="center">
@@ -44,38 +44,37 @@ dsh-web 是面向 DeepSeek Harness（DSH）Web GUI 与官方桌面客户端的�
 原生 DeepSeek Harness Web 提供了核心的对话交互与工具调用能力，但在多任务并发调度、长程后台执行、移动端协同以及工程化开发运维方面仍有扩展空间。
 
 dsh-web 通过官方 profile 机制挂载到 `dsh web`，零修改侵入官方源码，为用户提供完整的模块化扩展体系：
-- **工程运维与协同插件**：涵盖长程定时任务看板、移动端与跨设备远程控制、SSH 终端传输、Git 图谱与 worktree 隔离、全量会话归档管理以及模型能力声明编辑器；
+- **工程运维与协同插件**：涵盖长程自动化任务看板（多 Agent 级联/Teams 编排、对抗验收质检与定时调度）、移动端与跨设备远程控制、SSH 终端传输、Git 图谱与 worktree 隔离、全量会话归档管理以及模型能力声明编辑器；
 - **视觉主题与资产解耦**：功能插件与样式资产完全分离。皮肤插件负责底层渲染，多样化的主题皮肤（含样式、贴图与动态特效）以及桌面宠物可通过 [DSH 创意工坊](#创意工坊dsh-marketcom)自由安装；
 - **全家桶聚合与按需组合**：既支持通过 `@linxin666/dsh-web-all` 聚合包一键安装完整功能，也支持按需单独安装特定插件。聚合包预集成家族全部功能插件，详见[插件全家桶使用指南](packages/dsh-web-all/README.zh.md)。
 
-![DeepSeek Harness Web GUI 配合 dsh-web 插件全家桶的工作台主界面展示](docs/screenshots/13-hero-main.png)
+![DeepSeek Harness Web GUI 配合 dsh-web 插件全家桶的工作台主界面展示（支持 DeepSeek-V3 与 DeepSeek-R1 模型）](docs/screenshots/13-hero-main.png)
 
 | 核心能力与场景 | 原生 dsh web | dsh-web 全家桶优势 |
 | --- | --- | --- |
 | Agent 预设管理 | 仅官方预设（Standard / Minimal 等） | 官方预设 + 创意工坊社区海量预设一键启用 |
-| 自定义模型能力 | 无法可视化修改模型属性 | 逐模型可视化声明 Vision 图片多模态与推理思考档位，支持供应商快速启闭 |
-| 自动化任务看板 | 无 | 5 列看板工作流 + 真实智能体会话执行 + Cron 表达式后台定时调度 |
-| 移动端与跨设备控制 | 仅限本机浏览器 | 手机扫码直连、跨设备 PC 浏览器访问、WebSocket 实时流式响应与专属移动触控手势 |
+| 自定义模型能力 | 无法可视化修改模型属性 | 逐模型可视化声明 Vision 图片多模态支持与 DeepSeek-R1 推理思考强度档位，支持供应商快速启闭 |
+| 自动化任务看板 | 无 | Host 权威 5 列看板 + 多 Agent 树状级联/原生 Teams 编排 + 裁判模型双盲验收门控 + 离线 Cron 定时与防休眠电源保护 + GitHub Issue 自动提 PR 闭环 + 8 项模型原生工具面 |
+| 移动端与跨设备控制 | 仅限本机浏览器 | 手机扫码直连（iOS / Android）、跨设备 PC 浏览器访问、WebSocket 实时流式响应与专属移动端触控优化 |
 | 远程服务器运维 | 无 | 网页版 SSH 终端 (xterm.js)、SFTP 文件传输、端口转发隧道与集群批量命令 |
-| Token 用量与成本监控 | 无 | 每日 Token 消耗明细、多供应商余额查询、套餐使用进度与 Token 银行 |
-| Git 可视化与多任务开发 | 仅终端 git 命令 | 可视化分支与提交图谱 + Git Worktree 自动创建专属隔离目录防代码冲突 |
-| 会话检索与生命周期归档 | 会话列表简单堆积 | 全量会话全文与多维筛选、批量归档、级联物理删除与自动清理策略 |
-| 主题皮肤与个性化视觉 | 仅单一默认主题 | 内置经典 Blue Fantasy 暗黑沉浸皮肤，创意工坊提供海量壁纸与桌面挂件 |
+| Token 用量与成本监控 | 无 | 每日 Token 消耗明细、多供应商余额查询预警、套餐使用进度与 Token 银行鲸元券 |
+| Git 可视化与多任务开发 | 仅终端 git 命令 | 可视化分支与提交图谱 + Git Worktree 自动创建独立隔离物理工作区防止多 Agent 代码冲突 |
+| 会话检索与生命周期归档 | 会话列表简单堆积 | 全量会话多维检索与过滤、批量归档导出、级联物理删除与自动化生命周期清理策略 |
+| 主题皮肤与个性化视觉 | 仅单一默认主题 | 内置经典 Blue Fantasy 暗黑护眼沉浸皮肤，创意工坊提供 Wallpaper Engine 动态壁纸与互动桌面宠物 |
 
 ### 按使用场景快速选择扩展方案
 
 | 核心使用场景与用户需求 | 推荐解决方案与能力 | 快速入口 |
 | --- | --- | --- |
-| 后台无人值守运行 AI 任务，或定时执行每日代码巡检、健康检查与自动报告 | 任务看板：5 列状态流转、Cron 表达式后台调度、系统防休眠电源保护、会话复用 | [任务看板与 cron 定时执行](packages/dsh-task-board/README.zh.md) |
-| 在 iPhone / Android 手机、iPad 或另一台电脑上远程使用 DeepSeek | 移动端远程控制：扫码即连、WebSocket 实时流式响应、移动端触控优化与安全配对门控 | [手机与 PC 浏览器远程控制](packages/dsh-remote-web-ui/README.zh.md) |
-| 让 AI 智能体执行远程 Linux 服务器运维、传输配置或排查线上服务 | SSH 运维面板：Web 终端、可视化 SFTP 传输、端口转发隧道、集群批量命令 | [SSH 终端、文件传输与隧道](packages/dsh-ssh/README.zh.md) |
-| 监控各家模型 API 的 Token 消耗明细、查询供应商账户余额或套餐进度 | 使用统计：每日消耗明细、余额查询、账单估算、套餐追踪与 Token 银行鲸元券 | [用量统计与 Token 银行](packages/dsh-usage/README.zh.md) |
-| 多 Agent 并行编码容易产生代码覆盖冲突，需要隔离工作区 | Git 图谱与 Worktree：可视化提交图谱、自动为会话创建专属 worktree 分支 | [Git 可视化与 Worktree 隔离](packages/dsh-git-graph/README.zh.md) |
-| 历史对话堆积难以检索，需要批量归档、清理或导出备份 | 会话归档管理器：多维搜索过滤、批量归档与级联清理、自动化生命周期策略 | [全量会话归档管理](packages/dsh-session-archive/README.zh.md) |
-| 自定义第三方模型缺少图片多模态声明或思考强度无法调节 | 模型能力声明：逐模型可视化声明图片输入支持与思考档位，避免配置失效 | [模型能力与多模态声明](packages/dsh-model-capabilities/README.zh.md) |
-| 打造个性化界面外观，更换深色护眼主题、动态壁纸或桌面宠物 | 创意工坊与皮肤中心：Blue Fantasy 经典暗色内置，海量皮肤、动态壁纸与桌宠 | [浏览 DSH 创意工坊](https://dsh-market.com) |
-| 在官方桌面客户端（DeepSeek Harness Desktop）中使用本扩展生态 | 官方桌面客户端：支持直接通过客户端内置插件管理一键安装本全家桶 | [官方桌面客户端安装说明](#官方桌面客户端) |
-| 为已有的 DeepSeek Harness 命令行环境安装插件全家桶 | 快速上手：一行命令通过 npm 或 GitHub 仓库地址直接安装 | [插件安装快速上手](#快速上手) |
+| 打造 24/7 无人值守 AI 研发流水线，通过 Cron 定时巡检、多 Agent 团队级联协作、Issue 自动修复提 PR 或长程目标闭环 | 任务看板：Host 权威后台调度、多 Agent 级联/Teams 编排、对抗式裁判验收质检、GitHub Issue-to-PR 闭环、防休眠电源守护 | [任务看板与 cron 定时执行](packages/dsh-task-board/README.zh.md) |
+| 在 iPhone / Android 手机、iPad 或异地电脑上远程访问与控制 DeepSeek Web UI | 移动端远程控制：扫码即连、WebSocket 实时流式响应、移动端触控优化与安全配对门控 | [手机与 PC 浏览器远程控制](packages/dsh-remote-web-ui/README.zh.md) |
+| 委派 AI 智能体执行远程 Linux 服务器运维、SFTP 文件传输、SSH 终端交互或排查线上服务 | SSH 运维面板：Web 终端 (xterm.js)、可视化 SFTP 传输、端口转发隧道、集群批量命令 | [SSH 终端、文件传输与隧道](packages/dsh-ssh/README.zh.md) |
+| 监控 DeepSeek API 及主流大模型 Token 消耗明细、查询供应商账户余额预警或套餐进度 | 使用统计：每日消耗明细、余额查询、账单估算、套餐追踪与 Token 银行鲸元券 | [用量统计与 Token 银行](packages/dsh-usage/README.zh.md) |
+| 多 AI Agent 并行编码容易产生代码覆盖冲突，需要分支与物理工作区彻底隔离 | Git 图谱与 Worktree：可视化提交图谱、自动为会话创建专属 worktree 分支与物理目录 | [Git 可视化与 Worktree 隔离](packages/dsh-git-graph/README.zh.md) |
+| 历史会话堆积难以快速定位，需要全量多维搜索过滤、批量归档、级联清理或数据备份 | 会话归档管理器：多维搜索过滤、批量归档与级联清理、自动化生命周期策略 | [全量会话归档管理](packages/dsh-session-archive/README.zh.md) |
+| 打造个性化界面外观，更换深色护眼主题、Wallpaper Engine 动态壁纸或互动桌面宠物 | 创意工坊与皮肤中心：Blue Fantasy 经典暗色内置，海量皮肤、动态壁纸与桌宠 | [浏览 DSH 创意工坊](https://dsh-market.com) |
+| 在官方桌面客户端（DeepSeek Harness Desktop）中开箱即用本扩展生态 | 官方桌面客户端：支持直接通过客户端内置插件管理一键安装本全家桶 | [官方桌面客户端安装说明](#官方桌面客户端) |
+| 为已有的 DeepSeek Harness CLI / Web 环境一键安装插件全家桶 | 快速上手：一行命令通过 npm 或 GitHub 仓库地址直接安装 | [插件安装快速上手](#快速上手) |
 
 ## 官方桌面客户端
 
@@ -99,19 +98,21 @@ dsh-web 通过官方 profile 机制挂载到 `dsh web`，零修改侵入官方�
 
 ## 功能插件
 
-### 任务看板（Task Board · AI 智能体任务自动化与 Cron 定时调度）
+### 任务看板（Task Board · 企业级后台长程执行引擎与多 Agent 自动化流水线）
 
-通过侧边栏“任务看板”进入。任务看板按待规划、待办、进行中、已完成、已失败五列呈现。点击卡片上的“执行”即可调用真实 DSH 智能体会话运行任务，执行完成后状态自动回写看板；点击卡片可随时跳转至对应会话回溯完整交互轨迹。
+通过侧边栏“任务看板”进入。任务看板不仅仅是一个可视化卡片界面，更是 DeepSeek Harness 官方 Web GUI 与桌面客户端中的**宿主权威后台长程执行与多 Agent 自动化调度引擎**。任务按“待规划、待办、进行中、已完成、已失败”五列进行全生命周期管理，以 Schema v6 事务账本为权威持久化核心，真正实现了长程任务从拆解、分发、团队协作、对抗质检到外部成果闭环的全流程自动化：
 
-任务支持后端定时调度：在任务详情中配置 cron 表达式（例如每日 23:00 自动检查升级 DSH、每周一 09:00 生成周报），关闭浏览器后宿主进程仍会按计划触发执行并保存结果。任务看板提供可选的防休眠电源管理设置，支持 Windows、macOS 与带有 systemd-logind 的 Linux 系统，允许显示器息屏的同时防止整机因闲置进入睡眠状态（该设置默认处于关闭状态）。
+- **宿主权威后台驱动与 7x24 小时离线无人值守**：区别于传统仅在前端网页轮询的脆弱看板，所有卡片流转、调度触发与执行监控完全由 DSH 后端 Host 进程作为唯一权威驱动。浏览器仅为异步视图，关闭网页标签页、熄灭屏幕或断开网络，后台智能体会话照常并发执行与原子落盘结算。内置跨平台防休眠电源管理（macOS `caffeinate`、Windows `ES_SYSTEM_REQUIRED`、带有 systemd-logind 的 Linux `systemd-inhibit`），允许显示器正常关闭的同时阻止整机因闲置休眠，确保夜间无人值守巡检与流水线准时打卡。
+- **多 Agent 树状级联并发与原生 Agent Teams 团队编排**：复杂工程目标可自由拆解为多层树状子任务（支持 1~3 层深度，内置环路与深度护栏）。**级联执行模式**通过受控准入队列（runLaunchWidth）并发派生多个独立智能体会话，自动跳过已在完成列的子任务，任一子任务失败自适应收拢整树状态；**原生 Agent Teams 模式**深度对接官方团队服务，启动专属 Team Lead 会话并在其内部为每个子任务动态孵化专属 Teammate，协同工具跨智能体联动，实现真正意义上的多智能体团队协同作战。
+- **对抗式双盲质量验收门禁（No False Completion）**：彻底终结 AI 编程中“自述已完成、实则未改动或改崩溃”的虚假交付顽疾。以 goal 形式执行的任务在 Agent 试图调用 `update_goal(complete)` 宣告完工的瞬间被 Host 强制拦截，必须由独立的裁判模型（可自选模型与思考档位）进行真实验收。验收机制沿用严苛的 Coding 质量判据、0.65 绝对通过阈值，每项判据双轮交换 A/B 位置打分消偏，并严格结合会话执行轨迹与宿主工作区真实磁盘文件的 Diff 行级变更审查。首轮未达标精准下发具象结构化问题引导 Agent 自我修复，两次仍不通过才判负，杜绝敷衍糊弄。
+- **全自动 GitHub Issue-to-PR 闭环研发流**：搭配官方扩展（`dsh-client-ui-task-board-github`），实现任务看板与 GitHub Issues / PR 状态的实时双向深度同步。远端 Issue 自动进入看板流水线驱动 Agent 读取需求、定位代码、修复 Bug 并运行测试，验收交付后全自动创建 GitHub Pull Request 并绑定 Issue 关联，PR 合并后自动关闭 Issue，打造全天候无人值守的开源与企业 Issue 自动化修复交付管线。
+- **长程目标驱动、会话持久化与冻结交接包（Freeze Handover）**：任务支持武装内置 `/goal` 引擎进行多轮自主续跑；周期性任务可开启会话复用，保留完整上下文记忆；支持通过 `<<<FREEZE` 协议将会话上下文一键冻结为包含“目标/进度/下一步”的结构化快照，并绑定工作区、预设与权限三元组，接手 Agent 瞬间无缝继承前序成果，同时内置提示词注入防御与来源审计。
+- **企业级权限基线、安全确认门与消费熔断保护**：任务可细粒度钉住工作区、Agent 预设、沙箱权限、执行模型与推理思考强度，钉子校验失败即 Fail-Closed；超出安全基线的高权限操作设有「人工确认门（Permission Gate）」，未在 Web 界面显式放行前坚决拒绝执行与调度，杜绝 Agent 越权危害宿主系统；支持配置看板级每日 Token 消费预算上限（`spendBudgetTokens`），防止后台死循环产生意外费用。
+- **面向智能体的双向工具面与外部成果统一**：向大模型完整暴露 8 个原生工具（`task_board_list`、`task_board_get`、`task_board_create`、`task_board_update`、`task_board_set_parent`、`task_board_run`、`task_board_manage`、`task_board_schedule`），赋予对话中的 Agent 自身查看看板、分解子任务、编排流水线与自动化调度的全套能力；同时支持通过 `record-external-outcome` 统一登记在 Claude Code、Codex 等外部工具中完成的工作，让异构开发流统一汇总至一张看板。
 
-任务默认可选「任务验收」：以 goal 形式执行的任务在 agent 标记完成前，必须由看板调用裁判模型验收（默认继承宿主模型，也可在「设置 → Web 插件 → 任务看板 → 任务验收」中自选模型与思考档位）。验收沿用三项 coding 判据、0.65 阈值与每项两轮交换 A/B 位置，同一执行最多两次：第一次不通过会把分数与问题反馈给 agent 修复，第二次仍不通过即判该执行失败。验收配置在每次执行启动时固定，之后的设置变更只影响新执行；普通聊天与显式关闭 goal 模式的任务不受影响。每次验收都会真实消耗裁判模型的额度。
-
-任务支持会话复用模式：开启后若前一轮执行生成的会话仍存活且处于空闲状态，宿主将复用该会话继续运行后续任务（重新应用该任务指定的权限与模型，保留上下文历史）；若会话已关闭则自动新建会话，保证定时调度持续运转。
-
-| 多列看板 | 定时执行 |
+| 多列看板与智能体协作 | 后台定时调度与参数配置 |
 | --- | --- |
-| ![DeepSeek Harness 任务看板界面 — AI 智能体多列任务状态流转与并发执行](docs/screenshots/09-task-board.png) | ![DeepSeek 任务后台定时执行设置 — Cron 表达式与无人值守自动化调度](docs/screenshots/10-task-board-detail-cron.png) |
+| ![DeepSeek Harness 任务看板界面 — AI 智能体多列任务状态流转与并发执行](docs/screenshots/09-task-board.png) | ![DeepSeek 任务详情与后台定时执行设置 — 智能体参数配置、Cron 调度与执行历史](docs/screenshots/10-task-board-detail-cron.png) |
 
 ### 移动端远程控制（Mobile Remote · 手机访问与跨设备触控优化）
 
@@ -152,17 +153,6 @@ dsh-web 通过官方 profile 机制挂载到 `dsh web`，零修改侵入官方�
 
 ![DeepSeek Token 用量统计与 Token 银行 — API 消耗追踪与账单估算](docs/screenshots/35-usage-token-bank.webp)
 
-### 模型能力（Model Capabilities · 多模态图片输入与推理思考档位）
-
-自定义供应商的模型特性配置直接集成于“设置 > 模型”页面。针对官方界面未开放编辑的模型能力字段，本插件提供了可视化的配置编辑器：
-
-- **图片输入能力声明**：在自定义供应商卡片内展开“模型能力”面板，可逐个模型明确声明是否支持图片输入（`["text","image"]` 或 `["text"]`），界面直观展示生效状态；
-- **推理与思考档位配置**：支持声明为非推理模型（界面将隐藏思考强度滑块）、继承全局配置，或为模型定制具体的推理强度档位及底层请求参数；
-- **即时生效与冲突保护**：配置复用官方存储通道，未编辑的字段保持原样，修改保存后即刻生效且无需重启服务；每次写入附带配置版本校验，避免多端并发修改引发覆盖；
-- **供应商一键停用与启用**：支持临时禁用某供应商路由并自动归档配置，模型选择器将即时下线该供应商，保存的 API 密钥与凭据全程不受影响，后续可随时一键恢复。
-
-*技术提示：该配置属于客户端向网关发送的协议声明，系统不执行自动化远端探测。若模型声明支持图片但供应商网关接口不支持多模态，请求阶段仍会由网关返回错误。详见 [dsh-model-capabilities README](packages/dsh-model-capabilities/README.zh.md)。*
-
 ### Git 图谱（Git Graph · 分支可视化与 Worktree 会话隔离）
 
 在对话输入框上方集成 Git 操作栏与可视化提交历史图谱：
@@ -189,6 +179,11 @@ dsh-web 通过官方 profile 机制挂载到 `dsh web`，零修改侵入官方�
 
 - **Skill 中心**（`dsh-client-ui-skill-explorer`）：按来源集中查看与管理已加载的 agent skills，支持按名称与功能描述实时搜索过滤，多工作区独立呈现，支持一键启停与删除。
 - **插件管理器**（`dsh-client-ui-plugin-manager`）：基于官方 host 接口从 npm 或 git 仓库直接安装插件，可视化管理插件运行状态与自定义配置。
+- **梁神模式**（`dsh-liangshen`）：提供极简系统提示词、程序化工具调用（PTC）与调度者访谈纪律，降低上下文开销并在新建会话中提供拨杆开关。
+- **插件自更新**（`dsh-update`）：自动检测 npm 官方更新并在 Web GUI 侧边栏/设置中提供更新日志与一键平滑升级。
+- **任务看板 GitHub 同步**（`dsh-client-ui-task-board-github`）：为任务看板无缝接入 GitHub Issues 与 PR 状态双向同步，自动化驱动 AI Agent 修复与提 PR。
+- **会话 ID 辅助**（`dsh-client-ui-session-id`）：侧边栏底部提供当前会话全量 ID 的一键复制与快速检索定位。
+- **国际化语言包**（`dsh-i18n`）：提供俄语本地化定义与全家族插件命名空间统一多语言字典支持。
 - **外部归档管理**（外部插件 [@mlgbnb/dsh-archive-manager](https://github.com/z953218350/dsh-archive-manager)）：不安装。其构建仍 import 已移除的 `@deepseek-ai/dsh-client-runtime` 面；会话归档由上方内置的「会话归档管理」提供。
 
 ### 皮肤
@@ -260,9 +255,13 @@ dsh plugin --profile web add @linxin666/dsh-client-ui-task-board@latest         
 dsh plugin --profile web add @linxin666/dsh-client-ui-task-board-github@latest      # 任务看板 GitHub Issues 同步扩展
 dsh plugin --profile web add @linxin666/dsh-ssh@latest                             # 远程连接（SSH）
 dsh plugin --profile web add @linxin666/dsh-usage@latest                           # 使用统计
-dsh plugin --profile web add @linxin666/dsh-client-ui-model-capabilities@latest    # 模型能力声明
 dsh plugin --profile web add @linxin666/dsh-pet@latest                             # 桌面悬浮宠物
 dsh plugin --profile web add @linxin666/dsh-session-archive@latest                 # 会话归档管理
+dsh plugin --profile web add @linxin666/dsh-liangshen@latest                       # 梁神模式
+dsh plugin --profile web add @linxin666/dsh-update@latest                          # 插件自更新
+dsh plugin --profile web add @linxin666/dsh-client-ui-session-id@latest            # 会话 ID 复制
+dsh plugin --profile web add @linxin666/dsh-client-ui-skill-explorer@latest        # Skill 中心
+dsh plugin --profile web add @linxin666/dsh-i18n@latest                            # 国际化语言包
 ```
 
 <details>
@@ -273,12 +272,11 @@ dsh plugin --profile web add @linxin666/dsh-session-archive@latest              
 | npm 包名 | 功能说明 |
 | --- | --- |
 | [@linxin666/dsh-web-all](https://www.npmjs.com/package/@linxin666/dsh-web-all) | 全家桶聚合包：一站式包含全部功能插件与皮肤中心 |
-| [@linxin666/dsh-client-ui-task-board](https://www.npmjs.com/package/@linxin666/dsh-client-ui-task-board) | 任务看板：支持长程异步任务与 cron 定时调度 |
+| [@linxin666/dsh-client-ui-task-board](https://www.npmjs.com/package/@linxin666/dsh-client-ui-task-board) | 任务看板：Host 权威长程后台自动化、多 Agent 级联/Teams 编排、对抗质检与 Cron 定时调度 |
 | [@linxin666/dsh-client-ui-task-board-github](https://www.npmjs.com/package/@linxin666/dsh-client-ui-task-board-github) | 任务看板扩展：GitHub Issues 同步（默认开启，设置可关） |
 | [@linxin666/dsh-remote-web-ui](https://www.npmjs.com/package/@linxin666/dsh-remote-web-ui) | 移动端远程控制：扫码配对、跨设备协同与触控优化 |
 | [@linxin666/dsh-ssh](https://www.npmjs.com/package/@linxin666/dsh-ssh) | 远程运维面板：Web 终端、SFTP 传输、端口转发与集群执行 |
 | [@linxin666/dsh-usage](https://www.npmjs.com/package/@linxin666/dsh-usage) | 用量统计：Token 消耗、余额估算、套餐追踪与 Token 银行 |
-| [@linxin666/dsh-client-ui-model-capabilities](https://www.npmjs.com/package/@linxin666/dsh-client-ui-model-capabilities) | 模型能力：自定义供应商图片输入声明与推理档位配置 |
 | [@linxin666/dsh-pet](https://www.npmjs.com/package/@linxin666/dsh-pet) | 桌面宠物：注册表驱动的桌面交互悬浮挂件 |
 | [@linxin666/dsh-client-ui-git-graph](https://www.npmjs.com/package/@linxin666/dsh-client-ui-git-graph) | Git 图谱：可视化提交历史、分支流与 worktree 隔离 |
 | [@linxin666/dsh-client-ui-skin-center](https://www.npmjs.com/package/@linxin666/dsh-client-ui-skin-center) | 皮肤中心：主题与壁纸的加载与运行引擎 |
@@ -289,6 +287,10 @@ dsh plugin --profile web add @linxin666/dsh-session-archive@latest              
 | [@linxin666/dsh-session-archive](https://www.npmjs.com/package/@linxin666/dsh-session-archive) | 会话归档：全量会话检索、批量恢复与级联清理 |
 | [@linxin666/dsh-client-ui-community-plugins](https://www.npmjs.com/package/@linxin666/dsh-client-ui-community-plugins) | 社区数据源：创意工坊插件目录权威清单 |
 | [@linxin666/dsh-client-ui-web-ui-settings](https://www.npmjs.com/package/@linxin666/dsh-client-ui-web-ui-settings) | 综合设置面板：dsh-web 全局偏好与样式配置 |
+| [@linxin666/dsh-liangshen](https://www.npmjs.com/package/@linxin666/dsh-liangshen) | 梁神模式：极简系统提示词、PTC 工具调用与调度者访谈纪律 |
+| [@linxin666/dsh-update](https://www.npmjs.com/package/@linxin666/dsh-update) | 插件自更新：版本检测、更新日志面板与一键原地升级 |
+| [@linxin666/dsh-client-ui-session-id](https://www.npmjs.com/package/@linxin666/dsh-client-ui-session-id) | 会话 ID 复制：侧边栏快速查看与一键复制会话全量 ID |
+| [@linxin666/dsh-i18n](https://www.npmjs.com/package/@linxin666/dsh-i18n) | 国际化语言包：俄语本地化及家族插件多语言字典 |
 
 </details>
 
@@ -426,7 +428,7 @@ dsh-web 针对主流操作系统、现代化浏览器及网络拓扑进行了深
 
 ### 关键词索引（Keywords & Topics）
 
-`DeepSeek` · `DeepSeek Harness` · `DSH` · `DeepSeek Web` · `DeepSeek 网页版` · `DeepSeek 桌面客户端` · `DeepSeek 插件` · `DeepSeek 任务看板` · `DeepSeek 定时任务` · `DeepSeek 自动化` · `DeepSeek 手机版` · `DeepSeek 远程控制` · `DeepSeek 移动端` · `DeepSeek SSH 终端` · `DeepSeek 服务器运维` · `DeepSeek Token 统计` · `DeepSeek 余额查询` · `DeepSeek API 费用` · `DeepSeek 主题` · `DeepSeek 皮肤` · `DeepSeek 动态壁纸` · `DeepSeek 桌面宠物` · `DeepSeek Git 图谱` · `DeepSeek Worktree 隔离` · `DeepSeek 会话归档` · `AI Agent 工作台` · `AI 编程助手`
+`DeepSeek` · `DeepSeek Harness` · `DSH` · `DeepSeek Web` · `DeepSeek Web UI` · `DeepSeek 网页版` · `DeepSeek 桌面客户端` · `DeepSeek Desktop` · `DeepSeek-V3` · `DeepSeek-R1` · `DeepSeek 插件` · `DeepSeek 扩展` · `DeepSeek 任务看板` · `DeepSeek 定时任务` · `DeepSeek Cron 自动化` · `DeepSeek 手机版` · `DeepSeek 远程控制` · `DeepSeek 移动端触控` · `DeepSeek SSH 终端` · `DeepSeek 服务器运维` · `DeepSeek Token 统计` · `DeepSeek 余额查询` · `DeepSeek API 费用` · `Token 银行` · `DeepSeek 主题` · `DeepSeek 皮肤` · `DeepSeek 动态壁纸` · `Wallpaper Engine` · `DeepSeek 桌面宠物` · `DeepSeek Git 图谱` · `DeepSeek Worktree 隔离` · `DeepSeek 会话归档` · `多智能体协作` · `AI Agent 工作台` · `AI 编程助手` · `开源智能体`
 
 ### 友情链接
 
@@ -455,9 +457,9 @@ dsh-web 针对主流操作系统、现代化浏览器及网络拓扑进行了深
 
 **插件**
 
-- **dsh-task-board / dsh-task-board-github / dsh-git-graph / dsh-pet / dsh-remote-web-ui / dsh-web-settings / dsh-ssh / dsh-skill-explorer / dsh-market / dsh-plugin-manager / dsh-community-plugins / dsh-web-all** — 本仓库原创（zhu1090093659），Apache-2.0（zhu1090093659）
+- **dsh-task-board / dsh-task-board-github / dsh-git-graph / dsh-pet / dsh-remote-web-ui / dsh-web-settings / dsh-ssh / dsh-skill-explorer / dsh-market / dsh-plugin-manager / dsh-community-plugins / dsh-web-all / dsh-liangshen / dsh-update / dsh-session-id / dsh-usage / dsh-session-archive / dsh-i18n** — 本仓库原创（zhu1090093659），Apache-2.0（zhu1090093659）
 - **dsh-ssh** — 依据 [badseal/ssh-skill](https://github.com/badseal/ssh-skill) 的能力清单实现；代码为本仓库 Apache-2.0（zhu1090093659），上游能力清单归属 badseal/ssh-skill
-- **社区插件索引** — 37 项外部插件，来源与版权由各作者声明，登记于 [community.json](https://github.com/zhu1090093659/dsh-community-plugins/blob/main/community.json)，可在「设置 → 社区插件」与 dsh-market.com 查看
+- **社区插件索引** — 130+ 项外部插件，来源与版权由各作者声明，登记于 [community.json](https://github.com/zhu1090093659/dsh-community-plugins/blob/main/community.json)，可在「设置 → 社区插件」与 dsh-market.com 查看
 
 **皮肤（第三方作者或第三方素材）**
 
@@ -520,7 +522,6 @@ dsh-web 针对主流操作系统、现代化浏览器及网络拓扑进行了深
   <a href="https://github.com/isdoge"><img src="https://github.com/isdoge.png?size=64" width="48" height="48" alt="isdoge" title="isdoge" /></a>
   <a href="https://github.com/Xeehho"><img src="https://github.com/Xeehho.png?size=64" width="48" height="48" alt="Xeehho" title="Xeehho" /></a>
   <a href="https://github.com/EricWang1358"><img src="https://github.com/EricWang1358.png?size=64" width="48" height="48" alt="EricWang1358" title="EricWang1358" /></a>
-  <a href="https://github.com/DDDMUC"><img src="https://github.com/DDDMUC.png?size=64" width="48" height="48" alt="DDDMUC" title="DDDMUC" /></a>
   <a href="https://github.com/skymecode"><img src="https://github.com/skymecode.png?size=64" width="48" height="48" alt="skymecode" title="skymecode" /></a>
   <a href="https://github.com/GreenLv"><img src="https://github.com/GreenLv.png?size=64" width="48" height="48" alt="GreenLv" title="GreenLv" /></a>
   <a href="https://github.com/oh-wang"><img src="https://github.com/oh-wang.png?size=64" width="48" height="48" alt="oh-wang" title="oh-wang" /></a>
@@ -538,15 +539,16 @@ dsh-web 针对主流操作系统、现代化浏览器及网络拓扑进行了深
   <a href="https://github.com/xohmai"><img src="https://github.com/xohmai.png?size=64" width="48" height="48" alt="xohmai" title="xohmai" /></a>
   <a href="https://github.com/YEYUbaka"><img src="https://github.com/YEYUbaka.png?size=64" width="48" height="48" alt="YEYUbaka" title="YEYUbaka" /></a>
   <a href="https://github.com/suyicon"><img src="https://github.com/suyicon.png?size=64" width="48" height="48" alt="suyicon" title="suyicon" /></a>
+  <a href="https://github.com/DDDMUC"><img src="https://github.com/DDDMUC.png?size=64" width="48" height="48" alt="DDDMUC" title="DDDMUC" /></a>
   <a href="https://github.com/dickpy"><img src="https://github.com/dickpy.png?size=64" width="48" height="48" alt="dickpy" title="dickpy" /></a>
-  <a href="https://github.com/JsonFish"><img src="https://github.com/JsonFish.png?size=64" width="48" height="48" alt="JsonFish" title="JsonFish" /></a>
   <a href="https://github.com/Abyss-Seeker"><img src="https://github.com/Abyss-Seeker.png?size=64" width="48" height="48" alt="Abyss-Seeker" title="Abyss-Seeker" /></a>
+  <a href="https://github.com/JsonFish"><img src="https://github.com/JsonFish.png?size=64" width="48" height="48" alt="JsonFish" title="JsonFish" /></a>
   <a href="https://github.com/online111111"><img src="https://github.com/online111111.png?size=64" width="48" height="48" alt="online111111" title="online111111" /></a>
   <a href="https://github.com/Zacklinkk"><img src="https://github.com/Zacklinkk.png?size=64" width="48" height="48" alt="Zacklinkk" title="Zacklinkk" /></a>
   <a href="https://github.com/Noob-stupid"><img src="https://github.com/Noob-stupid.png?size=64" width="48" height="48" alt="Noob-stupid" title="Noob-stupid" /></a>
+  <a href="https://github.com/RevolutionLA"><img src="https://github.com/RevolutionLA.png?size=64" width="48" height="48" alt="RevolutionLA" title="RevolutionLA" /></a>
   <a href="https://github.com/weike-zhang"><img src="https://github.com/weike-zhang.png?size=64" width="48" height="48" alt="weike-zhang" title="weike-zhang" /></a>
   <a href="https://github.com/BlessedWithLuck1105"><img src="https://github.com/BlessedWithLuck1105.png?size=64" width="48" height="48" alt="BlessedWithLuck1105" title="BlessedWithLuck1105" /></a>
-  <a href="https://github.com/RevolutionLA"><img src="https://github.com/RevolutionLA.png?size=64" width="48" height="48" alt="RevolutionLA" title="RevolutionLA" /></a>
   <a href="https://github.com/Richard-Peng402"><img src="https://github.com/Richard-Peng402.png?size=64" width="48" height="48" alt="Richard-Peng402" title="Richard-Peng402" /></a>
   <a href="https://github.com/liiydong"><img src="https://github.com/liiydong.png?size=64" width="48" height="48" alt="liiydong" title="liiydong" /></a>
   <a href="https://github.com/logan0116"><img src="https://github.com/logan0116.png?size=64" width="48" height="48" alt="logan0116" title="logan0116" /></a>

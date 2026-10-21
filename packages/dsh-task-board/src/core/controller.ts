@@ -16,7 +16,7 @@ import { hasOpenExecution, withStatus, type NewTaskInput, type TaskRecord, type 
 import { applyArchiveTask, applyRestoreTask } from './use-cases/task-archive.ts'
 import { applyCreateTask } from './use-cases/task-create.ts'
 import { applyDeleteTask } from './use-cases/task-delete.ts'
-import { applyScheduleNextRun as applyScheduleRollForward, applySetSchedule } from './use-cases/task-schedule.ts'
+import { applyScheduleNextRun as applyScheduleRollForward, applySetSchedule, type SetSchedulePatch } from './use-cases/task-schedule.ts'
 import { resolveHostTimeZone } from './schedule.ts'
 import { applySetParent } from './use-cases/task-parent.ts'
 import { applyDeleteTag, applyRenameTag } from './use-cases/task-tag.ts'
@@ -127,6 +127,17 @@ export interface ExecutionModelOption {
   name?: string
   label?: string
   provider?: string
+  /**
+   * Reasoning metadata the adapter declares for this exact route. An effort
+   * picker is offered only while `supported`, and its choices are `efforts` —
+   * the ids the target model really accepts, so the UI never offers (or keeps)
+   * a level the model would reject. Absent means the deployment published no
+   * capability for this model; the card value is then left untouched.
+   */
+  reasoning?: {
+    supported: boolean
+    efforts?: readonly string[]
+  }
 }
 
 /** The execution-target option sets the UI feeds into the controller. */
@@ -141,7 +152,7 @@ export interface ExecutionOptionsSnapshot {
  * (revision/scheduler/power); a full snapshot also carries the deployment
  * constants the UI reads (session default permission, subtask depth).
  */
-export type HostMirror = Pick<TaskBoardSnapshot, 'revision' | 'scheduler' | 'power' | 'sessionDefaultPermission' | 'maxSubtaskDepth' | 'teamRunAvailable' | 'extensions'>
+export type HostMirror = Pick<TaskBoardSnapshot, 'revision' | 'scheduler' | 'power' | 'sessionDefaultPermission' | 'maxSubtaskDepth' | 'teamRunAvailable' | 'goalRunEnabled' | 'cardDefaults' | 'extensions'>
 
 /** Immutable controller snapshot for UI subscriptions. */
 export interface ControllerSnapshot {
@@ -318,6 +329,22 @@ export class BoardController {
     return await this.initializeRemote()
   }
 
+  /**
+   * Re-read the authoritative Host snapshot.
+   *
+   * The board's volatile deployment configuration — the new-card defaults among
+   * it — is republished the moment the settings document is written, but the SSE
+   * frame that republish emits carries the value as of BEFORE the write (the
+   * loader hands the update to the fiber while the new document is not yet
+   * visible to it), so a mirror that followed frames alone would stay one edit
+   * behind and the create dialog would prefill from the previous defaults for
+   * the rest of the session. The surface that owns the write asks for the
+   * snapshot again instead of trusting the frame.
+   */
+  refreshHostState(): void {
+    void this.refreshRemote()
+  }
+
   // --- view state -------------------------------------------------------------
 
   /**
@@ -407,7 +434,7 @@ export class BoardController {
 
   createTask(input: NewTaskInput): TaskRecord | undefined {
     const id = this.uuid()
-    const { task, tasks } = applyCreateTask(this.tasks, input, this.now(), id, this.mirrorDepth())
+    const { task, tasks } = applyCreateTask(this.tasks, input, this.now(), id, this.mirrorDepth(), undefined, this.hostState?.cardDefaults)
     if (task === undefined) return undefined
     this.tasks = [...tasks]
     this.persistAndNotify()
@@ -421,7 +448,7 @@ export class BoardController {
     // The preview must obey the SAME lineage gate the Host will: a browser-side
     // default of one level would reject a legal subtask-of-subtask before the
     // request is ever sent.
-    const preview = applyCreateTask(this.tasks, input, this.now(), id, this.mirrorDepth()).task
+    const preview = applyCreateTask(this.tasks, input, this.now(), id, this.mirrorDepth(), undefined, this.hostState?.cardDefaults).task
     if (preview === undefined) return undefined
     return await this.commitRemote({ kind: 'create', id, input }, id)
       ? this.tasks.find(task => task.id === id)
@@ -597,15 +624,17 @@ export class BoardController {
   // --- scheduling ---------------------------------------------------------------
 
   /**
-   * Update a task's schedule rule. A blank or invalid cron expression is
-   * rejected (returns false, state untouched). When the rule ends up enabled
-   * the next run instant is computed immediately; a disabled rule carries no
-   * next-run instant. Delegates the domain transition to the schedule use case.
+   * Update a task's schedule rule. An unusable plan (blank or invalid cron, a
+   * one-shot with no future instant, a non-positive run cap) is rejected
+   * (returns false, state untouched). When the rule ends up enabled the next
+   * run instant is computed immediately — a one-shot's next instant IS its
+   * planned instant — and a disabled rule carries none. Delegates the domain
+   * transition to the schedule use case.
    * @param id - the task to schedule.
    * @param patch - fields to change (absent fields keep their current value).
-   * @returns true when applied, false when rejected (invalid cron / unknown task).
+   * @returns true when applied, false when rejected (unknown task / unusable plan).
    */
-  setSchedule(id: string, patch: { enabled?: boolean; cron?: string; timeZone?: string | null }): boolean {
+  setSchedule(id: string, patch: SetSchedulePatch): boolean {
     // The Host zone is the fallback a rule with no stored zone follows: the
     // mirrored snapshot carries it, and a controller without a Host mirror
     // (pure client tests) falls back to the process zone.
@@ -802,17 +831,25 @@ export class BoardController {
   }
 
   /**
-   * Project a Host snapshot onto the browser's mirror. SSE frames and partial
-   * snapshots carry only the volatile subset (revision/scheduler/power), so the
-   * deployment constants the UI reads — the session-default permission the
-   * confirmation banner compares against and the subtask depth limit — are
-   * carried over from the last full snapshot instead of being dropped by a
-   * heartbeat frame.
+   * Project a Host snapshot onto the browser's mirror. Every snapshot the
+   * transport serves is a full document (bootstrap/state/action all answer
+   * `TaskBoardHostService.snapshot()`), so the deployment constants the UI reads
+   * — the session-default permission the confirmation banner compares against,
+   * the subtask depth limit, the platform switches and the extensions a provider
+   * published — are taken as published, carried over only where the snapshot
+   * itself omits the key.
    */
   private mirrorOf(snapshot: TaskBoardSnapshot): HostMirror {
     const sessionDefaultPermission = snapshot.sessionDefaultPermission ?? this.hostState?.sessionDefaultPermission
     const maxSubtaskDepth = snapshot.maxSubtaskDepth ?? this.hostState?.maxSubtaskDepth
     const teamRunAvailable = snapshot.teamRunAvailable ?? this.hostState?.teamRunAvailable
+    const goalRunEnabled = snapshot.goalRunEnabled ?? this.hostState?.goalRunEnabled
+    // The new-card defaults are NOT carried over: the Host publishes a target
+    // nothing configures by omitting it (protocol.ts states that explicitly), so
+    // an absent key means "this deployment configures none". Carrying the last
+    // value over would keep a CLEARED default alive in the create dialog, which
+    // is the mirror image of the staleness this key is re-read for.
+    const cardDefaults = snapshot.cardDefaults
     const extensions = snapshot.extensions ?? this.hostState?.extensions
     return {
       revision: snapshot.revision,
@@ -821,6 +858,8 @@ export class BoardController {
       ...(sessionDefaultPermission === undefined ? {} : { sessionDefaultPermission }),
       ...(maxSubtaskDepth === undefined ? {} : { maxSubtaskDepth }),
       ...(teamRunAvailable === undefined ? {} : { teamRunAvailable }),
+      ...(goalRunEnabled === undefined ? {} : { goalRunEnabled }),
+      ...(cardDefaults === undefined ? {} : { cardDefaults }),
       ...(extensions === undefined ? {} : { extensions }),
     }
   }

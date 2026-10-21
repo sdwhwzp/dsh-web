@@ -14,7 +14,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { ArchiveIssueCode, ArchiveSessionRow, WorkspaceView } from '../core/types.ts'
-import type { LedgerDocument } from './ledger.ts'
+import type { LedgerDocument, LedgerSource } from './ledger.ts'
 import { canonicalSessionId, indexSessionDirs, type SessionDirIndex } from './session-files.ts'
 
 /** Minimal duck-typed face of the host SessionController feed. */
@@ -49,6 +49,21 @@ export interface InventorySources {
    * not re-read unchanged files.
    */
   projcacheFiles?: Map<string, ProjcacheFileEntry | null>
+  /**
+   * Optional prebuilt sessions-root index. The service passes one so nearby
+   * passes (a batch request each chunk plus the refresh that follows it) reuse
+   * the same directory walk instead of re-walking an unchanged tree; absent
+   * means this pass walks the tree itself.
+   */
+  dirIndex?: SessionDirIndex
+  /**
+   * Optional parsed projection-cache index. The service passes one for the
+   * same reason as {@link dirIndex}: every pass would otherwise re-read and
+   * re-parse the whole index document, which is the dominant remaining cost of
+   * a pass whose directory walk was already reused; absent means this pass
+   * reads and parses the file itself.
+   */
+  projcacheIndex?: ProjcacheIndex
 }
 
 /** Enrichment facts from one per-session projection-cache file. */
@@ -59,13 +74,17 @@ export interface ProjcacheFileEntry {
 }
 
 /** Title/createdAt/cwd enrichment rows from the harness projection cache. */
-interface ProjcacheIndex {
+export interface ProjcacheIndex {
   sessions: Record<string, {
     identity?: { createdAt?: number; cwd?: string }
     rows?: { title?: { val?: unknown }; goal?: { val?: unknown } }
   }>
 }
 
+/**
+ * Read and parse the aggregate projection-cache index. A missing or
+ * unparseable file degrades to an empty index rather than failing the pass.
+ */
 export function readProjcacheIndex(dshHome: string): ProjcacheIndex {
   const path = join(dshHome, 'storages', 'session_projcache.json')
   if (!existsSync(path)) return { sessions: {} }
@@ -89,6 +108,39 @@ interface ProjcacheRecordShape {
 }
 
 /**
+ * The file names one session's per-session projection cache may carry. The
+ * harness names the file from the id form it is holding, so a session's cache
+ * lives under the canonical `session-<id>` spelling or the bare one. The
+ * canonical spelling is tried first: it is what every archive id already is,
+ * so a cache written under it costs exactly one read. `scrubProjcache` deletes
+ * under both spellings for the same reason.
+ */
+function projcacheSpellings(id: string): readonly string[] {
+  const canonical = canonicalSessionId(id)
+  const bare = canonical.startsWith('session-') ? canonical.slice('session-'.length) : canonical
+  return bare === canonical ? [canonical] : [canonical, bare]
+}
+
+/** Parse one projection-cache file; unreadable or shapeless files yield undefined. */
+async function readProjcacheEntry(path: string): Promise<ProjcacheFileEntry | undefined> {
+  try {
+    const parsed = JSON.parse(await readFile(path, 'utf8')) as { record?: ProjcacheRecordShape } & ProjcacheRecordShape
+    const record: ProjcacheRecordShape = parsed.record ?? parsed
+    const title = typeof record.rows?.title?.val === 'string' && record.rows.title.val !== '' ? record.rows.title.val : undefined
+    const createdAt = typeof record.identity?.createdAt === 'number' ? record.identity.createdAt : undefined
+    const cwd = typeof record.identity?.cwd === 'string' && record.identity.cwd !== '' ? record.identity.cwd : undefined
+    if (title === undefined && createdAt === undefined && cwd === undefined) return undefined
+    return {
+      ...(title !== undefined ? { title } : {}),
+      ...(createdAt !== undefined ? { createdAt } : {}),
+      ...(cwd !== undefined ? { cwd } : {}),
+    }
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * Fallback enrichment from one per-session projection-cache file
  * (`storages/session_projcache/sessions/<id>.json`). The aggregate index
  * only covers recent sessions, so older/archived rows fall back to these
@@ -99,23 +151,11 @@ export async function readProjcacheFile(dshHome: string, id: string, cache?: Inv
   if (cache !== undefined && cache.has(id)) {
     return cache.get(id) ?? undefined
   }
-  const path = join(dshHome, 'storages', 'session_projcache', 'sessions', `${id}.json`)
+  const dir = join(dshHome, 'storages', 'session_projcache', 'sessions')
   let entry: ProjcacheFileEntry | undefined
-  try {
-    const parsed = JSON.parse(await readFile(path, 'utf8')) as { record?: ProjcacheRecordShape } & ProjcacheRecordShape
-    const record: ProjcacheRecordShape = parsed.record ?? parsed
-    const title = typeof record.rows?.title?.val === 'string' && record.rows.title.val !== '' ? record.rows.title.val : undefined
-    const createdAt = typeof record.identity?.createdAt === 'number' ? record.identity.createdAt : undefined
-    const cwd = typeof record.identity?.cwd === 'string' && record.identity.cwd !== '' ? record.identity.cwd : undefined
-    if (title !== undefined || createdAt !== undefined || cwd !== undefined) {
-      entry = {
-        ...(title !== undefined ? { title } : {}),
-        ...(createdAt !== undefined ? { createdAt } : {}),
-        ...(cwd !== undefined ? { cwd } : {}),
-      }
-    }
-  } catch {
-    entry = undefined
+  for (const spelling of projcacheSpellings(id)) {
+    entry = await readProjcacheEntry(join(dir, `${spelling}.json`))
+    if (entry !== undefined) break
   }
   if (cache !== undefined) cache.set(id, entry ?? null)
   return entry
@@ -136,7 +176,7 @@ export interface BuiltInventory {
 }
 
 /** Ledger entry for a session under either id spelling; canonical wins. */
-export function ledgerEntryFor(ledger: LedgerDocument, canonicalId: string, nativeId?: string): { archivedAt: number; source: 'manual' | 'auto' } | undefined {
+export function ledgerEntryFor(ledger: LedgerDocument, canonicalId: string, nativeId?: string): { archivedAt: number; source: LedgerSource } | undefined {
   return ledger.entries[canonicalId] ?? (nativeId !== undefined && nativeId !== canonicalId ? ledger.entries[nativeId] : undefined)
 }
 
@@ -208,10 +248,10 @@ export async function buildInventory(sources: InventorySources, signal: AbortSig
     }
   }
 
-  const dirIndex = indexSessionDirs(join(sources.dshHome, 'sessions'))
+  const dirIndex = sources.dirIndex ?? indexSessionDirs(join(sources.dshHome, 'sessions'))
   for (const id of dirIndex.byId.keys()) add(id).hasDir = true
 
-  const projcache = readProjcacheIndex(sources.dshHome)
+  const projcache = sources.projcacheIndex ?? readProjcacheIndex(sources.dshHome)
   for (const [id, entry] of Object.entries(projcache.sessions)) {
     const draft = drafts.get(id)
     if (draft === undefined) continue
@@ -287,6 +327,9 @@ export async function buildInventory(sources: InventorySources, signal: AbortSig
     const archived = archivedSet.has(draft.id)
     const ledgerEntry = archived ? ledgerEntryFor(sources.ledger, draft.id, nativeIds[draft.id]) : undefined
     const archivedAt = ledgerEntry?.archivedAt
+    // The source only travels with a real archive time: a row without one has
+    // nothing to attribute, and the UI keys the "backfilled" marker off it.
+    const archivedAtSource = ledgerEntry?.source
     if (archived && archivedAt === undefined) issues.push('no-archive-time')
     if (draft.fromFeed === false) issues.push('unreadable')
     if (draft.fromFeed === false && draft.hasDir === false) issues.push('no-data')
@@ -300,6 +343,7 @@ export async function buildInventory(sources: InventorySources, signal: AbortSig
       workspaceIds: workspaceOf.get(draft.id) ?? [],
       archived,
       ...(archivedAt !== undefined ? { archivedAt } : {}),
+      ...(archivedAt !== undefined && archivedAtSource !== undefined ? { archivedAtSource } : {}),
       ...(draft.lastActivityAt !== undefined ? { lastActivityAt: draft.lastActivityAt } : {}),
       lastActivityReliable: draft.lastActivityReliable,
       ...(sizeBytes !== undefined ? { sizeBytes } : {}),
