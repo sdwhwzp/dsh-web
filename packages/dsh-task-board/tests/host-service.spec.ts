@@ -9,6 +9,7 @@ import type { TaskBoardWorkspaceRegistry } from '../src/host-runner.ts'
 import { PowerInhibitor } from '../src/power-inhibitor.ts'
 import { createTask, EXECUTION_HISTORY_LIMIT, startExecution, withSchedule } from '../src/core/tasks.ts'
 import type { TaskBoardPrincipal } from '../src/host-accounts.ts'
+import { fixtureWorkspaces } from './workspace-fixture.ts'
 
 const roots: string[] = []
 const NOW = 1_700_000_000_000
@@ -146,6 +147,7 @@ describe('team-run dispatch', () => {
       ledger,
       power: new PowerInhibitor({ platform: 'linux' }),
       now: () => now,
+      workspaceRegistry: fixtureWorkspaces(),
       team: {
         async spawn(input) {
           spawns.push(input)
@@ -204,6 +206,7 @@ describe('team-run dispatch', () => {
       ledger,
       power: new PowerInhibitor({ platform: 'linux' }),
       now: () => NOW,
+      workspaceRegistry: fixtureWorkspaces(),
       team: { async spawn() { return { error: 'provider missing' } } },
     })
 
@@ -251,6 +254,7 @@ describe('run prompt shape', () => {
       ledger,
       power: new PowerInhibitor({ platform: 'linux' }),
       now: () => NOW,
+      workspaceRegistry: fixtureWorkspaces(),
     })
 
     // When the user runs the parent
@@ -275,7 +279,7 @@ describe('TaskBoardHostService scheduling without a browser', () => {
     const create = vi.fn(() => ({ sessionId: 'new-scheduled-session' }))
     const { gateway } = makeGateway(request => request.method === 'create' ? create() : { items: [] })
     const probe = timerProbe()
-    const service = new TaskBoardHostService(gateway, { ledger, timers: probe.timers, now: () => now, power: new PowerInhibitor({ platform: 'linux' }) })
+    const service = new TaskBoardHostService(gateway, { ledger, timers: probe.timers, now: () => now, workspaceRegistry: fixtureWorkspaces(), power: new PowerInhibitor({ platform: 'linux' }) })
     try {
       service.start()
       const input = { title: 'New schedule', description: '', prompt: 'work', schedule: { enabled: true, cron: '* * * * *' } }
@@ -313,6 +317,7 @@ describe('TaskBoardHostService scheduling without a browser', () => {
       power: new PowerInhibitor({ platform: 'linux' }),
       timers: probe.timers,
       now: () => now,
+      workspaceRegistry: fixtureWorkspaces(),
     })
     service.start()
     // The next cron instant after 10:00:30 is 10:01:00: the armed delay is exact.
@@ -354,6 +359,7 @@ describe('TaskBoardHostService scheduling without a browser', () => {
       power: new PowerInhibitor({ platform: 'linux' }),
       timers: probe.timers,
       now: () => now,
+      workspaceRegistry: fixtureWorkspaces(),
     })
     service.start()
     // The armed delay is exactly the distance to the planned instant.
@@ -397,6 +403,7 @@ describe('TaskBoardHostService scheduling without a browser', () => {
       power: new PowerInhibitor({ platform: 'linux' }),
       timers: probe.timers,
       now: () => now,
+      workspaceRegistry: fixtureWorkspaces(),
     })
     service.start()
     expect(probe.delay).toBe(30_000)
@@ -440,6 +447,7 @@ describe('TaskBoardHostService scheduling without a browser', () => {
       power: new PowerInhibitor({ platform: 'linux' }),
       timers: probe.timers,
       now: () => now,
+      workspaceRegistry: fixtureWorkspaces(),
     })
 
     // When the service starts long after the planned instant
@@ -479,6 +487,7 @@ describe('TaskBoardHostService scheduling without a browser', () => {
       power: new PowerInhibitor({ platform: 'linux' }),
       timers: probe.timers,
       now: () => now,
+      workspaceRegistry: fixtureWorkspaces(),
     })
     service.start()
 
@@ -533,6 +542,7 @@ describe('TaskBoardHostService scheduling without a browser', () => {
       power: new PowerInhibitor({ platform: 'linux' }),
       timers: probe.timers,
       now: () => now,
+      workspaceRegistry: fixtureWorkspaces(),
     })
     service.start()
 
@@ -559,6 +569,7 @@ describe('TaskBoardHostService scheduling without a browser', () => {
       power: new PowerInhibitor({ platform: 'linux' }),
       timers: probe.timers,
       now: () => now,
+      workspaceRegistry: fixtureWorkspaces(),
     })
     // Boot is a recovery point: the 10:01:00 occurrence armed while the Host was
     // down is skipped, and the schedule rolls from the current Host time.
@@ -591,6 +602,7 @@ describe('TaskBoardHostService scheduling without a browser', () => {
       power: new PowerInhibitor({ platform: 'linux' }),
       timers: probe.timers,
       now: () => now,
+      workspaceRegistry: fixtureWorkspaces(),
     })
     service.start()
     // No card is scheduled yet, so there is no occurrence to wait for.
@@ -645,6 +657,7 @@ describe('TaskBoardHostService scheduling without a browser', () => {
       power: new PowerInhibitor({ platform: 'linux' }),
       timers: probe.timers,
       now: () => now,
+      workspaceRegistry: fixtureWorkspaces(),
     })
     service.start()
     expect(probe.delay).toBe(30_000)
@@ -874,6 +887,7 @@ describe('TaskBoardHostService scheduling without a browser', () => {
     const service = new TaskBoardHostService(gateway, {
       ledger,
       power: new PowerInhibitor({ platform: 'linux' }),
+      workspaceRegistry: fixtureWorkspaces(),
     })
     const poll = service as unknown as { pollSessions(): Promise<void> }
     await poll.pollSessions()
@@ -1066,6 +1080,7 @@ describe('TaskBoardHostService poll heartbeat', () => {
       ledger,
       power: new PowerInhibitor({ platform: 'linux' }),
       now: () => now,
+      workspaceRegistry: fixtureWorkspaces(),
       // The native-/goal master switch is on AND both cards opted in: the
       // option is off by default, so this case asserts that every member of a
       // cascade that asked for it arms its own goal.

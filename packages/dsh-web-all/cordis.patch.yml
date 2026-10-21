@@ -35,6 +35,11 @@
     - id: web-ui-task-board-github
       name: '@linxin666/dsh-client-ui-task-board-github'
 
+# from ../dsh-agents
+- insert:
+    - id: web-ui-agents
+      name: '@linxin666/dsh-agents'
+
 # from ../dsh-git-graph
 - insert:
     - id: web-ui-git-graph
@@ -93,6 +98,8 @@
 
 # inactive by default (opt-in rows): these ship disabled; each is enabled per row in the
 # plugin manager, whose enable writes a user-layer "disabled: false" override that wins.
+- id: web-ui-agents
+  disabled: true
 - id: web-ui-remote-bridge
   disabled: true
 - id: web-ui-update

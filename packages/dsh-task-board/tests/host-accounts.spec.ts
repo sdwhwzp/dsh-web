@@ -1,3 +1,4 @@
+import { fixtureWorkspaces } from './workspace-fixture.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type { InvokeRemoteRequest, TypertGateway } from '@deepseek-ai/dsh-api-gateway'
 import { createServer, type IncomingMessage } from 'node:http'
@@ -218,7 +219,7 @@ describe('task-board deployment identities', () => {
       }),
     }
     const execute = vi.fn(async () => ({ kind: 'success' as const }))
-    const runner = new HostExecutionRunner(gateway, { execute }, undefined, undefined, p => fixture.accounts.assert(p))
+    const runner = new HostExecutionRunner(gateway, { execute }, fixtureWorkspaces(), undefined, p => fixture.accounts.assert(p))
     const task = { ...createTask(input(), 1, 'a'), permission: 'read-only' as const, model: 'fake/model', goalRun: true }
     await expect(runner.launch(task, { principal: alice, goalEnabled: true })).resolves.toBe('session-a')
     expect(execute).toHaveBeenCalledTimes(2)
@@ -273,7 +274,7 @@ describe('task-board deployment identities', () => {
     const fixture = accountFixture()
     const invoke = vi.fn(async () => { fixture.revoke(); return { sessionId: 'session-a' } })
     const execute = vi.fn(async () => ({ kind: 'success' as const }))
-    const runner = new HostExecutionRunner({ invoke }, { execute }, undefined, undefined, p => fixture.accounts.assert(p))
+    const runner = new HostExecutionRunner({ invoke }, { execute }, fixtureWorkspaces(), undefined, p => fixture.accounts.assert(p))
     await expect(runner.launch({ ...createTask(input(), 1, 'a'), permission: 'read-only' }, { principal: alice })).rejects.toThrow('revoked')
     expect(invoke).toHaveBeenCalledOnce()
     expect(execute).not.toHaveBeenCalled()
@@ -300,7 +301,7 @@ describe('task-board deployment identities', () => {
       expect(principal).toEqual(alice)
       return undefined
     })
-    const service = new TaskBoardHostService({ invoke } as unknown as TypertGateway, { ledger: ledger(dir, () => now), accounts: fixture.accounts, verificationCatalog, now: () => now, timers, power: new PowerInhibitor({ platform: 'linux' }) })
+    const service = new TaskBoardHostService({ invoke } as unknown as TypertGateway, { ledger: ledger(dir, () => now), accounts: fixture.accounts, workspaceRegistry: fixtureWorkspaces(), verificationCatalog, now: () => now, timers, power: new PowerInhibitor({ platform: 'linux' }) })
     disposers.push(() => service.dispose())
     const runtime = service as unknown as { pollSessions(): Promise<void> }
     service.refreshSchedule()
