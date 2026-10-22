@@ -20,7 +20,7 @@ Status: implemented
 
 家族归属沿用[家族行决策](2026-10-19-remote-bridge-in-family-aggregate.md)：`packages/dsh-web-all/aggregate.yml` 在 `patchFrom` 与 `deps` 里各列 `../dsh-agents`，生成器因此产出 insert 行 `web-ui-agents`，`name` 为 `'@linxin666/dsh-agents'`，并写入 `workspace:*` 依赖。`familyIds` 从第一版就把行 id 从子包带前缀的 `dsh-agents` 钉成家族短名 `web-ui-agents`，与 `dsh-win-bash` 记录的是同一笔取舍。这个家族没有 tombstone 子路径，也没有 `shellNotes` 条目：行直挂真实包名，老 profile 里没有 `web-all/<family>` 形式的导入需要解析，聚合的 `shell-metadata` 树因此只负责兼容子路径。这份清单落在运行中应用的必经路径上，而不是一条可选的发布步骤：桌面 profile 的 bundle 行指向仓库根包 `dsh-web`，而它的 `dsh.bundle.patch` 就是本聚合的 `cordis.patch.yml`。
 
-个人 fork 将这份账本视为管理员拥有的 Host 能力。家族行默认禁用并需明确启用，账号部署升级不会为普通用户建立共享小队入口。路由通过部署认证提供方核对当前有效的管理员；观察到账号模式后，提供方退出也拒绝访问。该约束保留源账本与运行期实现，并不把它当作租户独立存储。
+个人 fork 将这份账本视为管理员拥有的 Host 能力。家族行默认禁用并需明确启用，账号部署升级不会为普通用户建立共享小队入口。路由通过部署认证提供方核对当前有效的管理员。面向模型的小队工具要求调用会话携带传输验证的管理员身份，并在每次执行时重新验证。观察到账号模式后，提供方退出也拒绝访问。该约束保留源账本与运行期实现，并不把它当作租户独立存储。
 
 ## Alternatives considered
 
@@ -34,7 +34,7 @@ Status: implemented
 - 看板与智能体插件各自持有账本与 id 空间。成员会话不是看板卡片，看板卡片也不是小队成员；两个界面都不列出对方。
 - 聚合的 `lib/` 不再内联本插件的浏览器半区，改 `packages/dsh-agents/src/client` 只需重建这个包，聚合自己的 bundle 继续只做兼容层。
 - 部署里缺少可选的 agent 预设注册表、workspace 注册表、命令派发器或 live agent 名册时，行照常挂载；真要用到那一面时按具名错误码 fail closed，而不是静默降级。行的 `enabled` 开关同时决定账本、路由与提示词段。
-- 官方 agent-team 运行期按固定基线 fork 进 `src/team/` 与 `src/tools/`（[fork 来源](../../../../packages/dsh-agents/docs/fork-provenance.md)），小队因此以团队形态运行：一个 Lead 会话加每个成员一个 teammate，仍走同一道 `run-gateway.ts` 接缝，成员简报段无需第二条注入路径就能覆盖 teammate。Team 工具只装进本 Host 自己启动的整队运行会话，且从不关闭任何原生 `tool-subagent*` 工具行；这两处是刻意差异，后续改动不得回退（[运行期差异](../../../../packages/dsh-agents/docs/runtime-deltas.md)）。桌面 profile 没有启用 `@deepseek-ai/dsh-experimental-agent-team-profile`（启用它的是 `web` profile），所以本聚合没有行 id 冲突需要规避：那个 bundle 是 `web` profile 的事，桌面 profile 只是多出这个家族的行。
+- 官方 agent-team 运行期按固定基线 fork 进 `src/team/` 与 `src/tools/`（[fork 来源](../../../../packages/dsh-agents/docs/fork-provenance.md)），小队因此以团队形态运行：一个 Lead 会话加每个成员一个 teammate，仍走同一道 `run-gateway.ts` 接缝，成员简报段无需第二条注入路径就能覆盖 teammate。Team 工具只装进本 Host 自己启动的整队运行会话，且从不关闭任何原生 `tool-subagent*` 工具行；这两处是刻意差异，后续改动不得回退（[运行期差异](../../../../packages/dsh-agents/docs/runtime-deltas.md)）。另有一组与团队运行无关的工具管定义本身：十个模型可调用工具（`squads_list`、`squads_read`、`squads_create`、`squads_update`、`squads_delete`、`squad_member_add`、`squad_member_update`、`squad_member_remove`、`squads_run_member`、`squads_run_squad`）跟随 `enabled` 全局注册进每个会话，在进程内直达同一个 `AgentsHostService`，因此普通对话不开页面也能读、改、跑小队（[定义工具](../feature/2026-10-21-agents-definition-tools.zh.md)）。桌面 profile 没有启用 `@deepseek-ai/dsh-experimental-agent-team-profile`（启用它的是 `web` profile），所以本聚合没有行 id 冲突需要规避：那个 bundle 是 `web` profile 的事，桌面 profile 只是多出这个家族的行。
 - `GET /dsh-agents/api/state` 带上本部署提供的 agent 预设 id（`presets`），小队页据此提供 Lead 预设。这份清单只经「每个预设钉住都会走的那一面」读一次注册表，并排除注册表标记为不可用的预设；部署没有注册表、或注册表出错时该字段整体缺省，而不是给一个空列表。
 - 已知且按现状交付的限制：预设把 persona 段标成 `complete` 时其会话拿不到简报，上文的兜底是已记录的出路。
 

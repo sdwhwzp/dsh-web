@@ -1,5 +1,7 @@
 /** Account fences for the administrator-owned squad ledger. */
 import type { Context } from '@deepseek-ai/cordis'
+import { defineTool, type ToolDefinition } from '@deepseek-ai/dsh-tools'
+import { AGENTS_TOOL_NAMES } from '../src/host/agent-tools.ts'
 import { IncomingMessage } from 'node:http'
 import { Socket } from 'node:net'
 import { afterAll, describe, expect, it, vi } from 'vitest'
@@ -61,4 +63,53 @@ describe('squad deployment identities', () => {
     expect(await accounts.allows(request)).toBe(false)
     expect(authenticate).not.toHaveBeenCalled()
   })
+})
+
+/** A tool double records whether authorization reached the ledger-owning body. */
+function definition(name: string, execute: () => Promise<{ ok: boolean }>): ToolDefinition {
+  return defineTool({ name, description: 'Account authorization fixture', parameters: {}, output: { schema: { type: 'json' }, render: () => [] }, execute })
+}
+
+/** The same registered definition must re-check identity on every execution. */
+describe('squad tool deployment identities', () => {
+  it('operator keeps the source tool behavior without account services', async () => {
+    // Given a local Host with no account deployment.
+    const execute = vi.fn(async () => ({ ok: true }))
+    const tool = definition('squads_list', execute)
+    const guarded = new AgentsAccounts(context({})).protectTool(tool)
+    // When a local call carries no principal, Then it reaches its owning tool.
+    expect(await guarded.execute({}, {} as never)).toEqual({ ok: true })
+    expect(execute).toHaveBeenCalledOnce()
+  })
+
+  it.each(AGENTS_TOOL_NAMES)(
+    'user invoking %s needs a current administrator before reaching the ledger', async name => {
+      // Given a shared-ledger definition and a live account provider.
+      let active = true
+      const execute = vi.fn(async () => ({ ok: true }))
+      const values: Record<string, unknown> = {
+        requestPrincipal: {},
+        principalAccess: { assertAuthenticated: (principal: typeof admin) => {
+          if (!active || principal.id !== admin.id || principal.username !== admin.username) throw new Error('revoked or forged')
+        } },
+      }
+      const guarded = new AgentsAccounts(context(values)).protectTool(definition(name, execute))
+      const call = (principal?: typeof admin | { source: string; id: string; username: string; role: 'user' }) => guarded.execute({ principal: admin }, { principal } as never)
+      // When the call has no identity, an ordinary account or forged identity, Then no owner runs.
+      expect(await call()).toMatchObject({ ok: false, code: 'forbidden' })
+      expect(await call({ ...admin, role: 'user' })).toMatchObject({ ok: false, code: 'forbidden' })
+      expect(await call({ ...admin, username: 'forged' })).toMatchObject({ ok: false, code: 'forbidden' })
+      expect(execute).not.toHaveBeenCalled()
+      // When a live administrator calls, Then only that call reaches the ledger.
+      expect(await call(admin)).toEqual({ ok: true })
+      expect(execute).toHaveBeenCalledOnce()
+      // When it is revoked and providers later disappear, Then neither state restores access.
+      active = false
+      expect(await call(admin)).toMatchObject({ ok: false, code: 'forbidden' })
+      delete values.requestPrincipal
+      delete values.principalAccess
+      expect(await call(admin)).toMatchObject({ ok: false, code: 'forbidden' })
+      expect(execute).toHaveBeenCalledOnce()
+    },
+  )
 })

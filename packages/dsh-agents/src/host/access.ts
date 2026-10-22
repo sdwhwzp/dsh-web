@@ -1,6 +1,7 @@
 /** Administrator authorization for the shared Host squad ledger. */
 import type { Context } from '@deepseek-ai/cordis'
 import type { IncomingMessage } from 'node:http'
+import type { ToolDefinition, ToolRunContext } from '@deepseek-ai/dsh-tools'
 
 /** Identity authenticated by the deployment, never by a draft or browser header. */
 interface Principal {
@@ -24,10 +25,40 @@ export class AgentsAccounts {
   private accountMode = false
   constructor(private readonly ctx: Pick<Context, 'get'>) {}
 
+  /** Wrap one shared-ledger tool with the current deployment administrator check. */
+  protectTool(tool: ToolDefinition): ToolDefinition {
+    return {
+      ...tool,
+      execute: async (args, execution) => {
+        // Personal Harness dispatch carries its transport-verified principal;
+        // the public SDK does not declare this deployment extension.
+        const principal = (execution as ToolRunContext & { principal?: Principal }).principal
+        if (!this.allowsTool(principal)) return { ok: false, code: 'forbidden', message: 'a currently authenticated administrator is required' }
+        return tool.execute(args, execution)
+      },
+    }
+  }
+
+  private observesAccountMode(): boolean {
+    this.accountMode ||= this.ctx.get('requestPrincipal', false) !== undefined || this.ctx.get('principalAccess', false) !== undefined
+    return this.accountMode
+  }
+
+  private allowsTool(principal: Principal | undefined): boolean {
+    if (!this.observesAccountMode()) return true
+    try {
+      const access = this.ctx.get('principalAccess', false) as AccessProvider | undefined
+      if (principal?.role !== 'admin' || typeof access?.assertAuthenticated !== 'function') return false
+      access.assertAuthenticated(principal)
+      return true
+    } catch {
+      return false
+    }
+  }
+
   /** Resolve and validate the current administrator before any ledger access. */
   async allows(request: IncomingMessage): Promise<boolean> {
-    this.accountMode ||= this.ctx.get('requestPrincipal', false) !== undefined || this.ctx.get('principalAccess', false) !== undefined
-    if (!this.accountMode) return true
+    if (!this.observesAccountMode()) return true
     try {
       const connection = this.ctx.get('connection', false) as ConnectionAuthorization | undefined
       let principal: Principal | undefined
