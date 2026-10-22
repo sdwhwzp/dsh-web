@@ -23,7 +23,9 @@ interface ConnectionAuthorization {
 /** A removed provider must not restore anonymous access to an account deployment. */
 export class AgentsAccounts {
   private accountMode = false
-  constructor(private readonly ctx: Pick<Context, 'get'>) {}
+  constructor(private readonly ctx: Pick<Context, 'get'>) {
+    this.observesAccountMode()
+  }
 
   /** Wrap one shared-ledger tool with the current deployment administrator check. */
   protectTool(tool: ToolDefinition): ToolDefinition {

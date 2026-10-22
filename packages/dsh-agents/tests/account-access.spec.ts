@@ -54,6 +54,16 @@ describe('squad deployment identities', () => {
     expect(await accounts.allows(request)).toBe(false)
   })
 
+  it('admin cannot regain anonymous routes when providers disappear before the first request', async () => {
+    // Given account services present when the route guard mounts.
+    const values: Record<string, unknown> = { requestPrincipal: { authenticate: () => admin }, principalAccess: { assertAuthenticated: () => undefined } }
+    const accounts = new AgentsAccounts(context(values))
+    // When both services disappear before any request, Then the deployment still refuses access.
+    delete values.requestPrincipal
+    delete values.principalAccess
+    expect(await accounts.allows(request)).toBe(false)
+  })
+
   it('admin honors native connection refusal without falling back to a second authenticator', async () => {
     // Given a denied native carrier and a legacy provider that would accept it.
     const authenticate = vi.fn(() => admin)

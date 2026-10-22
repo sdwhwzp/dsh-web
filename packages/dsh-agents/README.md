@@ -101,7 +101,7 @@ POST /dsh-agents/api/squad/run
 
 ## Security model
 
-- In account deployments, every squad route and model-facing squad tool requires a currently authenticated administrator. Ordinary accounts cannot read or mutate this Host-owned ledger. The family row `web-ui-agents` is disabled by default; enabling it is an explicit administrator action, not an upgrade migration.
+- In account deployments, every squad route and model-facing squad tool requires a currently authenticated administrator. Account mode is retained when the row mounts, so provider removal before the first request or tool call still refuses access. Ordinary accounts cannot read or mutate this Host-owned ledger. The family row `web-ui-agents` is disabled by default; enabling it is an explicit administrator action, not an upgrade migration.
 
 - The route fence refuses a cross-site marker, a non-loopback socket, and a request that carries no browser same-origin signal at all.
 - Ids and timestamps are minted by the Host; a draft that carries an unknown field is refused rather than merged, so a caller cannot stamp its own row.

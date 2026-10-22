@@ -20,7 +20,7 @@ Status: implemented
 
 家族归属沿用[家族行决策](2026-10-19-remote-bridge-in-family-aggregate.md)：`packages/dsh-web-all/aggregate.yml` 在 `patchFrom` 与 `deps` 里各列 `../dsh-agents`，生成器因此产出 insert 行 `web-ui-agents`，`name` 为 `'@linxin666/dsh-agents'`，并写入 `workspace:*` 依赖。`familyIds` 从第一版就把行 id 从子包带前缀的 `dsh-agents` 钉成家族短名 `web-ui-agents`，与 `dsh-win-bash` 记录的是同一笔取舍。这个家族没有 tombstone 子路径，也没有 `shellNotes` 条目：行直挂真实包名，老 profile 里没有 `web-all/<family>` 形式的导入需要解析，聚合的 `shell-metadata` 树因此只负责兼容子路径。这份清单落在运行中应用的必经路径上，而不是一条可选的发布步骤：桌面 profile 的 bundle 行指向仓库根包 `dsh-web`，而它的 `dsh.bundle.patch` 就是本聚合的 `cordis.patch.yml`。
 
-个人 fork 将这份账本视为管理员拥有的 Host 能力。家族行默认禁用并需明确启用，账号部署升级不会为普通用户建立共享小队入口。路由通过部署认证提供方核对当前有效的管理员。面向模型的小队工具要求调用会话携带传输验证的管理员身份，并在每次执行时重新验证。观察到账号模式后，提供方退出也拒绝访问。该约束保留源账本与运行期实现，并不把它当作租户独立存储。
+个人 fork 将这份账本视为管理员拥有的 Host 能力。家族行默认禁用并需明确启用，账号部署升级不会为普通用户建立共享小队入口。路由通过部署认证提供方核对当前有效的管理员。面向模型的小队工具要求调用会话携带传输验证的管理员身份，并在每次执行时重新验证。守卫在行挂载时记录账号模式，因此首次请求或工具调用前提供方退出也拒绝访问。该约束保留源账本与运行期实现，并不把它当作租户独立存储。
 
 ## Alternatives considered
 

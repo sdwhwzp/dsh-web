@@ -196,6 +196,47 @@ describe('tool registration gate', () => {
 })
 
 describe('the account registration gate', () => {
+  it('user cannot regain anonymous tools when providers disappear before the first invocation', async () => {
+    // Given the real enabled row registered while account providers are present.
+    const services: Record<string, unknown> = {
+      requestPrincipal: {},
+      principalAccess: { assertAuthenticated: () => undefined },
+    }
+    const live = activate(Config({ enabled: true }), { services })
+    expect(live.definitions.map(tool => tool.name)).toEqual([...AGENTS_TOOL_NAMES])
+    // When both providers disappear before any definition runs.
+    delete services.requestPrincipal
+    delete services.principalAccess
+    // Then missing, ordinary, forged and former administrator identities cannot reach any ledger operation.
+    const admin = { source: 'gateway', id: '1', username: 'admin', role: 'admin' }
+    for (const tool of live.definitions) {
+      for (const principal of [undefined, { ...admin, id: '2', role: 'user' }, { ...admin, username: 'forged' }, admin]) {
+        expect(await tool.execute({ principal: admin }, { principal } as never)).toMatchObject({ ok: false, code: 'forbidden' })
+      }
+    }
+  })
+
+  it('admin must retain a current identity across every registered squad definition', async () => {
+    // Given a real enabled row whose authentication provider validates the full current identity.
+    let active = true
+    const admin = { source: 'gateway', id: '1', username: 'admin', role: 'admin' }
+    const live = activate(Config({ enabled: true }), { services: {
+      requestPrincipal: {},
+      principalAccess: { assertAuthenticated: (principal: typeof admin) => {
+        if (!active || principal.id !== admin.id || principal.username !== admin.username) throw new Error('revoked or forged')
+      } },
+    } })
+    // When each definition receives an absent, ordinary, forged or revoked identity, Then it refuses before ledger work.
+    for (const tool of live.definitions) {
+      for (const principal of [undefined, { ...admin, id: '2', role: 'user' }, { ...admin, username: 'forged' }]) {
+        expect(await tool.execute({ principal: admin }, { principal } as never)).toMatchObject({ ok: false, code: 'forbidden' })
+      }
+      active = false
+      expect(await tool.execute({}, { principal: admin } as never)).toMatchObject({ ok: false, code: 'forbidden' })
+      active = true
+    }
+  })
+
   it('user on an ordinary account cannot reach any squad definition through the registered tools', async () => {
     // Given the real enabled row on an account deployment.
     const live = activate(Config({ enabled: true }), { services: {
