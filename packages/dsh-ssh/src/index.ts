@@ -14,6 +14,7 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import { SshEngine } from './engine.ts'
+import { DEFAULT_CONNECT_TIMEOUT_MS } from './engine/connection-pool.ts'
 import { makeAccountRoutes } from './account-routes.ts'
 import { SshAccounts, type SshPrincipal } from './accounts.ts'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
@@ -58,6 +59,13 @@ export interface Config {
    * Nerd Font stack here to render powerline/Nerd glyphs.
    */
   terminalFontFamily?: string
+  /**
+   * Ceiling for the whole pre-ready SSH sequence in milliseconds: TCP
+   * connect, key exchange and user authentication (default 30000). Raise it
+   * for hosts whose password authentication is slow (for example PAM / LDAP
+   * behind a distant directory service).
+   */
+  connectTimeoutMs?: number
 }
 
 /** The stable reference a `volatile()` config field resolves to; its owner updates it in place. */
@@ -76,6 +84,7 @@ export interface ResolvedConfig {
   announceToAgent?: ConfigField<boolean>
   enabled?: ConfigField<boolean>
   terminalFontFamily?: ConfigField<string>
+  connectTimeoutMs?: ConfigField<number>
 }
 
 /**
@@ -91,6 +100,8 @@ export const Config = z.object({
   announceToAgent: z.boolean().default(false).volatile(),
   enabled: z.boolean().default(true).volatile(),
   terminalFontFamily: z.string().default('').volatile(),
+  connectTimeoutMs: z.number().step(1).min(1_000).max(600_000).default(DEFAULT_CONNECT_TIMEOUT_MS).volatile()
+    .description('TCP connect, SSH key exchange and user authentication timeout in milliseconds; raise it for hosts whose authentication is slow.'),
 })
 
 /** Schema defaults, re-read for hand-built test contexts (the loader applies them normally). */
@@ -143,7 +154,7 @@ export const apply = mountOnce('@linxin666/dsh-ssh', applyImpl)
 
 function applyImpl(ctx: Context, config?: ResolvedConfig): void {
   const store = new HostStore()
-  const engine = new SshEngine(store)
+  const engine = new SshEngine(store, { connectTimeoutMs: readConfigField(config?.connectTimeoutMs, DEFAULT_CONNECT_TIMEOUT_MS) })
   const accounts = new SshAccounts(ctx)
   ctx.effect(() => () => { engine.dispose(); accounts.dispose() }, 'dsh-ssh: engine')
 
@@ -198,6 +209,12 @@ function applyImpl(ctx: Context, config?: ResolvedConfig): void {
   // is kept under one disposer: re-registering first tears the old one down
   // so duplicate-name registrations never throw.
   const sync = (): void => {
+    // A settings edit reaches this instance without a remount; apply the
+    // connection ceiling before re-deriving the surfaces so connections opened
+    // by the request that follows use the new value.
+    const connectTimeoutMs = readConfigField(config?.connectTimeoutMs, DEFAULT_CONNECT_TIMEOUT_MS)
+    engine.setConnectTimeout(connectTimeoutMs)
+    accounts.setConnectTimeout(connectTimeoutMs)
     const value = resolve()
     if (disposeSection !== undefined) {
       disposeSection()

@@ -18,14 +18,17 @@
 
 import type { ApprovalRegistry } from './approvals.ts'
 import { commandItems, commandsUnavailable } from './commands.ts'
-import type { DeviceRoster } from './devices.ts'
+import type { DeviceRoster, PushEnvironment, PushLiveActivityToken, PushRegistration } from './devices.ts'
 import { ROSTER_DELTA_MAX_ROWS, RemoteBridgeDeltas, type DeltaRow } from './delta.ts'
 import { deltaOfFollowFrame, MessageIndex, oldestEntrySeq, pageTurns, readFollowBaseline, SpawnCallIndex, ToolCallIndex, trimUnrenderedEntries, turnsAbove, turnsOfRecords, type FollowBaseline, type SnapshotTurn } from './dsh-frames.ts'
 import { EventSequence, FRAME_TOO_LARGE, MAX_FRAME_BYTES, decodeClientFrame, encodeFrame, errorFrame, responseFrame, type ReqFrame, type ServerFrame } from './envelope.ts'
 import type { RemoteBridgeMethodResult, RemoteBridgeRegistry } from './extension.ts'
 import { errorCodeOf, failureText, withServiceUnavailableRetry } from './gateway-errors.ts'
 import { scopeKey, type JobRoster, type JobsPayload } from './jobs.ts'
+import type { LiveActivityNotifier } from './liveactivity.ts'
 import type { PairingService } from './pairing.ts'
+import type { PushNotifier } from './push.ts'
+import { pushEventOfTurnEnd } from './push.ts'
 import type { ListedQuestion, QuestionAnswerItem, QuestionClaims, QuestionListPayload } from './questions.ts'
 import {
   CAP_AGENTS,
@@ -33,6 +36,7 @@ import {
   CAP_DELTA,
   CAP_FRAME_DEFLATE,
   CAP_JOBS,
+  CAP_PUSH,
   CAP_QUESTIONS,
   CAP_QUESTION_LIST,
   CAP_ROSTER_COMPACT,
@@ -43,6 +47,7 @@ import {
   CAP_SESSION_SNAPSHOT_TRIM,
   CAP_SQUADS,
   CAP_SUBAGENT_THREAD,
+  CAP_USAGE,
   CAP_WORKSPACE,
   CODE_APPROVAL_UNKNOWN,
   CODE_COMMANDS_UNAVAILABLE,
@@ -58,6 +63,7 @@ import {
   CODE_SQUADS_UNAVAILABLE,
   CODE_TOKEN_INVALID,
   CODE_UNKNOWN_METHOD,
+  CODE_UNKNOWN_SESSION,
   CODE_UNPAIRED,
   KNOWN_METHODS,
   METHOD_APPROVAL_RESOLVE,
@@ -66,6 +72,7 @@ import {
   METHOD_PAIR_BEGIN,
   METHOD_PAIR_FINISH,
   METHOD_PRESETS_LIST,
+  METHOD_PUSH_REGISTER,
   METHOD_QUESTION_ANSWER,
   METHOD_QUESTION_LIST,
   METHOD_SESSION_ARCHIVE,
@@ -94,6 +101,8 @@ import {
   METHOD_SQUADS_RUN_MEMBER,
   METHOD_SQUADS_RUN_SQUAD,
   METHOD_SQUADS_STATE,
+  METHOD_USAGE_BALANCE,
+  METHOD_USAGE_SESSION,
   METHOD_WORKSPACE_LIST,
   MINOR,
   PROTO,
@@ -107,6 +116,7 @@ import { base64UrlDecode, verifyEs256 } from './crypto.ts'
 import { isSquadRefusal, parseSquadMemberRun, parseSquadRun, squadRunOf, SQUAD_METHODS, squadsStateOf, type SquadTransport, type SquadsState } from './squads.ts'
 import { TITLES_MAX_IDS, type SessionMeta } from './session-meta.ts'
 import type { SessionPermissions } from './session-permissions.ts'
+import { USAGE_METHODS, type UsageService } from './usage.ts'
 import type { BridgeGateway, GatewayPeer } from './wire.ts'
 import { CODE_SUBAGENT_ADDRESS_REQUIRED, sessionAddress, subagentAddress, wireArgs, type SessionAddress } from './wire.ts'
 import { CLOSE_LIVENESS_TIMEOUT } from './ws-frames.ts'
@@ -174,6 +184,12 @@ export interface BridgeConnectionOptions {
   readonly jobs: JobRoster
   /** Process-local session metadata: live titles and the host's archive set. */
   readonly sessionMeta: SessionMeta
+  /**
+   * `usage.v1` 背后两半读数：一条会话的上下文窗口与请求组成估算，以及某条
+   * provider 路由背后账户的余额。两者都是宿主侧的事实而不是某个设备的事实，
+   * 所以一个宿主一份、所有连接共享（见 `core/usage.ts`）。
+   */
+  readonly usage: UsageService
   /** Host-process permission presets, read and switched through their real service objects. */
   readonly permissions: SessionPermissions
   /**
@@ -206,6 +222,32 @@ export interface BridgeConnectionOptions {
    * a call that needs the domain answers `squads-unavailable`.
    */
   readonly squads?: SquadTransport
+  /**
+   * The outbound notification path, behind the `push.v1` channel. Absent is a
+   * bridge that sends nothing: `push.register` still answers `ok:true` (the
+   * device row is written either way), and no notification is ever built. That
+   * is the default, because a sender needs an Apple signing key this bridge is
+   * not shipped with.
+   */
+  readonly push?: PushNotifier
+  /**
+   * The lock-screen card path, behind the same `push.v1` channel. Absent — and it
+   * is absent whenever no APNs key is configured — is a bridge that never builds a
+   * card: the roster is still served and a question is still answered, because
+   * registering the phone's tokens and pushing to them are two different things
+   * (§28.3, §29).
+   */
+  readonly liveActivity?: LiveActivityNotifier
+  /**
+   * Called after a registration changed the device table.
+   *
+   * A session's first live-activity token is what asks this bridge to keep a
+   * follow stream of its own open for that session (`host/watchers.ts`), so the
+   * roster is the trigger. The hook is guarded at the call site: a standing
+   * watcher is this bridge's own background work and may never turn a
+   * `push.register` into a failure.
+   */
+  readonly onPushRegistered?: () => void
 }
 
 /** A device the connection proved itself to be, resolved from the upgrade request. */
@@ -814,6 +856,19 @@ export class BridgeConnection {
     if (SQUAD_METHODS.has(frame.m) && !this.declares(CAP_SQUADS)) {
       return refusal(CODE_UNKNOWN_METHOD, `unknown method ${frame.m}`)
     }
+    // Registering an APNs token is its own capability: without `push.v1` the
+    // method does not exist for this client, and no device row is written on its
+    // behalf. The capability gates the WRITE only — whether a notification ever
+    // leaves this process is a deployment fact the wire cannot express (§28.3).
+    if (frame.m === METHOD_PUSH_REGISTER && !this.declares(CAP_PUSH)) {
+      return refusal(CODE_UNKNOWN_METHOD, `unknown method ${frame.m}`)
+    }
+    // 用量通道是一个能力：不宣告 `usage.v1` 的客户端看到的仍是它从前看到的
+    // `unknown-method`，本桥也不会替它折一条会话事件、更不会替它打一次上游
+    // 余额端点。
+    if (USAGE_METHODS.has(frame.m) && !this.declares(CAP_USAGE)) {
+      return refusal(CODE_UNKNOWN_METHOD, `unknown method ${frame.m}`)
+    }
     // Unconditional: a loopback Host buys nothing here. Without a device token
     // only the handshake and the two pairing steps run.
     if (!this.paired && !UNPAIRED_METHODS.has(frame.m)) return refusal(CODE_UNPAIRED, 'this connection is not paired')
@@ -841,6 +896,9 @@ export class BridgeConnection {
       case METHOD_APPROVAL_RESOLVE: return this.#approvalResolve(frame.p)
       case METHOD_QUESTION_ANSWER: return await this.#questionAnswer(frame.p)
       case METHOD_QUESTION_LIST: return this.#questionList(frame.p)
+      case METHOD_PUSH_REGISTER: return await this.#pushRegister(frame.p)
+      case METHOD_USAGE_SESSION: return this.#usageSession(frame.p)
+      case METHOD_USAGE_BALANCE: return await this.#usageBalance(frame.p)
       case METHOD_JOBS_LIST: return await this.#jobsList(frame.p)
       case METHOD_PRESETS_LIST: return await this.#presetsList()
       case METHOD_SESSION_CREATE: return await this.#sessionCreate(frame.p)
@@ -1054,6 +1112,15 @@ export class BridgeConnection {
     // child's durable parent is on its own row, so a client that lists before it
     // opens a session never costs a second read to address that session.
     this.#rememberLineage(sessions)
+    // The workspace short name a notification carries is picked up from a roster
+    // this bridge just served, because the alternative is a gateway read on the
+    // notification path. Best effort by construction: a session never listed
+    // simply produces a payload without `w`.
+    this.#options.push?.noteSessions(sessions)
+    // The same roster answers how many sessions are running, which is what a card
+    // reports; the call returns before any delivery starts, so listing pays no
+    // APNs round trip.
+    this.#options.liveActivity?.noteRoster(sessions)
     return { ok: true, rows: sessions }
   }
 
@@ -1991,6 +2058,118 @@ export class BridgeConnection {
   }
 
   /**
+   * The body of `push.register` (protocol §28.3).
+   *
+   * A write, and the only one this channel has: the device's APNs registration
+   * lands in its own row of the roster file, beside the identity it already
+   * proved, so revoking the device revokes its notifications with it and no
+   * second identity or second table exists.
+   *
+   * The answer is `{ok:true}` and nothing else. There is deliberately no echo of
+   * the token and no "ready" flag: this bridge cannot know whether APNs will
+   * accept the token, and a field claiming it did would be a lie a client might
+   * render. A bridge with no signing key answers identically — a client has no
+   * second code path for that difference.
+   * @param payload - `{deviceToken, environment, bundle, liveActivityTokens?, locale?}`.
+   */
+  async #pushRegister(payload: Readonly<Record<string, unknown>>): Promise<DispatchOutcome> {
+    const deviceToken = payload.deviceToken
+    const environment = payload.environment
+    const bundle = payload.bundle
+    if (typeof deviceToken !== 'string' || deviceToken === '' || !/^[0-9a-fA-F]+$/.test(deviceToken)) {
+      return refusal(CODE_INVALID_ARGS, 'deviceToken must be the hex string APNs handed the app')
+    }
+    if (environment !== 'sandbox' && environment !== 'production') {
+      return refusal(CODE_INVALID_ARGS, 'environment must be "sandbox" or "production"')
+    }
+    if (typeof bundle !== 'string' || bundle === '') return refusal(CODE_INVALID_ARGS, 'bundle must be a non-empty string')
+    const locale = optionalText(payload.locale)
+    let liveActivityTokens: readonly PushLiveActivityToken[] | undefined
+    if (payload.liveActivityTokens !== undefined) {
+      const raw = payload.liveActivityTokens
+      if (!Array.isArray(raw)) return refusal(CODE_INVALID_ARGS, 'liveActivityTokens must be an array')
+      const collected: PushLiveActivityToken[] = []
+      for (const entry of raw) {
+        if (!isRecord(entry)) return refusal(CODE_INVALID_ARGS, 'each liveActivityTokens entry needs an activityId and a token')
+        const activityId = entry.activityId
+        const token = entry.token
+        if (typeof activityId !== 'string' || activityId === '' || typeof token !== 'string' || token === '') {
+          return refusal(CODE_INVALID_ARGS, 'each liveActivityTokens entry needs an activityId and a token')
+        }
+        // §29.9: a card names the session it belongs to. The key is optional —
+        // a client that omits it is registered exactly as before — but a value
+        // that is present has to be a session id, because a card carrying a
+        // malformed address would be pushed to nobody while looking registered.
+        const sessionId = entry.sessionId
+        if (sessionId !== undefined && (typeof sessionId !== 'string' || sessionId === '')) {
+          return refusal(CODE_INVALID_ARGS, 'a liveActivityTokens sessionId must be a non-empty string')
+        }
+        collected.push({ activityId, token, ...(sessionId === undefined ? {} : { sessionId }) })
+      }
+      liveActivityTokens = collected
+    }
+    const deviceId = this.#deviceId
+    if (deviceId === undefined) return refusal(CODE_UNPAIRED, 'this connection is not paired')
+    const registration: PushRegistration = {
+      deviceToken,
+      environment: environment as PushEnvironment,
+      bundle,
+      ...(locale === undefined ? {} : { locale }),
+      ...(liveActivityTokens === undefined ? {} : { liveActivityTokens }),
+      registeredAt: this.#options.now(),
+    }
+    try {
+      const stored = await this.#options.roster.registerPush(deviceId, registration)
+      if (!stored) return refusal(CODE_INTERNAL, 'this connection names no paired device')
+      // The roster is the only place a standing watcher is armed from: the
+      // session a card names gets a follow stream of this bridge's own, and it
+      // keeps it until the last token for that session is gone.
+      try {
+        this.#options.onPushRegistered?.()
+      } catch (error) {
+        this.#options.log(`standing watchers could not be reconciled: ${failureText(error)}`)
+      }
+    } catch (error) {
+      // Registration failing has to reach the client: it decides whether to
+      // retry, and a token that never reached the disk is a device that will
+      // never be notified.
+      return refusal(CODE_INTERNAL, `could not write the device roster: ${failureText(error)}`)
+    }
+    return { ok: true, r: { ok: true } }
+  }
+
+  /**
+   * 答一次 `usage.session`：一条会话的上下文窗口与下一次请求的组成估算。
+   *
+   * 两个读数各有自己的来源，也各有自己的缺席方式：`contextWindow` 只在宿主
+   * 广播过 `request/context` 时出现，`composition` 只在观察到任何原文时出现，
+   * 两项都没有就是空对象。会话本身不存在是另一种情况，回的是
+   * `unknown-session`，而不是一个读不到任何东西的空对象。
+   * @param payload - `{sessionId}`。
+   */
+  #usageSession(payload: Readonly<Record<string, unknown>>): DispatchOutcome {
+    const sessionId = stringArg(payload, 'sessionId')
+    if (sessionId === undefined) return refusal(CODE_INVALID_ARGS, 'usage.session requires sessionId')
+    const answer = this.#options.usage.session(sessionId)
+    if (answer === undefined) return refusal(CODE_UNKNOWN_SESSION, `session ${sessionId} does not exist on this host`)
+    return { ok: true, r: answer }
+  }
+
+  /**
+   * 答一次 `usage.balance`：某条 provider 路由背后账户的余额。
+   *
+   * 判定与缓存全在 `core/usage.ts`：不是官方路由、不指向官方 origin、凭据拿
+   * 不到，都不发上游请求，各自的理由按 `unsupported` 的三种取值过线。这里
+   * 只转发，因为余额是账户的事实，本连接既不改写也不补默认值。
+   * @param payload - `{provider}`。
+   */
+  async #usageBalance(payload: Readonly<Record<string, unknown>>): Promise<DispatchOutcome> {
+    const provider = stringArg(payload, 'provider')
+    if (provider === undefined) return refusal(CODE_INVALID_ARGS, 'usage.balance requires provider')
+    return { ok: true, r: await this.#options.usage.balance(provider) }
+  }
+
+  /**
    * Answer one `jobs.list` and start watching that scope.
    *
    * The scope is the host registry's own: naming a session reads that session's
@@ -2224,6 +2403,14 @@ export class BridgeConnection {
         const delta = deltaOfFollowFrame(next.value, this.#toolCalls, this.#messages, memory)
         if (delta === undefined) continue
         this.#emit(TOPIC_SESSION_DELTA, { sessionId: subscription.sessionId, ...delta })
+        // One turn ended, so a phone that is not holding this socket may want to
+        // know. The call returns before anything is sent and swallows its own
+        // failures: the frame above is already gone, and a notification is not
+        // worth a delayed or aborted stream (protocol §28.5).
+        if (delta.kind === 'turn-end') {
+          this.#options.push?.notify(pushEventOfTurnEnd(delta.reason), subscription.sessionId)
+          this.#options.liveActivity?.noteTurnEnd(subscription.sessionId, delta.reason)
+        }
       }
     } catch (error) {
       if (!subscription.controller.signal.aborted) {

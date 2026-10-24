@@ -1,5 +1,5 @@
 # Bilingual-pair consistency record (docs/i18n.md): the git blob hash of each
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with git hash-object.
-.agents/notes/implemented/feature/2026-10-07-usage-bank-mint-route-whitelist.md: 8a85ddf97971047a88f2909a621bc99a9d65e9d1
-.agents/notes/implemented/feature/2026-10-07-usage-bank-mint-route-whitelist.zh.md: f50233d3b3dc566b667ec8473276309b1025ba57
+2026-10-22-remote-bridge-standing-watchers.md: 18f1c4701323635e0cd109602496bc70ce9ab3bb
+2026-10-22-remote-bridge-standing-watchers.zh.md: c102b776e30a2f04789fd4722db4100606b1b10d

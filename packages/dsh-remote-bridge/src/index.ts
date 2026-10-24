@@ -43,11 +43,16 @@ import { JobRoster, type JobRegistryFace } from './core/jobs.ts'
 import { BridgeHub } from './core/hub.ts'
 import { createOwnerPeer } from './core/owner-peer.ts'
 import { PairingService } from './core/pairing.ts'
+import { LiveActivityNotifier } from './core/liveactivity.ts'
+import { PushNotifier } from './core/push.ts'
 import { QuestionClaims } from './core/questions.ts'
 import { WS_PATH } from './core/protocol.ts'
 import { SessionMeta, type SessionStoreFace, type SessionTitleFace, type WorkspacesFace } from './core/session-meta.ts'
 import { SessionPermissions, type ApprovalPolicyFace, type PermissionPresetsFace, type SandboxPolicyFace } from './core/session-permissions.ts'
+import { UsageService, type CredentialStoreFace, type SettingsFace } from './core/usage.ts'
 import { dshHome } from './host/dsh-home.ts'
+import { ApnsSender, apnsConfigFromEnv } from './host/apns.ts'
+import { StandingWatchers } from './host/watchers.ts'
 import { LoopbackSquads } from './host/squads.ts'
 import { mountOnce } from './mount-once.ts'
 import { makePairTokenRoute } from './host/routes.ts'
@@ -140,6 +145,25 @@ function sessionMetaFaces(ctx: Context) {
 }
 
 /**
+ * 解析 `usage.v1` 要读的宿主服务，现在就解析一次。
+ *
+ * 与元数据的三个 face 同一条理由：三者都不在本插件的 `inject` 里，缺一个不该
+ * 让整个桥起不来。缺活会话存储，`usage.session` 就只能靠本进程观察过的事件
+ * 判断会话是否存在；缺凭据服务，`usage.balance` 回 `no-credential`；缺设置
+ * 服务，路由的 `baseURL` 与 `apiKeyEnv` 读不到，origin 判定与凭据回退都退回
+ * 官方默认值。face 是结构化的：本包不导入这些服务自己的类型。
+ * @param ctx - 插件的上下文。
+ * @returns 这些 face 此刻的样子。
+ */
+function usageFaces(ctx: Context) {
+  return {
+    sessions: ctx.get('sessions') as SessionStoreFace | undefined,
+    credentials: ctx.get('credentials') as CredentialStoreFace | undefined,
+    settings: ctx.get('settings') as SettingsFace | undefined,
+  }
+}
+
+/**
  * Resolve the host services permission presets are read and switched through, now.
  *
  * Read per call, never captured at mount, for the reason the metadata faces are:
@@ -202,6 +226,75 @@ function applyImpl(ctx: Context): void {
   // about the host, not about the device that asked about it.
   const jobs = new JobRoster({ faces: () => jobFaces(ctx), log })
   const sessionMeta = new SessionMeta(() => sessionMetaFaces(ctx), () => Date.now(), log)
+  // 用量读数：一条会话的窗口与组成靠宿主广播的事件折出来，余额靠宿主自己的
+  // 凭据与设置查出来。一个宿主一份、所有连接共享——两台手机重复问，上游也只
+  // 该收到一次请求（core/usage.ts）。
+  const usage = new UsageService({ faces: () => usageFaces(ctx), now: () => Date.now(), log })
+  // The push channel is OFF unless this machine holds an Apple signing key: no
+  // key, no sender, and every notification path is a no-op — which is what keeps
+  // the protocol byte-identical for every deployment that has none (§28).
+  const apns = apnsConfigFromEnv()
+  // One client for both channels: an APNs provider token is minted per key and
+  // then reused, so a second client would only double the mint rate Apple
+  // throttles (core/push.ts, host/apns.ts).
+  const apnsSender = apns === undefined ? undefined : new ApnsSender({ config: apns, log })
+  const push = new PushNotifier({
+    targets: () => roster.pushTargets().map(({ push: registration }) => ({
+      deviceToken: registration.deviceToken,
+      environment: registration.environment,
+      bundle: registration.bundle,
+      ...(registration.locale === undefined ? {} : { locale: registration.locale }),
+    })),
+    ...(apnsSender === undefined ? {} : { sender: apnsSender }),
+    titles: id => sessionMeta.title(id),
+    now: () => Date.now(),
+    log,
+  })
+  // The lock-screen card path (§29). It reads the same roster, through the same
+  // client, and is inert for exactly the same reason: no key, no sender, no card.
+  // A token APNs reports dead is dropped from its device row here, which is the
+  // whole of the recovery — the next card registers a fresh one.
+  const liveActivity = new LiveActivityNotifier({
+    targets: () => roster.pushTargets().flatMap(({ push: registration }) => (registration.liveActivityTokens ?? []).map(({ activityId, token, sessionId }) => ({
+      activityId,
+      token,
+      // The session is the card's address (§29.9). A registration written before
+      // that field existed simply has none, and its card is never pushed to.
+      ...(sessionId === undefined ? {} : { sessionId }),
+      environment: registration.environment,
+      bundle: registration.bundle,
+    }))),
+    ...(apnsSender === undefined ? {} : { sender: apnsSender }),
+    now: () => Date.now(),
+    log,
+    retire: async (activityId, token) => {
+      const dropped = await roster.removeLiveActivityToken(activityId, token)
+      // A dead token is a roster change like any other: the session it named may
+      // have just lost its last card, and a watcher for it must close.
+      if (dropped) watchers.sync()
+      return dropped
+    },
+  })
+  // The bridge's own follow streams (§28/§29): a suspended phone has no socket,
+  // so the turn end its card has to show would otherwise be seen by nobody. One
+  // watcher per session that still holds a card token, armed from the roster and
+  // never from a client frame.
+  const watchedSessions = (): readonly string[] => {
+    const sessions = new Set<string>()
+    for (const { push: registration } of roster.pushTargets()) {
+      for (const token of registration.liveActivityTokens ?? []) {
+        if (token.sessionId !== undefined) sessions.add(token.sessionId)
+      }
+    }
+    return [...sessions]
+  }
+  const watchers = new StandingWatchers({
+    gateway: ctx.typertGateway,
+    peer: ownerPeer,
+    sessions: watchedSessions,
+    ...(apnsSender === undefined ? {} : { liveActivity, push }),
+    log,
+  })
   const permissions = new SessionPermissions(() => permissionFaces(ctx), log)
   // The extension seam publishes no protocol vocabulary of its own: another
   // plugin registers the method names, payloads and topics it owns, and this
@@ -232,9 +325,13 @@ function applyImpl(ctx: Context): void {
     questions,
     jobs,
     sessionMeta,
+    usage,
     permissions,
     ownerPeer,
     squads,
+    push,
+    liveActivity,
+    onPushRegistered: () => { watchers.sync() },
     now: () => Date.now(),
     clientTimeZone: localTimeZone,
     log,
@@ -248,21 +345,31 @@ function applyImpl(ctx: Context): void {
   }
 
   ctx.effect(() => {
-    void roster.load()
+    // A registration that arrived before this row mounted is still on disk: the
+    // watchers are reconciled from what the roster holds, not from what a live
+    // connection happened to send.
+    void roster.load().then(() => { watchers.sync() }).catch(() => undefined)
     const disposeUpgrade = ctx.webServer.registerUpgrade({
       path: WS_PATH,
       handler: makeUpgradeHandler(hub, roster, log),
     })
     const disposeRoute = ctx.webServer.register(makePairTokenRoute({ pairing, log }))
     log(`protocol v1 listening on ${WS_PATH}`)
+    log(apns === undefined
+      ? `push: off (set ${'DSH_REMOTE_BRIDGE_APNS_KEY_FILE'}, ${'DSH_REMOTE_BRIDGE_APNS_KEY_ID'} and ${'DSH_REMOTE_BRIDGE_APNS_TEAM_ID'} to enable APNs)`
+      : `push: on (APNs key ${apns.keyId} of team ${apns.teamId})`)
     return () => {
       disposeUpgrade()
       disposeRoute()
+      watchers.dispose()
       hub.dispose()
       jobs.dispose()
     }
   }, 'remote-bridge: protocol v1 routes')
 
+  // 会话事件是 `usage.session` 唯一的来源：桥不读会话日志、也不回填历史，所以
+  // 这个监听器挂上之前广播的事件不会有读数，宿主没广播过的窗口也不会被编出来。
+  ctx.on('session/event', (session, event) => { usage.record(session.id, event) })
   ctx.on('approval/request', (request, next) => hub.approve(request, next))
   // Prepended: the host's waterfall is first-come, and the desktop client's own
   // answerer would otherwise claim every question before this listener is

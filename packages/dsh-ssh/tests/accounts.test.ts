@@ -94,6 +94,22 @@ function terminal(user: string, query: string) {
   }
 }
 
+it('admin applies the connection ceiling to cached and subsequently created account pools', () => {
+  // Given two isolated account pools, when the configured ceiling changes, then both cached and future connections use it.
+  const scoped = new SshAccounts(context as never, join(dir, 'timeout', 'legacy.json'))
+  try {
+    const first = scoped.resolve(alice).engine
+    scoped.setConnectTimeout(120_000)
+    expect(first.opts.connectTimeoutMs).toBe(120_000)
+    expect(scoped.resolve(bob).engine.opts.connectTimeoutMs).toBe(120_000)
+    scoped.setConnectTimeout(45_000)
+    expect(first.opts.connectTimeoutMs).toBe(45_000)
+    expect(scoped.resolve(bob).engine.opts.connectTimeoutMs).toBe(45_000)
+  } finally {
+    scoped.dispose()
+  }
+})
+
 it('user reattaches only to their own terminal and revoked access clears its saved session', async () => {
   // Given an authenticated terminal, when its view disconnects, then the same account can replay output and resume it.
   const first = terminal('alice', 'alias=legacy-alice')

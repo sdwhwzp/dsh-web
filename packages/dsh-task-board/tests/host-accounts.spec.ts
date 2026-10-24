@@ -326,24 +326,26 @@ describe('task-board deployment identities', () => {
 })
 
 
-describe('account-owned task cascades', () => {
-  it('admin retains the owner on every cascade participant after restart', () => {
-    // Given an owned task tree, when the administrator opens a run and reopens the ledger, then every child execution retains the same account.
+describe('account-owned parent dispatch', () => {
+  it('admin retains both task owners while only the parent opens a session across restart', () => {
+    // Given an owned tree, when the administrator runs its parent and reopens the ledger, then only the parent has an execution and both cards keep their account.
     const dir = root()
     const first = ledger(dir)
     first.applyRequest('parent', { kind: 'create', id: 'parent', input: input() }, undefined, alice)
     first.applyRequest('child', { kind: 'create', id: 'child', input: { ...input(), parentId: 'parent' } }, undefined, alice)
     expect(() => first.applyRequest('foreign-child', { kind: 'create', id: 'foreign', input: { ...input(), parentId: 'parent' } }, undefined, bob)).toThrow('another account')
     const opened = first.applyRequest('run-tree', { kind: 'run', taskId: 'parent' }, undefined, alice)
-    expect(opened.runs?.map(run => run.principal)).toEqual([alice, alice])
+    expect(opened.runs?.map(run => run.principal)).toEqual([alice])
+    expect(first.getTask('child')?.executions).toEqual([])
     for (const run of opened.runs ?? []) first.attachSession(run.task.id, run.execution.id, 'session-' + run.task.id)
     first.dispose()
     const reopened = ledger(dir)
-    expect(reopened.runtimeView().openExecutions.map(run => run.principal)).toEqual([alice, alice])
+    expect(reopened.runtimeView().openExecutions.map(run => run.principal)).toEqual([alice])
     expect(reopened.taskPrincipal('child')).toEqual(alice)
     expect(() => reopened.applyRequest('detach-other', { kind: 'set-parent', taskId: 'child', parentId: null }, undefined, bob)).toThrow('another account')
     expect(() => reopened.applyRequest('settle-other', { kind: 'settle', taskId: 'parent' }, undefined, bob)).toThrow('another account')
     reopened.applyRequest('settle-own', { kind: 'settle', taskId: 'parent' }, 'Alice', alice)
-    expect(reopened.state().tasks.map(task => task.executions[0].result)).toEqual(['cancelled', 'cancelled'])
+    expect(reopened.getTask('parent')?.executions[0].result).toBe('cancelled')
+    expect(reopened.getTask('child')?.executions).toEqual([])
   })
 })

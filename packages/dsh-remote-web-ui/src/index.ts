@@ -34,6 +34,8 @@ import { lanBindState, removeManagedBlock } from './lan-bind.ts'
 import { FORWARD_UPSTREAM_HOST, LanForwarder, type LanForwardState } from './lan-forward.ts'
 import { isHttpUrl, tunnelPlanOf } from './tunnel-plan.ts'
 import { loadRelayIdentity, RelayRegistrar, type RelayState } from './relay-registry.ts'
+import { RelayConnectorPair, createNamedRelayConnector, readPluginVersion, relayClaimKeyOf, type RelayPairState } from './relay-connector.ts'
+import { createRelayBridgeRunner } from './relay-bridge-connector.ts'
 import { firewallActionNeeded, forwardPlanOf, isLanReachableBind, resolveManagedProfile, type AppliedFirewallState, type ForwardStopReason, type LanBindCapability, type StartupFacts } from './lan-bind-plan.ts'
 import { bindUrlHostOf, isWildcardLiteral, wildcardBindSupported, type ConfigSchemaFactory } from './host-bind-capability.ts'
 import { createInnerAuth } from './inner-auth.ts'
@@ -575,6 +577,31 @@ function applyImpl(ctx: Context, config?: ResolvedConfigFields): void {
   // raw quick URL is used, exactly as before. Named tunnels keep their fixed
   // dashboard hostname and never touch the relay.
   let relayRegistrar: RelayRegistrar | undefined
+  // The named connector half: claimed on every tunnel start and run beside the
+  // quick tunnel on the same hostname. The control plane's `mode` decides which
+  // of the two the phone is served from, so both stay up and a server-side flip
+  // (or its rollback) needs no plugin restart.
+  const namedRelayConnector = createNamedRelayConnector()
+  /**
+   * Whether the lease's own named connector runs. It is the quick tunnel's
+   * sibling, so a plan that runs no quick tunnel leaves it off: the claim is
+   * made for the bridge grant, not to start a second tunnel.
+   */
+  let namedConnectorWanted = false
+  // The bridge half: a socket to this instance's Durable Object meeting point,
+  // beside the quick tunnel. The control plane's mode decides which transport
+  // serves the phone, so the bridge idles while the instance is still quick.
+  const bridgeRelayConnector = createRelayBridgeRunner({
+    onState: (state) => {
+      if (state.state === 'connected') console.log('remote-web-ui: relay bridge attached for ' + state.instance)
+      if (state.state === 'failed') console.warn('remote-web-ui: relay bridge dial failed (' + state.error + ') — retrying with the same credential')
+    },
+  })
+  let relayPair: RelayConnectorPair | undefined
+  /** The claim input the pair last ran for (dedupes settings-sync re-runs). */
+  let relayClaimedFor: string | undefined
+  /** The version a claim reports, read once from this package's manifest. */
+  let pluginVersion: string | undefined
   /**
    * The public base the pairing fence trusts. A tunnel reconnect must not
    * strip the host the QR still shows: named and relay hosts never change,
@@ -583,11 +610,16 @@ function applyImpl(ctx: Context, config?: ResolvedConfigFields): void {
   const publicBase = new PublicBaseKeeper((base) => { service.setPublicBaseUrl(base) })
   /** The tunnel target the registrar last announced (dedupes sync re-runs). */
   let relayAnnouncedFor: string | undefined
-  const disposeRelayRegistrar = (unregister: boolean = false): void => {
+  /**
+   * Drop the registry mapping (the announce half). The lease half is
+   * transport-owned — the bridge dials the object directly — so a plan that
+   * runs no quick tunnel stops announcing but never drops the lease.
+   */
+  const disposeRelayAnnouncer = (unregister: boolean = false): void => {
     const registrar = relayRegistrar
     relayRegistrar = undefined
-    publicBase.setRelay(undefined)
     relayAnnouncedFor = undefined
+    publicBase.setRelay(undefined)
     if (registrar === undefined) return
     // Toggle-off removes the registry row so the stable origin stops
     // proxying; teardown/mode changes keep the row (the phone then sees the
@@ -595,6 +627,24 @@ function applyImpl(ctx: Context, config?: ResolvedConfigFields): void {
     // reuses the same identity).
     if (unregister) void registrar.unregister().catch(() => undefined)
     registrar.dispose()
+  }
+  /** Drop the whole relay half: the mapping, the lease and every connector. */
+  const disposeRelayHalf = (unregister: boolean = false): void => {
+    disposeRelayAnnouncer(unregister)
+    const pair = relayPair
+    relayPair = undefined
+    relayClaimedFor = undefined
+    // The named connector never outlives the relay half (a plan change to a
+    // manual named tunnel leaves only the operator's own tunnel running), and
+    // neither does the bridge socket.
+    namedRelayConnector.stop()
+    bridgeRelayConnector.stop()
+    if (pair === undefined) return
+    // Toggle-off releases the lease: the tunnel and the CNAME stay, so
+    // re-enabling claims an instance that creates nothing. It never retires
+    // — the hostname is the phone's bookmark.
+    if (unregister) void pair.release().catch(() => undefined)
+    pair.dispose()
   }
   const ensureRelayRegistrar = (): RelayRegistrar | undefined => {
     if (resolve().relay === false) return undefined
@@ -620,6 +670,51 @@ function applyImpl(ctx: Context, config?: ResolvedConfigFields): void {
     }
     return relayRegistrar
   }
+  const ensureRelayPair = (): RelayConnectorPair | undefined => {
+    if (resolve().relay === false) return undefined
+    if (relayPair === undefined) {
+      try {
+        const identity = loadRelayIdentity(resolve().profile)
+        pluginVersion ??= readPluginVersion()
+        relayPair = new RelayConnectorPair(identity, {
+          startNamed: (token: string, hostname: string) => {
+            // The claim is also made without a quick tunnel (the bridge grant
+            // is the reason); only the quick plan starts the sibling tunnel.
+            if (namedConnectorWanted) namedRelayConnector.start(token, hostname)
+          },
+          startBridge: (start) => { bridgeRelayConnector.start(start) },
+          onState: (state: RelayPairState) => {
+            if (state.state === 'claimed') {
+              console.log(`remote-web-ui: relay lease claimed — the ${state.mode} connector serves ${state.hostname}`)
+            } else if (state.state === 'failed') {
+              // Not fatal: the quick connector keeps the origin the registry
+              // already gave the phone, and the pair retries with backoff.
+              console.warn(`remote-web-ui: relay lease claim failed (${state.error}) — the quick connector keeps serving, retrying`)
+            }
+          },
+        })
+      } catch (error) {
+        console.warn(`remote-web-ui: relay lease unavailable (${error instanceof Error ? error.message : String(error)}) — the quick tunnel path is unchanged`)
+      }
+    }
+    return relayPair
+  }
+  /**
+   * Claim the named lease for one tunnel start. Deduped on the local origin
+   * port plus the quick URL, so a settings sync never re-claims while a real
+   * restart (a new quick hostname) does — the claim is also what keeps the
+   * lease's `last_seen_at` inside the cron GC's TTL.
+   */
+  const claimRelayLeaseFor = (port: number | undefined, target: string | undefined): void => {
+    const key = relayClaimKeyOf(port, target)
+    if (key === undefined || relayClaimedFor === key) return
+    const pair = ensureRelayPair()
+    // The relay toggle being off leaves no pair: the key stays unrecorded so
+    // turning it back on claims the lease this trigger would have claimed.
+    if (pair === undefined || port === undefined) return
+    relayClaimedFor = key
+    void pair.start({ port, pluginVersion }).catch(() => undefined)
+  }
   const announceRelay = (registrar: RelayRegistrar, target: string): void => {
     if (relayAnnouncedFor === target) return
     relayAnnouncedFor = target
@@ -636,6 +731,15 @@ function applyImpl(ctx: Context, config?: ResolvedConfigFields): void {
   let portSettleTimer: ReturnType<typeof nodeSetTimeout> | undefined
   /** Dedupes the unbound-port warning to one line per unsettled episode. */
   let portSettleWarned = false
+  /** Re-plan once the port settles: the tunnel target and the lease both need it. */
+  const schedulePortSettleRetry = (): void => {
+    if (portSettleTimer !== undefined) return
+    portSettleTimer = nodeSetTimeout(() => {
+      portSettleTimer = undefined
+      sync()
+    }, PORT_SETTLE_RETRY_MS)
+    portSettleTimer.unref()
+  }
   tunnel.onPhase((info: TunnelInfo) => {
     if (tunnelMode === 'off') return
     if (info.phase === 'running' && info.url !== undefined) {
@@ -643,6 +747,7 @@ function applyImpl(ctx: Context, config?: ResolvedConfigFields): void {
       service.setTunnelStatus({ state: 'running', url: info.url })
       const registrar = tunnelMode === 'quick' ? ensureRelayRegistrar() : undefined
       if (registrar !== undefined) announceRelay(registrar, info.url)
+      if (tunnelMode === 'quick') claimRelayLeaseFor(ctx.webServer.port, info.url)
       runPostureProbe()
     } else if (info.phase === 'starting') {
       // A quick-tunnel restart mints a new hostname, but the old one is not
@@ -659,7 +764,7 @@ function applyImpl(ctx: Context, config?: ResolvedConfigFields): void {
     }
   })
   ctx.effect(() => () => {
-    disposeRelayRegistrar()
+    disposeRelayHalf()
     publicBase.dispose()
     tunnel.dispose()
     if (portSettleTimer !== undefined) clearTimeout(portSettleTimer)
@@ -1094,15 +1199,20 @@ function applyImpl(ctx: Context, config?: ResolvedConfigFields): void {
     tunnelMode = plan.mode
     publicBase.setMode(plan.mode)
     const liveTunnelUrl = publicBase.quickUrl()
+    namedConnectorWanted = plan.mode === 'quick'
     if (plan.mode !== 'quick') {
       // The relay only fronts the quick tunnel; named mode owns its fixed
-      // dashboard hostname and the off mode has no public base at all.
-      disposeRelayRegistrar()
+      // dashboard hostname and the off mode has no public base at all. Only
+      // the announce half goes here: the bridge reaches the object without a
+      // tunnel, so the lease survives a plan that runs no quick tunnel.
+      disposeRelayAnnouncer()
+      namedRelayConnector.stop()
+      if (value.relay === false) disposeRelayHalf(true)
       if (plan.mode !== 'named') publicBase.refresh()
     } else if (value.relay === false) {
       // The relay toggle is off: no stable origin, the raw quick URL is the
       // QR base exactly as before the relay existed.
-      disposeRelayRegistrar(true)
+      disposeRelayHalf(true)
       publicBase.refresh()
     } else if (liveTunnelUrl !== undefined) {
       // The relay just turned on (or the registrar is new) while the tunnel
@@ -1168,16 +1278,19 @@ function applyImpl(ctx: Context, config?: ResolvedConfigFields): void {
         portSettleWarned = true
         console.warn('remote-web-ui: autoTunnel is on but the web server port is not bound yet — the quick tunnel starts once the port settles')
       }
-      if (portSettleTimer === undefined) {
-        portSettleTimer = nodeSetTimeout(() => {
-          portSettleTimer = undefined
-          sync()
-        }, PORT_SETTLE_RETRY_MS)
-        portSettleTimer.unref()
-      }
+      schedulePortSettleRetry()
     } else {
       portSettleWarned = false
       applyTunnelPlan(value, livePort)
+    }
+    // The lease and the bridge are transport-owned, not tunnel-owned: a
+    // bridge-mode instance has to reach its object even when no quick tunnel
+    // runs (the claim is the only answer that carries the bridge grant, and
+    // without it the edge reports no-connector forever). The dedupe key keeps
+    // a settings sync from re-claiming, and a fresh quick URL re-claims.
+    if (value.enabled && value.relay !== false) {
+      if (livePort === undefined) schedulePortSettleRetry()
+      else claimRelayLeaseFor(livePort, publicBase.quickUrl())
     }
     const enabled = value.enabled
     if (!enabled) {
@@ -1188,7 +1301,7 @@ function applyImpl(ctx: Context, config?: ResolvedConfigFields): void {
       // stable row) while the panel says remote control is stopped. The relay
       // row is deliberately kept so re-enabling reuses the same origin.
       tunnel.stop()
-      disposeRelayRegistrar()
+      disposeRelayHalf()
       publicBase.reset()
     }
     if (disposeRoutes === undefined && enabled) {

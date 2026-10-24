@@ -20,8 +20,61 @@ import { base64UrlEncode, constantTimeEqualText, fingerprintOfSpki, isP256Spki, 
 export const DEVICE_TOKEN_BYTES = 32
 /** Entropy of one device id. */
 export const DEVICE_ID_BYTES = 12
-/** On-disk schema version of the roster file. */
-export const ROSTER_VERSION = 1
+/**
+ * On-disk schema version of the roster file.
+ *
+ * 1 carried the six identity fields only; 2 adds the optional `push` block per
+ * row (§28). The difference is additive, so a version-1 file reads as-is: no row
+ * loses a field, every paired phone stays paired, and the file is rewritten as
+ * version 2 the next time anything is written. The reader therefore accepts any
+ * version whose row table validates rather than quarantining a file it merely
+ * does not recognise — a downgrade must never un-pair every phone.
+ */
+export const ROSTER_VERSION = 2
+
+/** The APNs environments a device may register for. */
+export type PushEnvironment = 'sandbox' | 'production'
+
+/** One Live Activity push token, with the session the card belongs to. */
+export interface PushLiveActivityToken {
+  readonly activityId: string
+  readonly token: string
+  /**
+   * The session this card belongs to (§29.9).
+   *
+   * A card is about one session, and a token without this field cannot be
+   * addressed at all: this bridge has nothing to put on it. Absent is therefore
+   * "never pushed to", not "pushed to with whatever is at hand" — the other
+   * reading would put one session's state on another session's lock screen.
+   */
+  readonly sessionId?: string
+}
+
+/**
+ * What one device registered so this bridge can notify it.
+ *
+ * Stored beside the device's identity in the same row: it is a fact about that
+ * device, so it disappears with the row when the device is revoked and it never
+ * becomes a second identity. Nothing here is a secret of the bridge's — an APNs
+ * token is the phone's, and holding it grants nothing without the signing key,
+ * which never touches this file.
+ */
+export interface PushRegistration {
+  /** APNs device token, as the hex string the system handed the app. */
+  readonly deviceToken: string
+  readonly environment: PushEnvironment
+  /** The app's bundle id, used verbatim as `apns-topic`. */
+  readonly bundle: string
+  readonly locale?: string
+  readonly liveActivityTokens?: readonly PushLiveActivityToken[]
+  readonly registeredAt: number
+}
+
+/** One device a notification can be addressed to. */
+export interface PushTargetView {
+  readonly deviceId: string
+  readonly push: PushRegistration
+}
 
 /** One paired device as the bridge keeps it. */
 export interface DeviceRecord {
@@ -32,6 +85,12 @@ export interface DeviceRecord {
   readonly fingerprint: string
   readonly createdAt: number
   readonly lastSeenAt: number
+  /**
+   * The device's APNs registration, absent until it calls `push.register`.
+   * A row without it is a paired phone that asks for no notification, which is
+   * every phone that predates the channel.
+   */
+  readonly push?: PushRegistration
 }
 
 /** A roster row plus the one field that never leaves the file. */
@@ -51,6 +110,59 @@ export interface DeviceRosterOptions {
   readonly file: string
   readonly now?: () => number
   readonly log?: (message: string) => void
+}
+
+/**
+ * Read one row's `push` block.
+ *
+ * A malformed block is dropped rather than quarantining the file: the roster is
+ * every paired phone, and one unreadable push token is not a reason to un-pair
+ * them all. The row keeps its identity and simply asks for no notification.
+ * @param value - the raw `push` field of a row.
+ * @param log - where a dropped block is reported.
+ * @returns the registration, or undefined when there is none to read.
+ */
+function pushOf(value: unknown, log: (message: string) => void): PushRegistration | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'object' || value === null) {
+    log('a device row carries an unreadable push block; ignoring it and keeping the row')
+    return undefined
+  }
+  const row = value as Record<string, unknown>
+  const environment = row.environment
+  if (typeof row.deviceToken !== 'string' || row.deviceToken === ''
+    || typeof row.bundle !== 'string' || row.bundle === ''
+    || (environment !== 'sandbox' && environment !== 'production')) {
+    log('a device row carries an unreadable push block; ignoring it and keeping the row')
+    return undefined
+  }
+  const liveActivityTokens = Array.isArray(row.liveActivityTokens)
+    ? row.liveActivityTokens.filter((entry): entry is PushLiveActivityToken => {
+      if (typeof entry !== 'object' || entry === null) return false
+      const token = entry as Record<string, unknown>
+      return typeof token.activityId === 'string' && token.activityId !== ''
+        && typeof token.token === 'string' && token.token !== ''
+    }).map((entry): PushLiveActivityToken => {
+      // A session id this reader cannot trust is dropped rather than repaired: the
+      // entry keeps its token and simply names no session, which is the state this
+      // bridge never pushes to. One unreadable card is not a reason to un-pair a
+      // phone, the same way one unreadable push block is not.
+      const raw = (entry as unknown as Record<string, unknown>).sessionId
+      return {
+        activityId: entry.activityId,
+        token: entry.token,
+        ...(typeof raw === 'string' && raw !== '' ? { sessionId: raw } : {}),
+      }
+    })
+    : undefined
+  return {
+    deviceToken: row.deviceToken,
+    environment,
+    bundle: row.bundle,
+    ...(typeof row.locale === 'string' && row.locale !== '' ? { locale: row.locale } : {}),
+    ...(liveActivityTokens === undefined ? {} : { liveActivityTokens }),
+    registeredAt: typeof row.registeredAt === 'number' ? row.registeredAt : 0,
+  }
 }
 
 function isStoredDevice(value: unknown): value is StoredDevice {
@@ -149,6 +261,64 @@ export class DeviceRoster {
     if (touched !== undefined) await this.#persist()
   }
 
+  /**
+   * Record this device's APNs registration, replacing any it had.
+   *
+   * Registering twice is what a token rotation looks like from here, so this is
+   * a plain overwrite rather than a merge: the newest complete registration is
+   * the only one worth sending to, and a half-merged pair of rows would send to
+   * a token the phone already retired.
+   * @param deviceId - the device that just registered.
+   * @param registration - what it registered.
+   * @returns false when no such device is paired.
+   */
+  async registerPush(deviceId: string, registration: PushRegistration): Promise<boolean> {
+    for (const [hash, row] of this.#devices) {
+      if (row.deviceId !== deviceId) continue
+      this.#devices.set(hash, { ...row, push: registration })
+      await this.#persist()
+      return true
+    }
+    return false
+  }
+
+  /**
+   * Forget one Live Activity token the phone no longer holds.
+   *
+   * APNs answers 410 (or 400 `BadDeviceToken`) for the token of a card the app
+   * already ended, and such a token never works again: the next card arrives as a
+   * new activity with a new token through `push.register`, which is a complete
+   * replacement of this set. Dropping it here is therefore the whole recovery —
+   * retrying would only repeat the same refusal (§29 token lifecycle).
+   * @param activityId - the card the token belonged to.
+   * @param token - the token APNs refused.
+   * @returns whether any row changed.
+   */
+  async removeLiveActivityToken(activityId: string, token: string): Promise<boolean> {
+    for (const [hash, row] of this.#devices) {
+      const registration = row.push
+      if (registration === undefined) continue
+      const held = registration.liveActivityTokens
+      if (held === undefined) continue
+      const kept = held.filter(entry => !(entry.activityId === activityId && entry.token === token))
+      if (kept.length === held.length) continue
+      this.#devices.set(hash, { ...row, push: { ...registration, liveActivityTokens: kept } })
+      await this.#persist()
+      return true
+    }
+    return false
+  }
+
+  /** @returns every paired device that registered for notifications. */
+  pushTargets(): readonly PushTargetView[] {
+    const targets: PushTargetView[] = []
+    for (const row of this.#devices.values()) {
+      if (row.push === undefined) continue
+      targets.push({ deviceId: row.deviceId, push: row.push })
+    }
+    return targets
+  }
+
   async #read(): Promise<void> {
     let text: string
     try {
@@ -170,7 +340,21 @@ export class DeviceRoster {
       await this.#quarantine('has no valid device table')
       return
     }
-    for (const row of rows) this.#devices.set(row.tokenHash, row)
+    const declared = (parsed as { version?: unknown }).version
+    if (typeof declared === 'number' && declared !== ROSTER_VERSION) {
+      // Not an error and not a quarantine: the row table above already validated,
+      // so an older file is read as the roster it is and written back as the
+      // current schema on the next write.
+      this.#log(`device roster ${this.#file} is schema ${declared}; reading it as ${ROSTER_VERSION}`)
+    }
+    for (const row of rows) {
+      // The raw block is re-read per row instead of trusted from the guard, so a
+      // row that carries an unreadable token keeps its identity and loses only
+      // its notification.
+      const { push: raw, ...rest } = row as StoredDevice & { readonly push?: unknown }
+      const push = pushOf(raw, this.#log)
+      this.#devices.set(row.tokenHash, push === undefined ? rest : { ...rest, push })
+    }
     this.#log(`device roster ${this.#file}: ${rows.length} paired device(s)`)
   }
 

@@ -17,7 +17,7 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
-import { TaskBoardHostService, type HostTimerFace, type TaskBoardTeamDispatcher } from './host-service.ts'
+import { TaskBoardHostService, type HostTimerFace } from './host-service.ts'
 import { TaskBoardAccounts, type TaskBoardPrincipal } from './host-accounts.ts'
 import { createOwnerPeer } from './host-runner.ts'
 import { parseTaskDraft, TaskParseError } from './host-ai.ts'
@@ -40,7 +40,7 @@ import { DEFAULT_SESSION_PERMISSION } from './core/handover.ts'
 import type { CardDefaults } from './core/card-defaults.ts'
 import { buildTaskBoardTools, TASK_BOARD_TOOL_NAMES } from './host/agent-tools.ts'
 import { PLUGIN_TOOL_SECTION_ORDERS, visibleToolText } from './tool-surface.ts'
-import { makeTaskBoardRoutes } from './host-routes.ts'
+import { makeTaskBoardRoutes, type TaskBoardConnectionTrust } from './host-routes.ts'
 import { TASK_BOARD_SERVICE_NAME, type TaskBoardExtension } from './core/extension.ts'
 import type { TaskBoardAction } from './protocol.ts'
 import { mountOnce } from './mount-once.ts'
@@ -114,8 +114,8 @@ export interface Config {
   /**
    * Subtask depth limit, 1..3 (default 1). At 1 a task may carry one level of
    * subtasks and a subtask cannot be given subtasks of its own; raising it
-   * allows deeper trees. Every extra level multiplies the sessions one run
-   * of the root task opens, so the ceiling is deliberately small.
+   * allows deeper trees. Every extra level is another tree the card's own
+   * session may have to dispatch, so the ceiling is deliberately small.
    */
   maxSubtaskDepth?: Volatile<number>
   /**
@@ -127,13 +127,13 @@ export interface Config {
   sessionPollSeconds?: Volatile<number>
   /**
    * How many run launches this board may have in flight at once (1..16,
-   * default 3). One run opens its whole subtree, so without a bound the Host
-   * asks DSH for every member's session in the same tick; this is the mechanism
-   * that enforces the repository's measured guidance for heavy implementation
-   * subagents. Members wait their turn instead of being dropped: the subtree
-   * still opens completely, they only enter the running column in batches. Read
-   * at each admission, so an edit bounds the next launch of a run that is still
-   * queueing.
+   * default 3). A run opens one session, so a burst is several cards run at
+   * once (several tabs, or a due schedule firing while a manual run starts);
+   * without a bound the Host would ask DSH for all of them in the same tick.
+   * This is the mechanism that enforces the repository's measured guidance for
+   * heavy implementation subagents. Runs wait their turn instead of being
+   * dropped, and every one of them still starts. Read at each admission, so an
+   * edit bounds the next launch of a run that is still queueing.
    */
   runLaunchWidth?: Volatile<number>
   /**
@@ -145,12 +145,6 @@ export interface Config {
    * is skipped onto the scheduler with its run budget untouched.
    */
   spendBudgetTokens?: Volatile<number>
-  /**
-   * Continuable-subagent provider the Agent Teams service uses to compose a
-   * teammate. Matches the Agent Teams tool plugin's `freshProvider` default;
-   * only team-mode runs use it.
-   */
-  teamProvider?: string
   /**
    * GLOBAL native /goal switch (default OFF), the master control over whether
    * this board starts a run with dsh's built-in /goal at all. A run uses native
@@ -239,12 +233,6 @@ export interface Config {
 }
 
 /**
- * Continuable-subagent provider for fresh teammates, matching the Agent Teams
- * tool plugin's own `freshProvider` default.
- */
-export const DEFAULT_TEAM_PROVIDER = 'spawn'
-
-/**
  * Profile-patch shape of {@link Config}: what the Host validates the row's
  * config against, before the schema turns volatile fields into live references
  * and applies defaults. Declared separately because the two sides no longer
@@ -277,8 +265,6 @@ export interface ConfigInput {
   runLaunchWidth?: number
   /** Daily token ceiling for board runs; 0 disables the gate. */
   spendBudgetTokens?: number
-  /** Continuable-subagent provider the Agent Teams service composes a teammate from. */
-  teamProvider?: string
   /** Global native /goal switch; default off, frozen per execution. */
   goalRunEnabled?: boolean
   /** Agent preset a new card starts from; blank = not set. */
@@ -313,7 +299,6 @@ export const Config: z<ConfigInput, Config> = z.object({
   sessionPollSeconds: z.number().min(SESSION_POLL_MIN_SECONDS).max(SESSION_POLL_MAX_SECONDS).default(DEFAULT_SESSION_POLL_SECONDS).volatile(),
   runLaunchWidth: z.number().min(RUN_LAUNCH_WIDTH_MIN).max(RUN_LAUNCH_WIDTH_MAX).default(DEFAULT_RUN_LAUNCH_WIDTH).volatile(),
   spendBudgetTokens: z.number().min(DEFAULT_SPEND_BUDGET_TOKENS).default(DEFAULT_SPEND_BUDGET_TOKENS).volatile(),
-  teamProvider: z.string().min(1).default(DEFAULT_TEAM_PROVIDER),
   goalRunEnabled: z.boolean().default(false).volatile(),
   cardDefaultMode: z.string().default('').volatile(),
   cardDefaultPermission: z.union([...TASK_PERMISSIONS, '']).default('').volatile(),
@@ -397,11 +382,39 @@ export function resolveProxyAccess(config: Config | undefined, env: NodeJS.Proce
 }
 
 /**
+/**
  * Schema default for the forwarded-proxy switch, re-read for hand-built
  * contexts. Deliberately false: a deployment that never configured it keeps
  * refusing every forwarded request, which is the #1906 fence.
  */
 export const DEFAULT_TRUST_FORWARDED_PROXY = false
+
+/**
+ * Resolve the composition's optional `connection` service.
+ *
+ * The service is the Host's own browser-session authority: it fronts every
+ * `/api` request with the Host/Origin fence and the signed `dsh-auth-*` cookie,
+ * which is what a deployment behind a reverse proxy or ingress validates on the
+ * same authority the GUI is served from. The board bridges it instead of
+ * repeating that check, so a proxy request the Host already authenticated is
+ * admitted without a board-specific host allowlist (issue #1930). It is
+ * deliberately resolved like the agent-tool registry rather than injected:
+ * a composition that serves no connection keeps mounting the board on the
+ * pre-existing loopback fence, and one that mounts the service later is picked
+ * up on the next request because the fence asks this resolver each time.
+ * @param ctx - the plugin context.
+ * @returns the trust face, or undefined when this deployment serves none.
+ */
+export function resolveConnectionTrust(ctx: Context): TaskBoardConnectionTrust | undefined {
+  try {
+    const connection = ctx.get('connection') as Partial<TaskBoardConnectionTrust> | undefined
+    return connection !== undefined && typeof connection.requestRejection === 'function'
+      ? connection as TaskBoardConnectionTrust
+      : undefined
+  } catch {
+    return undefined
+  }
+}
 
 /** The registry face the agent tools register into. */
 interface AgentToolRegistry {
@@ -480,80 +493,6 @@ export function resolveHostDefaultPermission(ctx: Context): TaskPermission | und
     return isTaskPermission(preset) ? preset : undefined
   } catch {
     return undefined
-  }
-}
-
-/**
- * How long one teammate may take to reach its durable active or failed edge.
- * Agent Teams provisioning normally resolves in seconds; the bound exists so a
- * hung spawn settles the subtask instead of holding the cascade open forever.
- */
-const TEAMMATE_PROVISION_TIMEOUT_MS = 600_000
-
-/** The subset of the Agent Teams service this plugin drives. */
-interface AgentTeamsFace {
-  spawnTeammate(caller: unknown, request: {
-    name: string
-    description: string
-    prompt: Array<{ type: 'text'; text: string }>
-    context: 'fresh' | 'fork'
-    provider: string
-    signal: AbortSignal
-  }): Promise<{ member?: { id?: string; phase?: string; error?: string } }>
-}
-
-/**
- * Resolve the optional Agent Teams service. Like the tool registry and the llm
- * runtime, it is deliberately not injected: a deployment without Agent Teams
- * must still mount the whole board and only lose team-mode runs.
- * @param ctx - the plugin context.
- * @returns the service, or undefined when this deployment serves none.
- */
-export function resolveAgentTeams(ctx: Context): AgentTeamsFace | undefined {
-  try {
-    const teams = ctx.get('agentTeams') as AgentTeamsFace | undefined
-    return teams !== undefined && typeof teams.spawnTeammate === 'function' ? teams : undefined
-  } catch {
-    return undefined
-  }
-}
-
-/**
- * Build the team dispatcher: the run's Lead session spawns one teammate per
- * subtask through the Agent Teams service, and the teammate's session id is
- * attached to that subtask's execution so the ordinary session monitor settles
- * it. Returns undefined when the deployment serves no Agent Teams service or
- * no live-agent registry, which makes a team run fail closed.
- * @param ctx - the plugin context.
- * @param provider - the continuable-subagent provider for fresh teammates.
- * @returns the dispatcher, or undefined when team runs cannot be served.
- */
-export function buildTeamDispatcher(ctx: Context, provider: string): TaskBoardTeamDispatcher | undefined {
-  const teams = resolveAgentTeams(ctx)
-  if (teams === undefined) return undefined
-  if (typeof (ctx.agents as { get?: unknown } | undefined)?.get !== 'function') return undefined
-  return {
-    async spawn(input) {
-      const lead = ctx.agents.get(input.leadSessionId as Parameters<typeof ctx.agents.get>[0])
-      if (lead === undefined) return { error: `lead session ${input.leadSessionId} is not live` }
-      try {
-        const result = await teams.spawnTeammate(lead, {
-          name: input.name,
-          description: input.description,
-          prompt: [{ type: 'text', text: input.prompt }],
-          context: 'fresh',
-          provider,
-          signal: AbortSignal.timeout(TEAMMATE_PROVISION_TIMEOUT_MS),
-        })
-        const member = result?.member
-        if (member === undefined) return { error: 'Agent Teams returned no teammate' }
-        if (member.phase === 'failed') return { error: member.error ?? 'teammate provisioning failed' }
-        if (typeof member.id !== 'string' || member.id === '') return { error: 'Agent Teams returned no teammate session' }
-        return { sessionId: member.id }
-      } catch (error) {
-        return { error: `teammate provisioning failed: ${error instanceof Error ? error.message : String(error)}` }
-      }
-    },
   }
 }
 
@@ -746,7 +685,6 @@ function applyImpl(ctx: Context, config?: Config): void {
     verificationSettings,
     verificationCatalog,
     timers: resolveHostTimers(ctx),
-    team: buildTeamDispatcher(ctx, config?.teamProvider ?? DEFAULT_TEAM_PROVIDER),
     commandDispatcher: {
       async execute(sessionId, line, signal) {
         const agent = await resolveExecutionAgent(ctx, sessionId)
@@ -883,21 +821,18 @@ function applyImpl(ctx: Context, config?: Config): void {
         const handle = offGate as { dispose(): void }
         disposers.push(() => { handle.dispose() })
       }
-      const routes = makeTaskBoardRoutes(
-        host,
-        {
-          ...resolveProxyAccess(config),
-          authenticate: req => accounts.request(req),
-          assertPrincipal: principal => accounts.assert(principal),
+      const routes = makeTaskBoardRoutes(host, {
+        ...resolveProxyAccess(config),
+        connection: () => resolveConnectionTrust(ctx),
+        authenticate: req => accounts.request(req),
+        assertPrincipal: principal => accounts.assert(principal),
+      }, {
+        parseTask: async (request, signal) => {
+          const llm = resolveLlmRuntime(ctx)
+          if (llm === undefined) throw new TaskParseError('no-model', 'this deployment serves no llm service')
+          return await parseTaskDraft(llm, request, signal)
         },
-        {
-          parseTask: async (request, signal) => {
-            const llm = resolveLlmRuntime(ctx)
-            if (llm === undefined) throw new TaskParseError('no-model', 'this deployment serves no llm service')
-            return await parseTaskDraft(llm, request, signal)
-          },
-        },
-      )
+      })
       for (const route of routes) disposers.push(ctx.webServer.register(route))
     } catch (error) {
       // A failed mount must not leave the agent tools bound to a disposed

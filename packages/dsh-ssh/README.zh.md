@@ -71,8 +71,7 @@ dsh plugin --profile web add link:$(pwd)/packages/dsh-ssh
 
 在 Host 插件配置中设置 `accountIsolation: true`，同时在 dsh-passwords 中设置 `TENANT_SSH_ENABLED=true`，两项须一起部署，修改 `accountIsolation` 需要重启 Host。具有 SSH 权限的认证账号可以管理自己的主机、终端、浏览器文件传输、隧道和集群执行；其他账号可以使用相同别名。网关保留上传/下载权限和私网目标限制。缺失或已撤销的账号身份会被拒绝，Agent 工具调用也适用。单用户本地安装可以保持 `accountIsolation` 关闭。
 
-
-设置面板（插件配置）可开关 `announceToAgent`（是否向 Agent 宣告插件；默认关闭，保持系统提示词干净）与 `enabled`（总开关），并可设置 `terminalFontFamily`（Web 终端字体，留空则按 CSS 链解析：`--dsh-ssh-terminal-font` → 官方 `--ds-font-family-code` token → 内置 monospace 栈）。终端字体写死在 xterm 构造参数里，CSS 无法直接覆盖；要渲染 powerline / Nerd Font 图标，请在此填入对应 Nerd Font 栈（如 `"SauceCodePro Nerd Font", monospace`），修改对已打开的终端即时生效，无需重连。
+设置面板（插件配置）可开关 `announceToAgent`（是否向 Agent 宣告插件；默认关闭，保持系统提示词干净）与 `enabled`（总开关），设置 `terminalFontFamily`（Web 终端字体，留空则按 CSS 链解析：`--dsh-ssh-terminal-font` → 官方 `--ds-font-family-code` token → 内置 monospace 栈），并设置 `connectTimeoutMs`（TCP 连接、SSH 密钥交换与用户认证三个阶段共用的上限，默认 30000 毫秒，允许 1000-600000）。认证较慢的主机（例如 PAM 或 LDAP 位于较远的目录服务后面）应调大 `connectTimeoutMs`：`ssh_exec`、Web 终端、SFTP 传输、隧道与集群执行等所有连接入口都读取该值，而 `ssh_exec` / `ssh_cluster` 的 `timeoutMs` 只约束连接就绪后的远程命令。终端字体写死在 xterm 构造参数里，CSS 无法直接覆盖；要渲染 powerline / Nerd Font 图标，请在此填入对应 Nerd Font 栈（如 `"SauceCodePro Nerd Font", monospace`），修改对已打开的终端即时生效，无需重连；新的 `connectTimeoutMs` 对之后建立的连接生效，池化连接在重连前不受影响。
 
 账号模式下，普通用户通过密码或粘贴自己的私钥认证。Host 私钥路径、Host SSH agent（含 agent 转发）、本机 `ProxyCommand` 执行和导入服务器 `~/.ssh/config` 仅供管理员使用。使用这些凭据或 `ProxyCommand` 的旧账号连接仍会列出，但连接前须编辑。GUI 传输使用浏览器文件选择器；普通账号不能通过 `ssh_upload` 或 `ssh_download` 操作任意 Host 文件路径。
 

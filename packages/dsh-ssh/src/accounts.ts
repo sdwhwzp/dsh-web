@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { SshEngine } from './engine.ts'
+import { DEFAULT_CONNECT_TIMEOUT_MS } from './engine/connection-pool.ts'
 import { TerminalSessionRegistry } from './engine/terminal-sessions.ts'
 import { HostStore, storePath, normalizeProxyCommand } from './store.ts'
 import type { HostPayload, SshHostEntry } from './protocol.ts'
@@ -92,6 +93,7 @@ export interface SshAccountScope {
 
 /** Resolve the authenticated account on every operation, including calls using a cached engine. */
 export class SshAccounts {
+  private connectTimeoutMs = DEFAULT_CONNECT_TIMEOUT_MS
   private readonly scopes = new Map<string, SshAccountScope>()
   private readonly principals = new Map<string, SshPrincipal>()
   private readonly permissionTimer: NodeJS.Timeout
@@ -149,13 +151,19 @@ export class SshAccounts {
         renameSync(path + '.migrating', path)
       }
       const store = new AccountHostStore(path, restricted)
-      const engine = new SshEngine(store)
+      const engine = new SshEngine(store, { connectTimeoutMs: this.connectTimeoutMs })
       const terminalSessions = new TerminalSessionRegistry({ openShell: (alias, size, authenticate) => engine.openShell(alias, size, authenticate) })
       scope = { store, engine, terminalSessions, restricted }
       this.scopes.set(key, scope)
       this.principals.set(key, principal)
     }
     return scope
+  }
+
+  /** Apply the configured pre-ready ceiling to existing and future account connections. */
+  setConnectTimeout(value: number): void {
+    this.connectTimeoutMs = value
+    for (const scope of this.scopes.values()) scope.engine.setConnectTimeout(value)
   }
 
   /** Close pooled connections and tunnels belonging to accounts whose access was revoked. */
