@@ -100,9 +100,16 @@ function createFakeHost(services: Record<string, unknown> = {}, options: FakeHos
     },
   }
   const target: Record<string, unknown> = {
-    effect: (callback: () => unknown): (() => void) => {
+    effect: (callback: () => unknown) => {
       const dispose = callback()
       if (typeof dispose === 'function') disposers.push(dispose as () => unknown)
+      if (dispose instanceof Promise) {
+        disposers.push(async () => {
+          const release: unknown = await dispose
+          if (typeof release === 'function') await release()
+        })
+        return dispose.then(() => () => undefined)
+      }
       return () => undefined
     },
     on: () => () => undefined,
@@ -284,6 +291,7 @@ describe('team runtime mount on a real cordis tree', () => {
     expect(failure).toBeUndefined()
     const instance = team
     if (instance === undefined) throw new Error('the row fiber never constructed the Team service')
+    await instance.ready
     // The constructor's real output is asserted, not merely its existence.
     expect(instance).toBeInstanceOf(TeamService)
     expect(projections).toEqual([{ key: 'agentTeam', stateVersion: 4 }])

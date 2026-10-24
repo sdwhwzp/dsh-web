@@ -72,6 +72,8 @@
 13. **文件头 banner**：所有 vendor 文件加 provenance banner（纯注释）。
 14. **五个 Host 服务在挂载时经 `ctx.get` 解析一次**（`src/team/services.ts`，本包新增文件；`src/team/index.ts`、`src/team/journal.ts`、`src/team/roster.ts`）：上游把运行期当作 cordis 插件挂在它自己的 `inject` 行上，`agents` / `sessions` / `sessionPersistence` / `sessionProjections` / `subagents` 因此可以按属性直接读取。本包在插件行自己的 fiber 上 `new TeamService(ctx)`，该 fiber 的 `inject` 只有三个服务，而 cordis 对**未注入**服务的属性读取会抛 `cannot get property "<name>" without inject`——整个 `apply` 失败，页面随即报「Host API 未挂载」。因此 `TeamService` 在构造时把五个面解析一次（`serveTeamFaces`）、存进 `this.faces`，`TeamJournal` 与 `TeamRoster` 改为读同一份面对象；投影注册从 `ctx.root.sessionProjections` 改为读该面（同一个服务实例，注册位置不变）。上游的其余逻辑、`ctx.on` 事件监听与 `ctx.logger` 未动。
 
+15. **投影读取器激活与释放**（`src/team/registration.ts`、`index.ts`、`journal.ts`）：适配 rc.2 同步 disposer 与 rc.3 异步 ready handle；运行期先等待注册，再构造 journal、注册监听、恢复会话和安装工具。journal 保留该注册的读取器，卸载先清理运行期再释放投影；注册期间卸载不安装工具，注册失败向挂载方报告。`tests/team-registration.spec.ts` 覆盖延迟就绪、卸载争用和注册失败。
+
 ## 行为差异：Team 工具只进「本 Host 启动的整队运行会话」
 
 上游的 `TeamRoster.tryMembership` 对**任何**没有父会话的根会话都回答 `{ role: 'lead' }`（`roster.ts` 的两处兜底返回），于是 `tool-agent-team` 会把整套 Team 工具注入每一个普通顶层会话；这也是上游配套关闭原生 subagent 工具（`tool-subagent*`）的原因。

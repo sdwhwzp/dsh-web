@@ -7,6 +7,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { PAIR_TOKEN_PATH, WS_PATH } from '../src/core/protocol.ts'
 import { apply } from '../src/index.ts'
+import type { QuestionAnswer, UserQuestionRequestLike } from '../src/core/questions.ts'
 import { nextTurn, settle } from './support/harness.ts'
 
 const WEB_SOCKET_KEY = 'dGhlIHNhbXBsZSBub25jZQ=='
@@ -160,6 +161,23 @@ describe('the mounted plugin', () => {
     expect(host.routes[0]?.kind).toBe('exact')
     expect(host.listeners.has('approval/request')).toBe(true)
     expect(host.listeners.has('user-questions/request')).toBe(true)
+  })
+
+  it('operator receives mutable Host answer arrays without changing the delegated answer snapshot', async () => {
+    // Given an immutable delegated answer, When the Host edits its returned arrays, Then the bridge snapshot retains the original answer.
+    const host = mountPlugin()
+    const original: QuestionAnswer = Object.freeze({ answers: Object.freeze([
+      Object.freeze({ id: 'q-1', selected: Object.freeze(['Alpha']), custom: 'detail' }),
+    ]) })
+    const listener = host.listeners.get('user-questions/request') as (
+      request: UserQuestionRequestLike,
+      next: () => Promise<QuestionAnswer>,
+    ) => Promise<{ answers: { id: string; selected: string[]; custom?: string }[] }>
+    const answer = await listener({ questions: [] }, async () => original)
+    expect(answer).toEqual(original)
+    answer.answers[0]?.selected.push('Beta')
+    answer.answers.push({ id: 'q-2', selected: [] })
+    expect(original.answers).toEqual([{ id: 'q-1', selected: ['Alpha'], custom: 'detail' }])
   })
 
   it('user upgrading on the mounted route has the greeting answered over the socket', async () => {

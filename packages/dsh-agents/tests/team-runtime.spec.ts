@@ -42,10 +42,11 @@ function spawnRequest(overrides: Record<string, unknown> = {}): Parameters<TeamS
 }
 
 describe('forked Agent Teams projection', () => {
-  it('operator registers exactly one agentTeam projection at stateVersion 4 on the root context', () => {
+  it('operator registers exactly one agentTeam projection at stateVersion 4 on the root context', async () => {
     // Given a fresh Host context, When the forked Team service is constructed once, Then exactly one projection registers, at key agentTeam and stateVersion 4.
     const harness = createTeamHarness()
     harness.teamService = new TeamService(harness.ctx)
+    await harness.teamService.ready
 
     expect(harness.projections).toEqual([{ key: 'agentTeam', stateVersion: 4 }])
     expect(teamProjectionDefinition.key).toBe('agentTeam')
@@ -54,10 +55,11 @@ describe('forked Agent Teams projection', () => {
 })
 
 describe('squad-run gate on the Team tool surface', () => {
-  it('operator installs nothing into a plain root session and the whole set into a squad-run session', () => {
+  it('operator installs nothing into a plain root session and the whole set into a squad-run session', async () => {
     // Given a plain root session and a squad-run session, When both are published to the installer, Then only the squad-run session receives the whole nine-tool Team surface and its policy section.
     const harness = createTeamHarness()
     harness.teamService = new TeamService(harness.ctx)
+    await harness.teamService.ready
     const plain = harness.createAgent('plain-session')
     harness.createAgent('squad-lead')
     // Stands in for the ledger lookup the Host wires in: only a session this
@@ -86,10 +88,11 @@ describe('squad-run gate on the Team tool surface', () => {
     installation.dispose()
   })
 
-  it('operator re-scans live sessions on refresh so a Lead created before its run record still gets the tools', () => {
+  it('operator re-scans live sessions on refresh so a Lead created before its run record still gets the tools', async () => {
     // Given a Lead that existed before its squad run record was written, When the Host calls refresh after recording, Then the Team tools land in that live session.
     const harness = createTeamHarness()
     harness.teamService = new TeamService(harness.ctx)
+    await harness.teamService.ready
     const lead = harness.createAgent('squad-lead')
     const qualifying = new Set<string>()
     const installation = installTeamTools(harness.ctx as unknown as TeamServiceContext, {
@@ -146,6 +149,7 @@ describe('teammate pins', () => {
     const harness = createTeamHarness()
     const lead = harness.createAgent('squad-lead')
     harness.teamService = new TeamService(harness.ctx, {}, { pins: createTeammatePins(pinFaces(harness.order)) })
+    await harness.teamService.ready
 
     const result = await harness.teamService.spawnTeammate(lead as unknown as Agent, spawnRequest({
       preset: 'xundong',
@@ -171,6 +175,7 @@ describe('teammate pins', () => {
     const harness = createTeamHarness()
     const lead = harness.createAgent('squad-lead')
     harness.teamService = new TeamService(harness.ctx, {}, { pins: createTeammatePins(pinFaces(harness.order, [{ id: 'michun' }])) })
+    await harness.teamService.ready
 
     const failure = await harness.teamService
       .spawnTeammate(lead as unknown as Agent, spawnRequest({ preset: 'xundong' }))
@@ -195,6 +200,7 @@ describe('teammate pins', () => {
         },
       }),
     })
+    await harness.teamService.ready
 
     const failure = await harness.teamService
       .spawnTeammate(lead as unknown as Agent, spawnRequest({ model: 'deepseek/deepseek-v9' }))

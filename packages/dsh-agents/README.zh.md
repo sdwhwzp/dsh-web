@@ -20,6 +20,7 @@ DSH Web GUI 的 Agent 小队：可复用的成员定义（agent 预设、权限�
 - Lead 的模型工具按成员派出 teammate。每个 teammate 都按该成员定义的钉住值组装：预设先于子会话存在解析，权限与模型路由在 teammate 首条提示被 checkpoint 之前落到该会话。本部署兑现不了的钉住会让这次派出以具名错误失败，绝不悄悄退回部署默认值。
 - 小队成员名单与目标以 `team:squad` 系统提示词 **context**（不是 section）送达 Lead，因此登记了 `complete` 段的成员预设也无法把它们丢掉。
 - 实时队伍视图从共享的客户端会话仓库读取 fork 运行期的 `agentTeam` 会话投影（`stateVersion` 4）：Lead、它派出的每个 teammate、每行的角色与阶段，以及没能启动的成员的失败文字。该投影能作答期间，页面不做任何轮询。
+- 运行期等待投影读取器就绪后才恢复会话或安装工具，兼容 rc.2 disposer 与 rc.3 ready-handle API，并在运行期清理后释放读取器。注册期间卸载会保持运行期未激活。
 - Team 工具只安装到本 Host 自己启动的整队运行会话里。普通会话（日常对话、普通协调回合）看不到任何 Team 工具，并继续保留原生 subagent 工具——本包从不关闭它们。
 - 运行记录同时覆盖两类：带 Lead 会话与目标的整队运行，以及带成员名与「打开会话」动作的成员运行；最新在前，上限是 Host 保留的 200 条。
 - 页面把每一种失败变成一句话：传输层失败读作 not-mounted、unauthorized、forbidden、timeout、unreachable 或 unexpected；Host 拒绝在 unknown-preset、no-workspace、squad-missing、lead-create-failed、lead-prepare-failed、ledger-unavailable 上保留自己的类别；其余 code 一律读作普通拒绝，引用 Host 那句有界原文。

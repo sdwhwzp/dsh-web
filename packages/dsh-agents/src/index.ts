@@ -297,7 +297,7 @@ export function apply(ctx: Context, config?: Config): void {
     onSquadRun: () => { teamTools?.refresh() },
   })
 
-  ctx.effect(() => {
+  ctx.effect(async () => {
     const disposers: Array<() => void> = []
     try {
       // A ledger this process cannot own or read still mounts: the routes answer
@@ -327,21 +327,20 @@ export function apply(ctx: Context, config?: Config): void {
       if (!servesTeamRuntime(ctx)) {
         warn(ctx, '[dsh-agents] this deployment does not serve the agents/sessions/sessionPersistence/sessionProjections/subagents set; the forked Agent Teams runtime stays unmounted and only member runs are available')
       } else {
-        // TeamService registers itself as ctx.agentTeams and registers the
-        // 'agentTeam' projection on the ROOT context in its constructor, exactly
-        // once per mount; the mounting context owns its lifetime.
-        void new TeamService(ctx, {}, { pins: createTeammatePins(gateway) })
-        // Installed only into sessions this Host launched as a squad run: the
-        // forked runtime answers { role: 'lead' } for any root Session, so
-        // membership alone would put the Team tools into everyday chat. The cast
-        // states the service the constructor just published.
-        teamTools = installTeamTools(ctx as unknown as TeamServiceContext, {
-          isTeamSession: agent => service.isSquadSession(agent.id, agent.session.header.parentSession),
-        })
-        disposers.push(() => teamTools?.dispose())
-        // A live Agent that already qualifies (a deployment that re-executes the
-        // row) gets its tools now rather than at the next creation edge.
-        teamTools.refresh()
+        const runtime = new TeamService(ctx, {}, { pins: createTeammatePins(gateway) })
+        if (await runtime.ready) {
+          // Installed only into sessions this Host launched as a squad run: the
+          // forked runtime answers { role: 'lead' } for any root Session, so
+          // membership alone would put the Team tools into everyday chat. The cast
+          // states the runtime whose projection is ready.
+          teamTools = installTeamTools(ctx as unknown as TeamServiceContext, {
+            isTeamSession: agent => service.isSquadSession(agent.id, agent.session.header.parentSession),
+          })
+          disposers.push(() => teamTools?.dispose())
+          // A live Agent that already qualifies (a deployment that re-executes the
+          // row) gets its tools now rather than at the next creation edge.
+          teamTools.refresh()
+        }
       }
     } catch (error) {
       for (const dispose of disposers.splice(0)) dispose()

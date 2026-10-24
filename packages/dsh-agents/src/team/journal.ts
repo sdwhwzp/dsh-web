@@ -9,6 +9,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionEventMap, SessionId } from '@deepseek-ai/dsh-session'
 import type { TeamEventType, TeamState } from './projection.ts'
 import type { TeamServiceFaces } from './services.ts'
+import type { TeamProjectionHandle } from './registration.ts'
 
 type AppendTeamEvent = <T extends TeamEventType>(type: T, data: SessionEventMap[T]) => void
 type MutableTeamEventType = 'team/member' | 'team/task'
@@ -19,10 +20,12 @@ export class TeamJournal {
 
   /**
    * @param faces - the Host Session faces resolved once at mount.
+   * @param projection - ready reader retained by this runtime.
    * @param onCommit - synchronous notification after the Team event flush succeeds.
    */
   constructor(
     private readonly faces: TeamServiceFaces,
+    private readonly projection: TeamProjectionHandle,
     private readonly onCommit: (root: Agent) => void,
   ) {}
 
@@ -32,8 +35,7 @@ export class TeamJournal {
    * @returns current projected state selected by the Lead Team id.
    */
   state(root: Agent): TeamState {
-    const projection = this.faces.sessionProjections.stateOf(root.session, 'agentTeam')
-    if (projection === undefined) throw new Error('Agent Teams projection is not registered')
+    const projection = this.projection.stateOf(root.session)
     if (projection.failure !== undefined) throw new Error(projection.failure)
     return projection
   }

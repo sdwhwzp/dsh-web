@@ -5,7 +5,7 @@
  */
 /** Agent Teams service façade over roster, messaging, task, and runtime lifecycle owners. */
 
-import { Context, Service } from '@deepseek-ai/cordis'
+import { Context, CordisError, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-session-persistence'
@@ -16,7 +16,7 @@ import { errorMessage, TeamError } from './error.ts'
 import { TeamJournal } from './journal.ts'
 import { TeamRuntimeLifecycle } from './lifecycle.ts'
 import type { TeammatePins } from './pins.ts'
-import { teamProjectionDefinition } from './projection.ts'
+import { registerTeamProjection } from './registration.ts'
 import { resolveActiveMember, TeamRoster } from './roster.ts'
 import type { TeamMembership } from './roster.ts'
 import { TeamTaskBoard } from './task-board.ts'
@@ -96,9 +96,13 @@ export class TeamService extends Service {
 
   private readonly activity: TeamActivity
   private readonly lifecycle: TeamRuntimeLifecycle
-  private readonly journal: TeamJournal
-  private readonly roster: TeamRoster
-  private readonly tasks: TeamTaskBoard
+  private journal!: TeamJournal
+  private roster!: TeamRoster
+  private tasks!: TeamTaskBoard
+  private initialized = false
+
+  /** Resolves true after activation, or false when unloading preempts registration. */
+  readonly ready: Promise<boolean>
 
   constructor(ctx: Context, config: Config = {}, options: TeamServiceOptions = {}) {
     super(ctx, 'agentTeams')
@@ -120,30 +124,44 @@ export class TeamService extends Service {
 
     this.activity = new TeamActivity()
     this.lifecycle = new TeamRuntimeLifecycle(this.config.disposalTimeoutMs)
-    this.journal = new TeamJournal(faces, (root) => { this.activity.notify(TeamId(root.id)) })
-    this.roster = new TeamRoster(ctx, faces, this.journal, this.lifecycle, this.config.maxMembers, options.pins)
-    this.tasks = new TeamTaskBoard(this.journal, this.config.maxTasks)
+    const activation = ctx.effect(async () => {
+      const projection = await registerTeamProjection(faces)
+      try {
+        this.journal = new TeamJournal(faces, projection, (root) => { this.activity.notify(TeamId(root.id)) })
+        this.roster = new TeamRoster(ctx, faces, this.journal, this.lifecycle, this.config.maxMembers, options.pins)
+        this.tasks = new TeamTaskBoard(this.journal, this.config.maxTasks)
 
-    ctx.on('agent/created', ({ agent }) => {
-      this.scheduleRecovery(agent)
-      return undefined
-    })
-    ctx.on('agent/status', ({ agent }) => {
-      const membership = this.roster.tryMembership(agent)
-      if (membership !== undefined) this.activity.notify(membership.id)
-      return undefined
-    })
-    ctx.effect(() => {
-      const disposeProjection = faces.sessionProjections.register(teamProjectionDefinition)
+        ctx.on('agent/created', ({ agent }) => {
+          this.scheduleRecovery(agent)
+          return undefined
+        })
+        ctx.on('agent/status', ({ agent }) => {
+          const membership = this.roster.tryMembership(agent)
+          if (membership !== undefined) this.activity.notify(membership.id)
+          return undefined
+        })
+        for (const agent of faces.agents.list()) this.scheduleRecovery(agent)
+        this.initialized = true
+      } catch (error) {
+        await projection.dispose()
+        if (error instanceof CordisError && error.code === 'INACTIVE_EFFECT') return () => undefined
+        throw error
+      }
       return async () => {
+        this.initialized = false
         try {
           await this.disposeRuntime()
         } finally {
-          disposeProjection()
+          await projection.dispose()
         }
       }
     }, 'agentTeams.runtimeLifecycle()')
-    for (const agent of faces.agents.list()) this.scheduleRecovery(agent)
+    this.ready = Promise.resolve(activation).then(() => this.initialized)
+  }
+
+  /** Publish the service only after its projection reader is ready. */
+  protected [Service.check](): boolean {
+    return this.initialized
   }
 
   /**

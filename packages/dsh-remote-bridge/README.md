@@ -30,6 +30,8 @@ The package publishes one protocol and, beside it, one small browser surface. Wh
 - **A pairing panel.** The same plugin row declares a `dsh.client` browser half: a sidebar-foot seat that opens the official modal holding one QR symbol, one status line, one address line and one action row, over the live one-time code.
 - **No relay change.** The protocol rides whatever origin the instance already publishes, and the relay hop forwards it exactly as it forwards everything else.
 
+The answer returned to the Host has detached mutable arrays; the bridge keeps its claim snapshots immutable.
+
 ## Transport
 
 | frame | shape |

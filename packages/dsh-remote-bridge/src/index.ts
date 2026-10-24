@@ -376,7 +376,16 @@ function applyImpl(ctx: Context): void {
   // consulted. The claim starts the rest of the chain itself, so prepending does
   // not take the desktop panel away — both surfaces show the question and the
   // first answer settles it.
-  ctx.on('user-questions/request', (request, next) => hub.question(request, next), { prepend: true })
+  ctx.on('user-questions/request', async (request, next) => {
+    const answer = await hub.question(request, next)
+    // The host owns mutable answer arrays; the bridge retains immutable claims.
+    const answers = answer.answers.map((item) => {
+      const copy: { id: string; selected: string[]; custom?: string } = { id: item.id, selected: [...item.selected] }
+      if (item.custom !== undefined) copy.custom = item.custom
+      return copy
+    })
+    return { answers }
+  }, { prepend: true })
 }
 
 /**
