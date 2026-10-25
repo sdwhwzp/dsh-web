@@ -70,7 +70,7 @@ describe('task-board deployment identities', () => {
       expect(request.principal).toEqual(alice)
       return { items: [{ sessionId: 'alice-session', running: false }] }
     })
-    const gateway: TypertGateway = { invoke, wireStream: { open: vi.fn(), failure: vi.fn() }, hasLiveClient: vi.fn(), registerRemoteEvents: vi.fn(), stream: vi.fn() }
+    const gateway = { currentPrincipal: vi.fn(() => undefined), invoke, wireStream: { open: vi.fn(), failure: vi.fn() }, hasLiveClient: vi.fn(), registerRemoteEvents: vi.fn(), stream: vi.fn() }
     const host = new TaskBoardHostService(gateway, { ledger: ledger(), accounts: fixture.accounts })
     disposers.push(() => host.dispose())
     const task = { ...createTask({ ...input(), reuseSession: true }, 1, 'task-a'), executions: [

@@ -5,7 +5,7 @@ English | [中文](README.zh.md)
 <p align="center">
   <img src="https://img.shields.io/npm/v/@linxin666/dsh-client-ui-market?style=flat-square" alt="Version">
   &nbsp;
-  <img src="https://img.shields.io/badge/DSH-%3E%3D0.2.1--rc.2-4c6ef5?style=flat-square&amp;labelColor=454a54" alt="DSH">
+  <img src="https://img.shields.io/badge/DSH-%3E%3D0.2.1--rc.3-4c6ef5?style=flat-square&amp;labelColor=454a54" alt="DSH">
   &nbsp;
   <img src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" alt="License">
 </p>
@@ -108,8 +108,12 @@ The browser half sends one anonymous install heartbeat per UTC day to dsh-market
 - All downloaded content comes from `https://dsh-market.com` (asset URLs are rebuilt from the
   validated manifest); skin CSS is sanitized by the Skin Center runtime before it is applied.
 - The manifest (1 MiB), the per-asset file count (2000) and the per-file size (200 MiB) are capped and
-  every fetch has a 30 s timeout; a manifest or download exceeding a cap or timing out fails cleanly
-  and leaves the existing asset directory untouched.
+  every fetch has a 120 s per-attempt timeout with exponential backoff (two retries by default); both
+  the timeout and the retry budget are operator settings, because the published manifest alone can
+  take a minute on a slow link. A manifest or download exceeding a cap or timing out fails cleanly
+  and leaves the existing asset directory untouched. A Cloudflare managed challenge in front of the
+  market origin is reported as a blocked install with the action to take (switch network or disable
+  the proxy) instead of a bare 403 (issue #1941).
 - Presets install into an inert library, never into a discovery root: a preset is code (its composition
   can load local files and evaluate inline expressions in the host process), so downloading one must
   not be the same act as running it. The preset center owns the enable step and its confirmation.

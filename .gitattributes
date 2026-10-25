@@ -71,3 +71,8 @@ packages/dsh-win-bash/runtime/win32-x64/etc/profile whitespace=-blank-at-eol
 packages/dsh-win-bash/runtime/win32-x64/etc/profile.d/lang.sh whitespace=-blank-at-eol
 packages/dsh-win-bash/runtime/win32-x64/licenses/gcc-libs-RUNTIME.LIBRARY.EXCEPTION.txt whitespace=-blank-at-eof
 packages/dsh-win-bash/runtime/win32-x64/licenses/heimdal-LICENSE.txt whitespace=-blank-at-eol
+
+# Generated rc.3 shell bundles contain significant whitespace in string literals.
+market/dist/tryon/assets/index-D1jBwXIw.js whitespace=-blank-at-eol
+market/dist/tryon/assets/index-DX29nrPZ.js whitespace=-blank-at-eol
+market/dist/tryon/assets/schemas-BjdgLEE2.js whitespace=-blank-at-eol
