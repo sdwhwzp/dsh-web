@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
+import { describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_EXPLICIT_TOOLS,
   DEFAULT_INHERIT_TOOLS,
@@ -8,6 +9,7 @@ import {
   delegationDenialReason,
   delegationModeOf,
   inheritedRouteOf,
+  inject,
   installSubagentRoutes,
   name,
   namedRouteOf,
@@ -54,6 +56,10 @@ describe('liangshen-subagent-routes', () => {
     // Given the preset row, When the plugin loads, Then it carries the name the
     // loader reports and polices the shipped tool names.
     expect(name).toBe('liangshen-subagent-routes')
+    // The row reads `ctx.tools`, so it must declare that service: an undeclared
+    // read throws "cannot get property \"tools\" without inject" and fails the
+    // preset's own load audit instead of installing the guard.
+    expect(inject).toEqual(['tools'])
     expect(DEFAULT_EXPLICIT_TOOLS).toEqual(['subagent'])
     expect(DEFAULT_INHERIT_TOOLS).toContain('subagent_fork')
   })
@@ -252,6 +258,48 @@ describe('liangshen-subagent-routes', () => {
     expect(routeParameterProbe({ definitions: () => [{
       name: 'subagent_fork', parameters: { type: 'object', properties: { prompt: {} } },
     }] }, undefined, 'subagent_fork')).toBe(false)
+  })
+
+  /** A real cordis tree whose `tools` service a SIBLING fiber provides, as the host does. */
+  function treeWithSiblingRegistry(): { root: Context; registered: unknown[] } {
+    const root = new Context()
+    const registered: unknown[] = []
+    root.plugin({
+      name: 'host-tools',
+      apply(provider) {
+        provider.provide('tools' as never, {
+          guard: (fn: unknown) => { registered.push(fn); return () => undefined },
+        } as never)
+      },
+    })
+    return { root, registered }
+  }
+
+  it('operator gets the guard installed on a real cordis tree, and no guard from a row without the declaration', async () => {
+    // Given a real cordis tree whose `tools` service is provided by a sibling
+    // fiber, When the row mounts with its declared `inject`, Then it reads the
+    // registry and installs the guard.
+    const declared = treeWithSiblingRegistry()
+    declared.root.plugin({ name, inject, apply })
+    await vi.waitFor(() => { expect(declared.registered).toHaveLength(1) })
+
+    // Then the very same row WITHOUT the declaration never installs a guard:
+    // cordis refuses the read at the fiber boundary, which is the exact error
+    // the preset's load audit reported before the declaration existed
+    // (2026-10-26).
+    const undeclared = treeWithSiblingRegistry()
+    const errors: unknown[] = []
+    ;(undeclared.root as unknown as { logger: unknown }).logger = {
+      error: (error: unknown) => { errors.push(error) },
+      warn: () => undefined,
+      info: () => undefined,
+      debug: () => undefined,
+    }
+    undeclared.root.plugin({ name: `${name}-undeclared`, apply })
+    await vi.waitFor(() => {
+      expect(errors.map(String).join('\n')).toContain('cannot get property "tools" without inject')
+    })
+    expect(undeclared.registered).toHaveLength(0)
   })
 
   it('operator can switch the guard off from the row configuration', () => {

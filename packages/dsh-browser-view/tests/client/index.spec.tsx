@@ -1,8 +1,7 @@
 // @vitest-environment jsdom
 /**
- * Plugin wiring: what the browser half contributes to the right sidebar, under
- * which ids, and what the header shortcut does once the real adapter is bound
- * to a recording column. The shell is a hand-written fake here - no module graph
+ * Plugin wiring: what the browser half contributes to the right sidebar and
+ * under which ids. The shell is a hand-written fake here - no module graph
  * patching - so the test reads the same registrations the real services would
  * receive.
  */
@@ -16,11 +15,8 @@ import {
   BROWSER_VIEW_TAB_ID,
   BROWSER_VIEW_TAB_KIND,
 } from '../../src/client/tab-type.ts'
-import type { BrowserViewToggleFace } from '../../src/client/toggle.tsx'
-import { BrowserViewToggle } from '../../src/client/toggle.tsx'
-import { createFakeSidebar, createFakeTabRegistry, type FakeSidebar, type FakeTabRegistry } from './fake-sidebar.ts'
-import { actOn, render, type RenderedTree } from './render.tsx'
-import { translate } from './translate.ts'
+import { createFakeTabRegistry, type FakeTabRegistry } from './fake-registry.ts'
+import { render, type RenderedTree } from './render.tsx'
 
 /** One registration the fake slot registry received. */
 interface RecordedRegistration {
@@ -38,8 +34,6 @@ interface FakeShell {
   readonly registrations: ReadonlyArray<RecordedRegistration>
   /** Seats the plugin waited for, in submit order. */
   readonly awaitedSeats: ReadonlyArray<string>
-  /** The recording right sidebar. */
-  readonly sidebar: FakeSidebar
   /** The recording tab-type registry. */
   readonly tabs: FakeTabRegistry
   /** Swap the copy the bound translate resolves (a language switch). */
@@ -50,16 +44,14 @@ interface FakeShell {
 
 /**
  * Build the fake shell.
- * @param options - `bindThrows` reproduces a locale face that cannot bind;
- *   `refusesTabs` reproduces a column whose session store was never adopted.
+ * @param options - `bindThrows` reproduces a locale face that cannot bind.
  * @returns the shell.
  */
-function createShell(options: { bindThrows?: boolean; refusesTabs?: boolean } = {}): FakeShell {
+function createShell(options: { bindThrows?: boolean } = {}): FakeShell {
   let copy: Record<string, string> = {}
   const registrations: Array<RecordedRegistration> = []
   const awaitedSeats: string[] = []
   const disposers: Array<() => void> = []
-  const sidebar = createFakeSidebar({ refusesTabs: options.refusesTabs })
   const tabs = createFakeTabRegistry()
 
   const ctx = {
@@ -89,7 +81,6 @@ function createShell(options: { bindThrows?: boolean; refusesTabs?: boolean } = 
         return () => {}
       },
     },
-    sidebarRight: sidebar.service,
     sidebarRightTabs: tabs.service,
   } as unknown as ClientContext
 
@@ -97,7 +88,6 @@ function createShell(options: { bindThrows?: boolean; refusesTabs?: boolean } = 
     ctx,
     registrations,
     awaitedSeats,
-    sidebar,
     tabs,
     setCopy(next: Record<string, string>): void {
       copy = next
@@ -117,7 +107,7 @@ function registrationOf(shell: FakeShell, name: string): RecordedRegistration {
 
 /** Shells booted by one case, torn down after it. */
 let shell: FakeShell | null = null
-/** Mounted shortcut shared by one case. */
+/** Mounted tree shared by one case. */
 let tree: RenderedTree | null = null
 
 afterEach(() => {
@@ -129,27 +119,23 @@ afterEach(() => {
 
 describe('browser view plugin wiring', () => {
   it('operator loads the plugin and the browser view becomes a right-sidebar tab type with a body and a chip', () => {
-    // Given a shell that declares the sidebar, its tab registry and the header action row
+    // Given a shell that declares the sidebar tab registry and the two pane seats
     // When the plugin applies
-    // Then it declares the tab type, waits for the three seats, and registers the body and the chip under the type own id
+    // Then it declares the tab type, waits for the two keyed seats, and registers the body and the chip under the type own id
     shell = createShell()
     shell.setCopy({ 'tab.title': zh['tab.title'] })
 
     apply(shell.ctx)
 
-    expect(browserViewInject).toContain('sidebarRight')
+    expect(browserViewInject).not.toContain('sidebarRight')
     expect(browserViewInject).toContain('sidebarRightTabs')
-    expect(shell.awaitedSeats).toEqual([
-      'conversation.session.header.actions',
-      'sidebar.right.pane.tab',
-      'sidebar.right.pane.tab.title',
-    ])
+    expect(shell.awaitedSeats).toEqual(['sidebar.right.pane.tab', 'sidebar.right.pane.tab.title'])
     expect(shell.registrations.map((registration) => registration.name)).toEqual([
-      'conversation.session.header.actions',
       'sidebar.right.pane.tab',
       'sidebar.right.pane.tab.title',
     ])
-    // Nothing takes the center column or the global panel list over any more.
+    // No session-header entry any more, and nothing takes the center column or the global panel list over.
+    expect(shell.awaitedSeats).not.toContain('conversation.session.header.actions')
     expect(shell.awaitedSeats).not.toContain('main')
     expect(shell.awaitedSeats).not.toContain('sidebar.panellist')
 
@@ -202,70 +188,8 @@ describe('browser view plugin wiring', () => {
     expect(shell.tabs.definitions[0].title(BROWSER_VIEW_TAB_KIND)).toBe(zh['tab.title'])
   })
 
-  it('user clicks the injected header shortcut in a session without a browser tab and one is opened', () => {
-    // Given the plugin applied and a session that holds no browser-view tab
-    // When the shortcut built from the injected face is clicked
-    // Then the column is asked to open exactly one browser-view tab for that session
-    shell = createShell()
-    apply(shell.ctx)
-    const action = registrationOf(shell, 'conversation.session.header.actions')
-    const face = (action.options.inject as (sessionId: string) => BrowserViewToggleFace)('session-a')
-
-    const mounted = render(<BrowserViewToggle t={translate(zh)} tabs={face.tabs} sessionId={face.sessionId} />)
-    tree = mounted
-
-    actOn(() => {
-      ;(mounted.container.querySelector('[data-dsh-part="toggle"]') as HTMLButtonElement).click()
-    })
-
-    expect(face.sessionId).toBe('session-a')
-    expect(shell.sidebar.opened).toEqual([{ sessionId: 'session-a', kind: BROWSER_VIEW_TAB_KIND }])
-    expect(shell.sidebar.focused).toEqual([])
-  })
-
-  it('user clicks the injected header shortcut in a session that already shows a browser tab and that tab is focused', () => {
-    // Given a session that already holds a browser-view tab
-    // When the shortcut built from the injected face is clicked
-    // Then that tab is focused and no second one is opened
-    shell = createShell()
-    apply(shell.ctx)
-    shell.sidebar.declareTab('session-a', { id: 'tab-7', kind: BROWSER_VIEW_TAB_KIND })
-    const action = registrationOf(shell, 'conversation.session.header.actions')
-    const face = (action.options.inject as (sessionId: string) => BrowserViewToggleFace)('session-a')
-
-    const mounted = render(<BrowserViewToggle t={translate(zh)} tabs={face.tabs} sessionId={face.sessionId} />)
-    tree = mounted
-
-    actOn(() => {
-      ;(mounted.container.querySelector('[data-dsh-part="toggle"]') as HTMLButtonElement).click()
-    })
-
-    expect(shell.sidebar.focused).toEqual(['tab-7'])
-    expect(shell.sidebar.opened).toEqual([])
-  })
-
-  it('operator presses the shortcut for a session whose tab list cannot be read and a tab is still requested', () => {
-    // Given a column that refuses the session's tab list, as one whose store the runtime never adopted does
-    // When the shortcut built from the injected face is clicked
-    // Then the click asks for a browser-view tab instead of failing, and the button survives the refusal
-    shell = createShell({ refusesTabs: true })
-    apply(shell.ctx)
-    const action = registrationOf(shell, 'conversation.session.header.actions')
-    const face = (action.options.inject as (sessionId: string) => BrowserViewToggleFace)('session-a')
-
-    const mounted = render(<BrowserViewToggle t={translate(zh)} tabs={face.tabs} sessionId={face.sessionId} />)
-    tree = mounted
-
-    actOn(() => {
-      ;(mounted.container.querySelector('[data-dsh-part="toggle"]') as HTMLButtonElement).click()
-    })
-
-    expect(shell.sidebar.opened).toEqual([{ sessionId: 'session-a', kind: BROWSER_VIEW_TAB_KIND }])
-    expect(mounted.container.querySelectorAll('[data-dsh-part="toggle"]')).toHaveLength(1)
-  })
-
   it('user opens the right sidebar guide and finds a browser view capsule', () => {
-    // Given a shell that declares the sidebar, its tab registry and the header action row
+    // Given a shell that declares the sidebar and its tab registry
     // When the plugin applies and the guide asks the type for its entries
     // Then one capsule carries this plugin's own title, its one-line purpose, a stable id and a position of its own
     shell = createShell()

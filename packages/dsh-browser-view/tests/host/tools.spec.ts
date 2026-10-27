@@ -66,7 +66,7 @@ function build(options: { saveImage?: boolean } = {}) {
 }
 
 describe('tool catalog', () => {
-  it('operator lists the tool surface and exactly the ten documented tools are registered', () => {
+  it('operator lists the tool surface and exactly the eleven documented tools are registered', () => {
     // Given the tool surface built over the fake browser
     // When the tool names are read
     // Then they equal the documented name list exactly
@@ -210,6 +210,87 @@ describe('multiple tabs through the tool surface', () => {
     }
     expect(parameters.properties.new_tab?.type).toBe('boolean')
     expect(parameters.required ?? []).toEqual(['url'])
+  })
+})
+
+describe('browser_close', () => {
+  it('operator closes the tab it opened and another session keeps its page', async () => {
+    // Given two sessions each driving a tab of their own
+    // When the first session closes its tab
+    // Then exactly that tab is reported closed and the other session still has its page
+    const { byName } = build()
+    const mine = await byName('browser_navigate').execute({ url: 'https://a.test/' }, fakeExec('session-a')) as { tabId: string }
+    const theirs = await byName('browser_navigate').execute({ url: 'https://b.test/' }, fakeExec('session-b')) as { tabId: string }
+
+    const closed = await byName('browser_close').execute({}, fakeExec('session-a')) as { closed: string[] }
+
+    expect(closed.closed).toEqual([mine.tabId])
+    const left = await byName('browser_tabs').execute({}, fakeExec('session-b')) as { tabs: Array<{ id: string }> }
+    expect(left.tabs.map(tab => tab.id)).toEqual([theirs.tabId])
+  })
+
+  it('operator names a tab another session opened and the close is refused with the reason', async () => {
+    // Given a tab owned by session B
+    // When session A asks to close that exact tab
+    // Then the call rejects naming the ownership rule and the tab is still open
+    const { byName } = build()
+    await byName('browser_navigate').execute({ url: 'https://a.test/' }, fakeExec('session-a'))
+    const theirs = await byName('browser_navigate').execute({ url: 'https://b.test/' }, fakeExec('session-b')) as { tabId: string }
+
+    await expect(byName('browser_close').execute({ tab_id: theirs.tabId }, fakeExec('session-a')))
+      .rejects.toThrow(/was not opened by this session/)
+
+    const left = await byName('browser_tabs').execute({}, fakeExec('session-a')) as { tabs: Array<{ id: string }> }
+    expect(left.tabs.map(tab => tab.id)).toContain(theirs.tabId)
+  })
+
+  it('operator closes from a session that owns no tab and the call closes nothing', async () => {
+    // Given a browser running for another session
+    // When a session with no tab of its own asks to close
+    // Then nothing is reported closed, the call does not throw, and the other page stays
+    const { byName } = build()
+    const theirs = await byName('browser_navigate').execute({ url: 'https://a.test/' }, fakeExec('session-a')) as { tabId: string }
+
+    const closed = await byName('browser_close').execute({}, fakeExec('session-b')) as { closed: string[] }
+
+    expect(closed.closed).toEqual([])
+    const left = await byName('browser_tabs').execute({}, fakeExec('session-a')) as { tabs: Array<{ id: string }> }
+    expect(left.tabs.map(tab => tab.id)).toEqual([theirs.tabId])
+  })
+
+  it('operator closes before any browser started and the call reports nothing closed', async () => {
+    // Given no browser started at all
+    // When browser_close runs
+    // Then it closes nothing instead of failing to start a browser
+    const { byName, browser } = build()
+    const closed = await byName('browser_close').execute({}, fakeExec('session-a')) as { closed: string[] }
+    expect(closed.closed).toEqual([])
+    expect(browser.opens()).toBe(0)
+  })
+
+  it('operator names an unknown tab id and the close is refused with the tab id', async () => {
+    // Given no tab with that id
+    // When browser_close names it
+    // Then the call rejects pointing at browser_tabs
+    const { byName } = build()
+    await byName('browser_navigate').execute({ url: 'https://a.test/' }, fakeExec('session-a'))
+    await expect(byName('browser_close').execute({ tab_id: 'tab-nope' }, fakeExec('session-a')))
+      .rejects.toThrow(/unknown tab "tab-nope"/)
+  })
+
+  it('operator reads the declared result and the closed list validates against its own schema', async () => {
+    // Given the registered close tool
+    // When a close runs and its value is validated and rendered
+    // Then the value satisfies the schema and renders one text block carrying the closed ids
+    const { byName } = build()
+    const mine = await byName('browser_navigate').execute({ url: 'https://a.test/' }, fakeExec('session-a')) as { tabId: string }
+    const tool = byName('browser_close')
+    const value = await tool.execute({}, fakeExec('session-a')) as { closed: string[] }
+
+    expect(validateJsonSchemaValue(tool.output.schema, asJson(value))).toEqual([])
+    const blocks = tool.output.render({}, asJson(value)) as ContentBlock[]
+    expect(blocks).toHaveLength(1)
+    expect((blocks[0] as { text: string }).text).toContain(mine.tabId)
   })
 })
 

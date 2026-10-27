@@ -7,7 +7,7 @@
  * only thing borrowed is the IconProps shape, as a type, and the glyph itself
  * inherits its colour from the capsule through currentColor.
  *
- * It restates the mark the chip and the header shortcut already use - a browser
+ * It restates the mark the chip already uses - a browser
  * window with the agent's cursor inside - so a user who has seen one recognises
  * the other. It is deliberately not the shipped browser tab's artwork: this tab
  * is a different implementation and does not pass itself off as that one.

@@ -11,8 +11,6 @@
 export const ru: Record<string, string> = {
   'tab.title': 'Вид браузера',
   'guide.description': 'Смотреть страницу, которой управляет агент',
-  'toggle.label': 'Браузер',
-  'toggle.open': 'Открыть вид браузера',
   'panel.tab.untitled': 'Без названия',
   'panel.url.empty': 'Страница ещё не открыта',
   'panel.address.label': 'Адрес страницы',

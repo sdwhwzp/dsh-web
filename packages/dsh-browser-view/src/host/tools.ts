@@ -1,5 +1,5 @@
 /**
- * The ten agent tools over the browser service.
+ * The eleven agent tools over the browser service.
  *
  * Shape of a result. Every tool but `browser_screenshot` returns structured
  * JSON, rendered as one pretty-printed text block: the model reads fields, not
@@ -530,7 +530,41 @@ title: ${value.title}
     },
   })
 
-  return [navigate, click, type, press, scroll, snapshot, screenshot, consoleTool, networkTool, tabs]
+  const close = defineTool({
+    name: 'browser_close',
+    description: 'Close the browser tab this session opened, and nothing else. '
+      + 'Call it when the work in the browser is finished: a tab left open is a page still running on the host and a chip still sitting in the panel, and the next thing anyone sees is somebody else\'s leftover. '
+      + 'It refuses a tab another session opened, because those pages belong to the sessions driving them; a session that owns no tab closes nothing and still succeeds, so the call is safe to make unconditionally. '
+      + 'Without tab_id it closes every tab this session opened; with tab_id it closes exactly that one. '
+      + '中文触发词：关掉网页、关闭标签页、收尾清理。',
+    parameters: {
+      tab_id: {
+        type: 'string',
+        description: 'Tab id from browser_tabs or a previous result. Omit to close every tab this session opened.',
+      },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          closed: {
+            type: 'array',
+            required: true,
+            items: { type: 'string' },
+            description: 'Ids of the tabs this call actually closed, in close order.',
+          },
+        },
+      },
+      render: (_args, value) => renderJson(value),
+    },
+    execute: async (args, exec) => {
+      const closed = await service.closeOwnTabs(sessionIdOf(exec), args.tab_id)
+      return { closed }
+    },
+  })
+
+  return [navigate, click, type, press, scroll, snapshot, screenshot, consoleTool, networkTool, tabs, close]
 }
 
 /** Names of every tool this plugin registers, in registration order. */
@@ -545,4 +579,5 @@ export const BROWSER_TOOL_NAMES = [
   'browser_console',
   'browser_network',
   'browser_tabs',
+  'browser_close',
 ] as const

@@ -255,22 +255,7 @@ export class BrowserViewService implements BrowserViewBackend {
           return
         }
         case 'close-tab': {
-          const tabs = await this.requireTabs()
-          // Forget the binding first: a later tool call must not resurrect a
-          // tab the user deliberately closed.
-          for (const [sessionId, boundTab] of [...this.bindings]) {
-            if (boundTab === command.tabId) this.bindings.delete(sessionId)
-          }
-          const wasDisplayed = command.tabId === this.displayedTabId
-          await tabs.closeTab(command.tabId)
-          if (wasDisplayed) {
-            // The pinned tab is gone, so there is nothing left to hold: fall
-            // back to whatever remains and resume following.
-            this.selectionPinned = false
-            this.displayedTabId = null
-            this.showTab(tabs.list().at(-1)?.id ?? null)
-          }
-          this.broadcast({ v: 1, kind: 'state', state: this.state() })
+          await this.closeTab(command.tabId)
           return
         }
         default: {
@@ -281,6 +266,71 @@ export class BrowserViewService implements BrowserViewBackend {
     } catch (error) {
       this.fail('command-failed', error)
     }
+  }
+
+  /**
+   * Close one tab, drop every binding that pointed at it, and let the panels
+   * fall back when the tab they were watching is the one that went away.
+   *
+   * Bindings are forgotten before the target goes, so a later tool call cannot
+   * resurrect a tab somebody deliberately closed.
+   * @param tabId - tab to close.
+   */
+  async closeTab(tabId: string): Promise<void> {
+    const tabs = await this.requireTabs()
+    const wasDisplayed = tabId === this.displayedTabId
+    for (const [sessionId, boundTab] of [...this.bindings]) {
+      if (boundTab === tabId) this.bindings.delete(sessionId)
+    }
+    await tabs.closeTab(tabId)
+    if (wasDisplayed) {
+      // The pinned tab is gone, so there is nothing left to hold: fall back to
+      // whatever remains and resume following.
+      this.selectionPinned = false
+      this.displayedTabId = null
+      this.showTab(tabs.list().at(-1)?.id ?? null)
+    }
+    this.broadcast({ v: 1, kind: 'state', state: this.state() })
+  }
+
+  /**
+   * Close the tabs one agent session opened, and nothing else.
+   *
+   * Ownership is read off the tab record rather than the binding map: a session
+   * may have driven somebody else's tab through an explicit `tabId`, and that
+   * must not make the tab its own to destroy. A caller that names a tab it does
+   * not own is refused with the reason instead of being quietly ignored, because
+   * a cleanup that reports success while closing nothing is worse than an error.
+   *
+   * A session with no tab of its own, or a host with no browser running yet,
+   * closes nothing and succeeds: cleanup is the one call that must be safe to
+   * make unconditionally.
+   * @param sessionId - calling agent session; absent means no ownership basis.
+   * @param tabId - one tab to close; omitted closes every tab this session owns.
+   * @returns ids of the tabs actually closed, in close order.
+   */
+  async closeOwnTabs(sessionId: string | undefined, tabId?: string): Promise<string[]> {
+    if (sessionId === undefined) {
+      throw new Error('browser_close needs the calling session: with no session there is no tab this call may close')
+    }
+    if (this.session === undefined) return []
+    const tabs = this.session.tabs
+    if (tabId !== undefined && tabId !== '') {
+      const found = tabs.list().find(tab => tab.id === tabId)
+      if (found === undefined) throw new Error(`unknown tab "${tabId}"; call browser_tabs to see the open tabs`)
+      if (found.sessionId !== sessionId) {
+        throw new Error(`tab "${tabId}" was not opened by this session, so it is not this session's to close`)
+      }
+      await this.closeTab(found.id)
+      return [found.id]
+    }
+    const owned = tabs.list().filter(tab => tab.sessionId === sessionId)
+    const closed: string[] = []
+    for (const tab of owned) {
+      await this.closeTab(tab.id)
+      closed.push(tab.id)
+    }
+    return closed
   }
 
   /**

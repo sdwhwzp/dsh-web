@@ -10,11 +10,11 @@ DSH Web GUI 插件 dsh-browser-view（实时浏览器视图）。包级规则：
 - `src/core/protocol.ts` 是两侧唯一的线上契约（事件、命令、数据结构、版本号与
   校验函数）。改它等于同时改两侧：先改契约，再让两侧对齐，不要各自加字段。
 - 席位：`sidebar.right.pane.tab`（keyed/session，标签页内容）、
-  `sidebar.right.pane.tab.title`（keyed/session，chip 文字与图标）、
-  `conversation.session.header.actions`（打开/聚焦的快捷按钮）。三者都经
-  `ctx.slots.inject` 声明感知注册。
-- 标签页类型经 `ctx.sidebarRightTabs.register` 注册，用 `ctx.sidebarRight.openTabIn`
-  打开；`kind` 固定为 `browser-view`。**禁止**改成 `browser`：官方
+  `sidebar.right.pane.tab.title`（keyed/session，chip 文字与图标）。两者都经
+  `ctx.slots.inject` 声明感知注册。会话头部**不再**有入口：右栏自己的 tab strip
+  与 guide 胶囊已经能开这个标签页，头部再加一个只是挤占那一行；不要再加回来。
+- 标签页类型经 `ctx.sidebarRightTabs.register` 注册，由右栏按 `kind` 打开；
+  `kind` 固定为 `browser-view`。**禁止**改成 `browser`：官方
   `@deepseek-ai/dsh-client-ui-sidebar-browser` 占用该 kind，extension 档位会接管它，
   等于顶掉 shipped UI。
 - **禁止**注册 `rightbar` / `rightbar.session`——两者是那一栏本身的单占位，已被官方
@@ -23,10 +23,9 @@ DSH Web GUI 插件 dsh-browser-view（实时浏览器视图）。包级规则：
   `main` / `sidebar.panellist` 注册；`keepMounted` 必须保持开启，切 chip 不能断 socket。
 - 面板承载的是**帧**，不是 iframe：被控页面在宿主侧的独立 Chromium 里，浏览器半区
   既无沙箱网络也无同源权限去嵌它。
-- 浏览器半区值导入只允许平台种子表成员；`src/client/contracts.ts` 以 type-only 方式
-  只重申 `conversation.session.header.actions`（其 owner 不在依赖链上）。两个
-  `sidebar.right.pane.tab*` 键直接用 owner 自己的声明，不再本地抄——抄一遍会因
-  `TabHookContext` 未从 barrel 导出而 TS2717。
+- 浏览器半区值导入只允许平台种子表成员。两个 `sidebar.right.pane.tab*` 键直接用
+  owner 自己的声明，不要本地抄——抄一遍会因 `TabHookContext` 未从 barrel 导出而
+  TS2717。
 
 ## 安全语义
 

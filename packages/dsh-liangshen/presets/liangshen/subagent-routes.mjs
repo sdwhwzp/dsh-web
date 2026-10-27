@@ -39,6 +39,17 @@
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'liangshen-subagent-routes'
 
+/**
+ * Services this row reads.
+ *
+ * A preset row runs in its own fiber, where a service it does not declare is
+ * not readable at all: `ctx.tools` against an undeclared `tools` throws
+ * "cannot get property \"tools\" without inject" and fails the preset's load
+ * audit. The guard reads the registry for its `guard` seam and its `definitions`
+ * probe, so declaring it is what lets the row mount and stay mounted.
+ */
+export const inject = ['tools']
+
 /** Durable event carrying a Session's authorized child routes. */
 export const POLICY_EVENT = 'subagent/model-selection-policy'
 

@@ -15,7 +15,7 @@ This package is an external plugin for DeepSeek Harness (DSH), structured as a c
 ## What it does
 
 - **A live tab, not a screenshot poll**: CDP `Page.startScreencast` frames arrive over one WebSocket and are painted as they come. The tab shows the active page, its URL and title, and what the agent last did.
-- **Ten agent tools**: `browser_navigate`, `browser_click`, `browser_type`, `browser_press`, `browser_scroll`, `browser_snapshot`, `browser_screenshot`, `browser_console`, `browser_network`, `browser_tabs`.
+- **Eleven agent tools**: `browser_navigate`, `browser_click`, `browser_type`, `browser_press`, `browser_scroll`, `browser_snapshot`, `browser_screenshot`, `browser_console`, `browser_network`, `browser_tabs`, `browser_close` (closes only the tabs this session opened).
 - **Evidence in the conversation**: every `browser_screenshot` result carries the image, so the transcript keeps the picture the agent acted on instead of only a sentence about it.
 - **One dedicated browser**: the plugin launches its own Chromium with a throwaway profile. It never attaches to a browser you are signed into.
 - **Signs itself in to this host's own GUI**: a fresh profile has no session cookie, so the viewer would only ever see the 401 challenge. When a navigation lands on that challenge over loopback, the plugin asks the host's connection service for the same ticketed URL `dsh web` printed, and retries once. The cookie that mints lives in the throwaway profile and dies with it.
@@ -36,7 +36,8 @@ The host half starts Chrome lazily on the first tool call or the first tab mount
 | --- | --- | --- |
 | `sidebar.right.pane.tab` | keyed, session | the tab body |
 | `sidebar.right.pane.tab.title` | keyed, session | the chip text and glyph |
-| `conversation.session.header.actions` | list, session | the shortcut that opens or focuses the tab |
+
+The conversation header carries no entry for this tab: the column's own tab strip and the guide capsule already open it, and a third place to click was only crowding that row.
 
 The tab type is registered with `ctx.sidebarRightTabs.register` and opened with `ctx.sidebarRight.openTabIn`. Its kind is `browser-view`, deliberately **not** `browser`: the shipped `@deepseek-ai/dsh-client-ui-sidebar-browser` owns that kind, and a second registration in the extension band takes a kind over, which would shadow the shipped tab out of existence.
 

@@ -1,5 +1,5 @@
-/* Browser view: the session-header shortcut, the right-sidebar chip's contents
-   and the tab body. Design tokens only (no literal colors) so the surface
+/* Browser view: the right-sidebar chip's contents and the tab body. Design
+   tokens only (no literal colors) so the surface
    follows the active skin. The shell owns the column, the chip's box and the
    switch between tabs; only what this plugin draws is styled here.
 
@@ -9,49 +9,6 @@
    300-500px), so nothing here carries a fixed width: the address field takes
    the remaining toolbar width, the tab chips scroll sideways, and the frame
    scales to the width it is given. */
-
-/* -- Header shortcut -- */
-
-.toggle {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 32px;
-  border: none;
-  border-radius: 8px;
-  padding: 0 10px;
-  background: transparent;
-  color: var(--dsw-alias-label-secondary);
-  font-size: 13px;
-  line-height: 20px;
-  cursor: pointer;
-  transition: background-color 120ms ease, color 120ms ease;
-}
-
-.toggle:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-  color: var(--dsw-alias-label-primary);
-}
-
-.toggle:active {
-  background: var(--dsw-alias-interactive-bg-active);
-}
-
-.toggle:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px var(--dsw-alias-bg-layer-2), 0 0 0 4px var(--dsw-alias-brand-primary);
-}
-
-.toggleLabel {
-  white-space: nowrap;
-}
-
-.icon {
-  flex: none;
-  width: 16px;
-  height: 16px;
-}
 
 /* -- Chip contents --
 

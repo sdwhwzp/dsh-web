@@ -19,8 +19,6 @@
 export const zh = {
   'tab.title': '浏览器视图',
   'guide.description': '看 agent 正在操作的网页',
-  'toggle.label': '浏览器',
-  'toggle.open': '打开浏览器视图',
   'panel.tab.untitled': '未命名页面',
   'panel.url.empty': '还没有打开页面',
   'panel.address.label': '页面地址',
@@ -42,8 +40,6 @@ export type BrowserViewKey = keyof typeof zh
 export const en: Record<BrowserViewKey, string> = {
   'tab.title': 'Browser view',
   'guide.description': 'Watch the page the agent is driving',
-  'toggle.label': 'Browser',
-  'toggle.open': 'Open the browser view',
   'panel.tab.untitled': 'Untitled page',
   'panel.url.empty': 'No page open yet',
   'panel.address.label': 'Page address',

@@ -26,8 +26,10 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
  * dsh-client-ui-chat and dsh-client-ui-session joined with message-edit:
  * ui-chat owns conversation.chat.turnTail, while ui-session supplies the
  * Session standard props and useAccess gate that the editor consumes.
- * dsh-client-ui-sidebar-right owns the browser-view tab registry and service;
- * its ui-sidebar-right row is part of the same dsh-web-app composition.
+ * dsh-client-ui-sidebar-right joined with browser-view's live tab: it is the
+ * ui-sidebar-right row of dsh-web-app and the owner of ctx.sidebarRightTabs,
+ * the service that tab type registers into, so the row must be live before
+ * the tab can be added.
  * A rename, removal, or new inject name must update this list together with
  * its runtime-module-table evidence.
  */

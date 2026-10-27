@@ -16,8 +16,6 @@ export const BROWSER_VIEW_PLUGIN = 'browser-view'
 
 /** Part names this plugin emits, in surface order. */
 export const BROWSER_VIEW_PARTS = {
-  /** Session-header shortcut that reveals the browser-view tab. */
-  toggle: 'toggle',
   /** The tab body the sidebar mounts in its content area. */
   panel: 'panel',
   /** Top chrome row: address display, connection state, refresh. */

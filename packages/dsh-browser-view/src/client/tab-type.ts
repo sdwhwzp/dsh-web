@@ -10,8 +10,9 @@
  * it is also the key of the params map below.
  *
  * The `guide` entry is what puts this type on the right sidebar's guide page -
- * the list a user sees when the column has no page in front - instead of
- * leaving it reachable only from the header shortcut. The guide owns the click:
+ * the list a user sees when the column has no page in front. It is the one place
+ * that opens the tab now that the conversation header carries no entry of its
+ * own, and the guide owns the click:
  * it renders one capsule per registered entry and opens the entry's own `kind`
  * (GuideBody: tab.actions.openTab(entry.kind, { replaceTab: true })), so this
  * plugin declares the capsule and never wires a handler of its own. No
