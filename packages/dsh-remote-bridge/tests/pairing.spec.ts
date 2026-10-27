@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { base64UrlEncode, fingerprintOfSpki, isP256Spki, sha256Hex, tokenHash, verifyEs256 } from '../src/core/crypto.ts'
-import { DeviceRoster } from '../src/core/devices.ts'
+import { DeviceRoster, type PushRegistration } from '../src/core/devices.ts'
 import { PairingService } from '../src/core/pairing.ts'
 import { answerOf, makeConnection, requestFrame } from './support/harness.ts'
 
@@ -146,6 +146,44 @@ describe('pairing: bootstrap tokens, nonces and the device roster', () => {
     await device.load()
     expect(device.authenticate(enrollment.deviceToken)?.deviceId).toBe(enrollment.deviceId)
     expect(device.authenticate('not-the-token')).toBeUndefined()
+  })
+
+  it('operator pairs the same phone a second time and it keeps the row it already had', async () => {
+    // Given a phone that paired once at a clock this suite owns, and registered
+    // for notifications
+    let now = 1_700_000_000_000
+    const file = await rosterFile()
+    const roster = new DeviceRoster({ file, now: () => now })
+    const key = p256()
+    const first = await roster.enroll(key.spki)
+    if (first === undefined) throw new Error('enrollment was refused')
+    const registration: PushRegistration = {
+      deviceToken: 'aabbccdd',
+      environment: 'sandbox',
+      bundle: 'dev.dsh.Whale',
+      registeredAt: now,
+    }
+    await roster.registerPush(first.deviceId, registration)
+    // When the same key pairs again an hour later
+    now += 3_600_000
+    const second = await roster.enroll(key.spki)
+    if (second === undefined) throw new Error('the second enrollment was refused')
+    // Then one row is still the whole phone: same id, same creation time, its
+    // registration untouched, and the newest sighting
+    expect(roster.devices()).toHaveLength(1)
+    expect(second.deviceId).toBe(first.deviceId)
+    expect(roster.devices()[0]?.createdAt).toBe(1_700_000_000_000)
+    expect(roster.devices()[0]?.lastSeenAt).toBe(now)
+    expect(roster.pushTargets()).toEqual([{ deviceId: first.deviceId, push: registration }])
+    // And only the credential moved: the token from before the pairing no longer
+    // authenticates the device, the one it was just issued does
+    expect(roster.authenticate(first.deviceToken)).toBeUndefined()
+    expect(roster.authenticate(second.deviceToken)?.deviceId).toBe(first.deviceId)
+    // And a fresh process reads that same single row back out of the file
+    const reloaded = new DeviceRoster({ file })
+    await reloaded.load()
+    expect(reloaded.devices().map(row => row.deviceId)).toEqual([first.deviceId])
+    expect(reloaded.devices()).toHaveLength(1)
   })
 
   it('operator opens the roster file and finds it private, atomic and free of leftovers', async () => {

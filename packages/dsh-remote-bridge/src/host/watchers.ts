@@ -36,11 +36,12 @@
  * @module dsh-remote-bridge/host/watchers
  */
 
-import { SNAPSHOT_MAX_MESSAGES } from '../core/connection.ts'
+import { isTurnStartDelta, SNAPSHOT_MAX_MESSAGES } from '../core/connection.ts'
 import { deltaOfFollowFrame, MessageIndex, readFollowBaseline, SpawnCallIndex, ToolCallIndex } from '../core/dsh-frames.ts'
 import { failureText, withServiceUnavailableRetry } from '../core/gateway-errors.ts'
 import type { LiveActivityNotifier } from '../core/liveactivity.ts'
 import { pushEventOfTurnEnd, type PushNotifier } from '../core/push.ts'
+import type { TurnEndQuietGate } from '../core/turn-end-quiet.ts'
 import { sessionAddress, wireArgs, type BridgeGateway, type GatewayPeer } from '../core/wire.ts'
 
 /** Most standing streams this bridge keeps open at once. */
@@ -62,6 +63,12 @@ export interface StandingWatcherOptions {
   readonly liveActivity?: LiveActivityNotifier
   /** The notification path of §28; absent for the same reason. */
   readonly push?: PushNotifier
+  /**
+   * The gate both channels announce a finished turn through, so a card and a
+   * notification wait for the same quiet session. Absent is a watcher set built
+   * without one — a suite — and then both report at the frame.
+   */
+  readonly turnEndQuiet?: TurnEndQuietGate
   readonly log: (message: string) => void
   readonly limit?: number
   readonly reopenMs?: number
@@ -208,7 +215,14 @@ export class StandingWatchers {
         if (next.done === true) break
         if (signal.aborted) break
         const delta = deltaOfFollowFrame(next.value, toolCalls, messages, memory)
-        if (delta === undefined || delta.kind !== 'turn-end') continue
+        if (delta === undefined) continue
+        // Only an increment that proves this session's own work proves a new turn; a
+        // settled child, a usage count and a catalog change all arrive here without
+        // meaning the user prompted again.
+        if (delta.kind !== 'turn-end') {
+          if (isTurnStartDelta(delta)) this.#options.turnEndQuiet?.noteTurnStarted(sessionId)
+          continue
+        }
         this.#turnEnded(sessionId, delta.reason)
       }
     } catch (error) {
@@ -224,10 +238,20 @@ export class StandingWatchers {
    * Both, on purpose: §28's notification is what wakes a phone that is not
    * holding a socket, and §29's card end is what clears a lock screen. Reporting
    * only one of them leaves the other surface stale, which is the exact state
-   * this module exists to end.
+   * this module exists to end. Both go through the shared gate, so a watcher and
+   * a client that followed the same session announce it at the same instant — when
+   * the session is quiet — and never at the frame.
    */
   #turnEnded(sessionId: string, reason: string): void {
     try {
+      const gate = this.#options.turnEndQuiet
+      if (gate !== undefined) {
+        gate.noteTurnEnd(sessionId, reason)
+        // Nothing has been sent at this point, so the line says what really
+        // happened: the end is held, and the gate's own line reports the send.
+        this.#options.log(`watcher turn-end session=${sessionId} reason=${reason} held=quiet-gate`)
+        return
+      }
       this.#options.push?.notify(pushEventOfTurnEnd(reason), sessionId)
       this.#options.liveActivity?.noteTurnEnd(sessionId, reason)
       const pushed = this.#options.liveActivity?.enabled === true ? 'card' : 'notification-only'

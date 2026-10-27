@@ -1,8 +1,9 @@
 /**
  * `usage.v1` 的两个读数：一条会话下一次请求由什么组成，以及某个 provider
- * 路由背后账户的余额。
+ * 路由背后账户的余额；外加 `usage.stats.v1` 那一份宿主台账的聚合（见
+ * `usage-stats.ts`，本模块只把它的读数转发出去）。
  *
- * 两半都是「本进程自己的事实」，所以谁都不去打断会话，也不落盘：
+ * 前两半都是「本进程自己的事实」，所以谁都不去打断会话，也不落盘：
  *
  * - 会话那一半折的是宿主经 `session/event` 广播给本进程的事件。上下文窗口
  *   只有宿主真正广播过才有（最近一次 `request/context` 的 `contextWindow`），
@@ -15,12 +16,19 @@
  *
  * 宿主服务一律走结构化 face：一个服务没挂载就少一档读数，而不是让整条方法
  * 失败（`session-meta.ts` 与 `wire.ts` 都是同一套理由）。
+ *
+ * 会话那一半还有第三档读数：宿主从未广播过 `request/context` 窗口时，去问那条
+ * 路由的模型目录（`GET {baseURL}/models`），把模型自己声明的窗口填进
+ * `modelContextWindow`。两个键永不混用——`contextWindow` 恒为宿主实测，
+ * `modelContextWindow` 恒为模型声明，客户端据此能分辨该相信谁；宿主广播过窗口时
+ * 这一档根本不出现。
  * @module dsh-remote-bridge/core/usage
  */
 
 import { failureText } from './gateway-errors.ts'
 import { METHOD_USAGE_BALANCE, METHOD_USAGE_SESSION } from './protocol.ts'
 import type { SessionStoreFace } from './session-meta.ts'
+import { STATS_DAYS_DEFAULT, type UsageStatsAnswer, type UsageStatsReader } from './usage-stats.ts'
 
 /** `usage.v1` 背后的两个方法：能力门按这一张表判定。 */
 export const USAGE_METHODS: ReadonlySet<string> = new Set([METHOD_USAGE_SESSION, METHOD_USAGE_BALANCE])
@@ -48,6 +56,21 @@ export const BALANCE_PROBE_TIMEOUT_MS = 10_000
 
 /** 余额缓存最多记住多少个 provider + 凭据组合。 */
 export const BALANCE_CACHE_LIMIT = 64
+
+/**
+ * 一条路由的模型目录在这个窗口内最多读一次。
+ *
+ * 目录里的窗口是模型自己声明的静态事实，不会因为一次请求而变化，所以这一档比
+ * 余额那一档长得多：10 分钟既跟得上用户改配置，也不会让每次 `usage.session`
+ * 都打一次上游。
+ */
+export const MODEL_WINDOW_CACHE_TTL_MS = 600_000
+
+/** 一次模型目录探测的超时；超时与 404 一样是「这次没读到」。 */
+export const MODEL_WINDOW_PROBE_TIMEOUT_MS = 5_000
+
+/** 模型目录缓存最多记住多少条路由。 */
+export const MODEL_WINDOW_CACHE_LIMIT = 32
 
 /**
  * 官方 DeepSeek 的 API origin。
@@ -99,6 +122,14 @@ export interface UsageComposition {
 export interface UsageSessionAnswer {
   /** 宿主广播过的上下文窗口；没广播过就没有这个键。 */
   readonly contextWindow?: number
+  /**
+   * 会话当前路由的模型目录声明的窗口；宿主广播过 `contextWindow` 时永不出现，
+   * 目录也取不到时同样不出现。
+   *
+   * 它与 {@link contextWindow} 是两个来源：那个是宿主实测，这个是模型声明。两者
+   * 不得混用，所以这个键的存在本身就说明「宿主没有实测值」。
+   */
+  readonly modelContextWindow?: number
   /** 组成估算；一项都没观察到时没有这个键。 */
   readonly composition?: UsageComposition
 }
@@ -277,6 +308,19 @@ export interface SessionRosterFace {
   ids(): Promise<readonly string[] | undefined>
 }
 
+/** 一条会话此刻的路由：下一步要用哪个 provider 的哪个模型。 */
+export interface SessionRouteFace {
+  /**
+   * 一条会话当前的路由。
+   *
+   * 与 `session.models` 的 `current` 同一个折叠：下一步的选择、其次是用过的
+   * 那个、最后才是目录默认——三者都不是本模块能自己推的，所以只转发。
+   * @param sessionId - 会话 id。
+   * @returns provider 与模型 id，或者 undefined 表示这条路由读不到。
+   */
+  current(sessionId: string): Promise<{ readonly provider: string; readonly model: string } | undefined>
+}
+
 /** 本模块要读的宿主服务；每一个都可能不存在。 */
 export interface UsageFaces {
   /** 活会话的存储：`usage.session` 靠它区分「不存在」与「存在但没读数」。 */
@@ -287,6 +331,8 @@ export interface UsageFaces {
   readonly credentials?: CredentialStoreFace | undefined
   /** 设置服务：路由的 `apiKeyEnv` 与 `baseURL` 来源。 */
   readonly settings?: SettingsFace | undefined
+  /** 会话此刻的路由：`modelContextWindow` 的来源。 */
+  readonly route?: SessionRouteFace | undefined
 }
 
 /** 上游探测用的 fetch 一角。 */
@@ -309,6 +355,10 @@ export interface UsageServiceOptions {
   readonly ttlMs?: number
   /** 一次探测的超时；默认 {@link BALANCE_PROBE_TIMEOUT_MS}。 */
   readonly timeoutMs?: number
+  /** 模型目录探测的超时；默认 {@link MODEL_WINDOW_PROBE_TIMEOUT_MS}。 */
+  readonly modelTimeoutMs?: number
+  /** 宿主台账的聚合；没有它时 `usage.stats` 答 `probe-failed`。 */
+  readonly stats?: UsageStatsReader
 }
 
 /**
@@ -322,6 +372,9 @@ export class UsageService {
   readonly #tracker = new UsageTracker()
   readonly #cache = new Map<string, { readonly at: number; readonly answer: UsageBalanceAnswer }>()
   readonly #inFlight = new Map<string, Promise<UsageBalanceAnswer>>()
+  /** 每条路由的模型目录（模型 id → 声明的窗口），以及它是哪一刻读的。 */
+  readonly #catalogs = new Map<string, { readonly at: number; readonly windows: ReadonlyMap<string, number> | undefined }>()
+  readonly #catalogInFlight = new Map<string, Promise<ReadonlyMap<string, number> | undefined>>()
   /** 最近读到的一份宿主名册，以及它是哪一刻读的。 */
   #roster: { readonly at: number; readonly ids: ReadonlySet<string> | undefined } | undefined
 
@@ -359,7 +412,27 @@ export class UsageService {
    */
   async session(sessionId: string): Promise<UsageSessionAnswer | undefined> {
     if (!this.#live(sessionId) && !this.#tracker.known(sessionId) && !(await this.#inRoster(sessionId))) return undefined
-    return this.#tracker.answer(sessionId)
+    const answer = this.#tracker.answer(sessionId)
+    // 宿主实测优先，且永不混用：广播过窗口时这一档根本不出现，只有没实测值的
+    // 会话才去问模型目录。
+    if (answer.contextWindow !== undefined) return answer
+    const declared = await this.#modelContextWindow(sessionId)
+    return declared === undefined ? answer : { ...answer, modelContextWindow: declared }
+  }
+
+  /**
+   * 宿主自己那份按天记的 token 台账的聚合。
+   *
+   * 缓存、合并与「读到/没读到」的区分都在 `usage-stats.ts`：那是对另一个插件的
+   * HTTP 路由的读数，与本节两半的「本进程自己的事实」不是同一类东西，因此单独
+   * 一格。本方法只转发。
+   * @param days - 要多少天；省略按 {@link STATS_DAYS_DEFAULT}。
+   * @returns 台账聚合，或者为什么读不到。
+   */
+  async stats(days?: number): Promise<UsageStatsAnswer> {
+    const reader = this.#options.stats
+    if (reader === undefined) return { unsupported: 'probe-failed', reason: 'no host usage route' }
+    return await reader.stats(days ?? STATS_DAYS_DEFAULT)
   }
 
   /**
@@ -491,6 +564,103 @@ export class UsageService {
     }
   }
 
+  /**
+   * 一条会话当前路由的模型声明的上下文窗口。
+   *
+   * 三关都不打上游请求的顺序：读不到路由不查、路由没有可寻址的 base URL 不查、
+   * 目录里没有这个模型就不出现这个键。目录按路由缓存 {@link MODEL_WINDOW_CACHE_TTL_MS}，
+   * 读失败也缓存同一窗口——窗口是模型自己声明的静态事实，重试改变不了答案，而每次
+   * `usage.session` 都去打一次上游只会把这条路走成噪声。
+   * @param sessionId - 会话 id。
+   * @returns 模型声明的窗口，或者 undefined 表示这一档取不到。
+   */
+  async #modelContextWindow(sessionId: string): Promise<number | undefined> {
+    const faces = this.#faces()
+    const route = faces.route
+    if (route === undefined) return undefined
+    let selection: { readonly provider: string; readonly model: string } | undefined
+    try {
+      selection = await route.current(sessionId)
+    } catch (error) {
+      this.#options.log(`the route of session "${sessionId}" could not be read: ${failureText(error)}`)
+      return undefined
+    }
+    if (selection === undefined) return undefined
+    const baseURL = catalogBaseUrl(selection.provider, faces.settings)
+    if (baseURL === undefined) return undefined
+    const windows = await this.#catalogOf(`${selection.provider}\u0000${baseURL}`, baseURL, selection.provider, faces)
+    return windows?.get(selection.model)
+  }
+
+  /**
+   * 一条路由的模型目录，按窗口缓存并合并并发读。
+   * @param key - provider + baseURL 的缓存键。
+   * @param baseURL - 目录的地址（已去掉结尾斜杠）。
+   * @param provider - 这条目录属于哪个 provider 路由，取凭据用。
+   * @param faces - 这一次的宿主服务。
+   * @returns 模型 id → 声明的窗口；取不到时 undefined。
+   */
+  async #catalogOf(key: string, baseURL: string, provider: string, faces: UsageFaces): Promise<ReadonlyMap<string, number> | undefined> {
+    const cached = this.#catalogs.get(key)
+    if (cached !== undefined && this.#options.now() - cached.at < MODEL_WINDOW_CACHE_TTL_MS) return cached.windows
+    const running = this.#catalogInFlight.get(key)
+    if (running !== undefined) return await running
+    const settle = (windows: ReadonlyMap<string, number> | undefined): ReadonlyMap<string, number> | undefined => {
+      this.#rememberCatalog(key, windows)
+      this.#catalogInFlight.delete(key)
+      return windows
+    }
+    const read = this.#readCatalog(baseURL, provider, faces).then(settle, () => settle(undefined))
+    this.#catalogInFlight.set(key, read)
+    return await read
+  }
+
+  /**
+   * 读一次 `GET {baseURL}/models`。
+   *
+   * 凭据与账本同源（pi-ai 记录，然后 `apiKeyEnv`）：请求发往这条路由**自己的**
+   * origin，所以不需要余额那一档的官方 origin 判定——这里问的是这条路由自己声明的
+   * 事实。拿不到凭据也照发，某些自建端点不鉴权；失败一律 undefined。
+   * @param baseURL - 目录的地址（已去掉结尾斜杠）。
+   * @param provider - 这条目录属于哪个 provider 路由。
+   * @param faces - 这一次的宿主服务。
+   * @returns 模型 id → 声明的窗口；取不到时 undefined。
+   */
+  async #readCatalog(baseURL: string, provider: string, faces: UsageFaces): Promise<ReadonlyMap<string, number> | undefined> {
+    const call = this.#options.fetch ?? defaultFetch
+    const headers: Record<string, string> = { accept: 'application/json' }
+    const credential = await this.#credentialOf(provider, faces)
+    if (credential !== undefined) headers.authorization = `Bearer ${credential}`
+    try {
+      const response = await call(`${baseURL}/models`, {
+        headers,
+        signal: AbortSignal.timeout(this.#modelTimeout()),
+      })
+      if (!response.ok) return undefined
+      const body: unknown = await response.json().catch(() => undefined)
+      return catalogWindowsOf(body)
+    } catch (error) {
+      this.#options.log(`the model catalog of route "${provider}" could not be read: ${failureText(error)}`)
+      return undefined
+    }
+  }
+
+  /** 记一条路由的目录（读到与没读到都记）并维持容量上界。 */
+  #rememberCatalog(key: string, windows: ReadonlyMap<string, number> | undefined): void {
+    this.#catalogs.delete(key)
+    this.#catalogs.set(key, { at: this.#options.now(), windows })
+    while (this.#catalogs.size > MODEL_WINDOW_CACHE_LIMIT) {
+      const oldest = this.#catalogs.keys().next()
+      if (oldest.done === true) return
+      this.#catalogs.delete(oldest.value)
+    }
+  }
+
+  /** 一次模型目录探测的超时。 */
+  #modelTimeout(): number {
+    return this.#options.modelTimeoutMs ?? MODEL_WINDOW_PROBE_TIMEOUT_MS
+  }
+
   /** 记一次读数（成功与失败都记）并维持容量上界。 */
   #remember(cacheKey: string, answer: UsageBalanceAnswer): void {
     this.#cache.delete(cacheKey)
@@ -590,6 +760,60 @@ function messageText(message: unknown): string {
 function officialRoute(provider: string, settings: SettingsFace | undefined): boolean {
   const configured = originOf(nonEmptyText(profileOf(settings, provider)?.baseURL) ?? deepseekBaseUrl(settings))
   return configured === undefined || configured === DEEPSEEK_API_ORIGIN
+}
+
+/**
+ * 一条路由的模型目录地址。
+ *
+ * 目录挂在路由自己的 base URL 下，所以这里读的是那同一段配置：pi-ai profile 的
+ * `baseURL`，其次（官方适配器那几条路由）`llm-deepseek` 的 `baseURL`，都没有时
+ * 回官方 origin。别家路由没配 `baseURL` 时回 undefined——适配器自己的默认端点不在
+ * 本包的视野里，猜一个只会打到一个不存在的主机上。
+ * @param provider - provider 路由 id。
+ * @param settings - 设置服务，可能没挂载。
+ * @returns 去掉结尾斜杠的 base URL，或者 undefined。
+ */
+function catalogBaseUrl(provider: string, settings: SettingsFace | undefined): string | undefined {
+  const configured = nonEmptyText(profileOf(settings, provider)?.baseURL)
+    ?? (DEEPSEEK_ROUTES.has(provider) ? deepseekBaseUrl(settings) : undefined)
+  const base = configured ?? (DEEPSEEK_ROUTES.has(provider) ? DEEPSEEK_API_ORIGIN : undefined)
+  if (base === undefined) return undefined
+  const trimmed = base.trim().replace(/\/+$/, '')
+  return trimmed === '' ? undefined : trimmed
+}
+
+/**
+ * 一份 OpenAI 兼容的 `/models` 应答里，每个模型声明的上下文窗口。
+ *
+ * 三个字段名按顺序取第一个可用值（`context_length`、`context_window`、
+ * `max_input_tokens`）：不同网关各写各的，而它们说的是同一件事。一个都没有的模型
+ * 不进表，所以「目录里没写」与「写了个 0」是两件事，前者不会变成后者的读数。
+ * @param body - `GET {baseURL}/models` 的应答体。
+ * @returns 模型 id → 窗口；形状不符时 undefined。
+ */
+function catalogWindowsOf(body: unknown): ReadonlyMap<string, number> | undefined {
+  const listed = Array.isArray(body)
+    ? body
+    : isRecord(body) && Array.isArray(body.data) ? body.data : undefined
+  if (listed === undefined) return undefined
+  const windows = new Map<string, number>()
+  for (const entry of listed) {
+    if (!isRecord(entry)) continue
+    const id = nonEmptyText(entry.id)
+    const window = declaredWindowOf(entry)
+    if (id === undefined || window === undefined) continue
+    windows.set(id, window)
+  }
+  return windows
+}
+
+/** 一个模型条目自己声明的窗口：三个字段名里第一个可用值。 */
+function declaredWindowOf(entry: Record<string, unknown>): number | undefined {
+  for (const name of ['context_length', 'context_window', 'max_input_tokens'] as const) {
+    const value = entry[name]
+    if (typeof value === 'number' && Number.isInteger(value) && value > 0) return value
+  }
+  return undefined
 }
 
 /** 一个 base URL 的 origin；空值或解析不了的 URL 都回 undefined。 */

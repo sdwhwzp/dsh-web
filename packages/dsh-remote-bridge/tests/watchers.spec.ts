@@ -13,6 +13,7 @@ import {
 import { createOwnerPeer } from '../src/core/owner-peer.ts'
 import { CAP_PUSH } from '../src/core/protocol.ts'
 import { PushNotifier, type PushAddress, type PushNotification, type PushSendResult, type PushSender } from '../src/core/push.ts'
+import { TurnEndQuietGate } from '../src/core/turn-end-quiet.ts'
 import { StandingWatchers } from '../src/host/watchers.ts'
 import { ControllableStream, FakeGateway, makeConnection, requestFrame, settle } from './support/harness.ts'
 
@@ -78,6 +79,7 @@ function watchHarness(extra: {
   readonly sink?: Sinks
   readonly limit?: number
   readonly reopenMs?: number
+  readonly gate?: TurnEndQuietGate
 } = {}): WatchHarness {
   const gateway = new FakeGateway()
   const streams: ControllableStream[] = []
@@ -95,6 +97,7 @@ function watchHarness(extra: {
     sessions: () => sessions,
     log: (message: string): void => { logs.push(message) },
     ...(sink === undefined ? {} : { liveActivity: sink.liveActivity, push: sink.push }),
+    ...(extra.gate === undefined ? {} : { turnEndQuiet: extra.gate }),
     ...(extra.limit === undefined ? {} : { limit: extra.limit }),
     ...(extra.reopenMs === undefined ? {} : { reopenMs: extra.reopenMs }),
   })
@@ -180,6 +183,53 @@ describe('standing watchers: the stream the bridge keeps for a card', () => {
     // And both are named in one grep-able line
     expect(harness.logs).toContain('watcher turn-end session=s-1 reason=completed pushed=card')
     harness.watchers.dispose()
+  })
+
+  it('user is told the turn ended only once the session is quiet', async () => {
+    // Given a watcher whose turn ends through a gate over a session the host still reports busy
+    const clock = { now: 1_700_000_000_000 }
+    const sink = sinksAt(clock)
+    const lines: string[] = []
+    let quiet = false
+    const gate = new TurnEndQuietGate({
+      push: sink.push,
+      liveActivity: sink.liveActivity,
+      probe: async () => (quiet ? { quiet: true } : { quiet: false, busy: 'job-live(job-1)' }),
+      now: () => clock.now,
+      log: (message: string): void => { lines.push(message) },
+    })
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const harness = watchHarness({ sessions: ['s-1'], sink, gate })
+    try {
+      harness.watchers.sync()
+      harness.streams[0]?.push(BASELINE)
+      // When the turn ends while the host still holds a job under that session
+      harness.streams[0]?.push(record('turn/end', 12, 201, { turn: 1, reason: { kind: 'completed' } }))
+      await turn()
+      // Then neither channel has said anything yet
+      expect(sink.notices).toHaveLength(0)
+      expect(sink.cards).toHaveLength(0)
+      // And the host's still-busy answer keeps holding it
+      clock.now += 5_000
+      vi.advanceTimersByTime(5_000)
+      await turn()
+      expect(sink.notices).toHaveLength(0)
+      // When the host finally answers quiet
+      quiet = true
+      clock.now += 5_000
+      vi.advanceTimersByTime(5_000)
+      await turn()
+      // Then one notification and one card end went out, for the turn that ended
+      expect(sink.notices).toHaveLength(1)
+      expect(sink.notices[0]?.st).toBe('turn-end')
+      expect(sink.cards).toHaveLength(1)
+      expect(sink.cards[0]?.aps.event).toBe('end')
+      expect(lines).toContain('turn-end quiet session=s-1 waited=10000ms event=turn-end')
+    } finally {
+      gate.dispose()
+      harness.watchers.dispose()
+      vi.useRealTimers()
+    }
   })
 
   it('operator runs a bridge with no push path and no stream is ever opened', () => {

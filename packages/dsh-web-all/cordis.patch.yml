@@ -60,6 +60,11 @@
     - id: web-ui-remote-bridge
       name: '@linxin666/dsh-remote-bridge'
 
+# from ../dsh-task-board-remote
+- insert:
+    - id: web-ui-task-board-remote
+      name: '@linxin666/dsh-task-board-remote'
+
 # from ../dsh-ssh
 - insert:
     - id: web-ui-ssh

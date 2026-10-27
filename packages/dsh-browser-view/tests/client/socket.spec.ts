@@ -143,6 +143,28 @@ describe('browser view socket url', () => {
       .toBe('wss://gui.example.test' + BROWSER_VIEW_SOCKET_PATH)
   })
 
+  it('user opens the desktop GUI and the client dials the shell-owned host', () => {
+    // Given the official dsh-app page and the network Host its shell published
+    // When the client derives the socket url
+    // Then it uses that Host, preserving TLS, rather than refusing the app page
+    const desktop = { protocol: 'dsh-app:', host: 'app' }
+    expect(browserViewSocketUrl(desktop, 'http://127.0.0.1:3080'))
+      .toBe('ws://127.0.0.1:3080' + BROWSER_VIEW_SOCKET_PATH)
+    expect(browserViewSocketUrl(desktop, 'https://127.0.0.1:3080'))
+      .toBe('wss://127.0.0.1:3080' + BROWSER_VIEW_SOCKET_PATH)
+  })
+
+  it('user stays on the page origin unless an application shell publishes a safe host', () => {
+    // Given a web page with a transport hook and an app page with unsafe bases
+    // When the client derives their socket urls
+    // Then the web page never gets rerouted, and unsafe bases are refused
+    expect(browserViewSocketUrl(origin, 'http://192.168.1.20:3080'))
+      .toBe('ws://127.0.0.1:3080' + BROWSER_VIEW_SOCKET_PATH)
+    for (const base of ['', 'not a url', 'dsh-app://app', 'ftp://127.0.0.1:3080', 'http://', 'http://user:pw@127.0.0.1:3080']) {
+      expect(browserViewSocketUrl({ protocol: 'dsh-app:', host: 'app' }, base), base).toBeNull()
+    }
+  })
+
   it('user opens a page whose scheme cannot carry a socket and no url is derived', () => {
     // Given pages on a custom app scheme and on file
     // When the client derives the socket url for each
@@ -230,6 +252,29 @@ describe('browser view socket lifecycle', () => {
     expect(socket.status()).toBe('open')
     expect(transport.commands()).toEqual([{ v: 1, kind: 'attach', sessionId: 'session-1' }])
     expect(seen.statuses).toContain('open')
+  })
+
+  it('user opens the desktop panel and the client connects through the published host', () => {
+    // Given a dsh-app page whose official transport hook names the loopback Host
+    // When the panel connects and the transport opens
+    // Then a real transport is constructed against that Host and reaches open
+    resetTransports()
+    const seen = record()
+    vi.stubGlobal('__DSH_TRANSPORT__', { streamBaseUrl: 'http://127.0.0.1:3080' })
+    const socket = connectBrowserViewSocket(seen.handlers, {
+      WebSocketImpl: FakeTransport,
+      location: { protocol: 'dsh-app:', host: 'app' },
+    })
+    try {
+      expect(FakeTransport.instances).toHaveLength(1)
+      const transport = FakeTransport.instances[0]
+      expect(transport.url).toBe('ws://127.0.0.1:3080' + BROWSER_VIEW_SOCKET_PATH)
+      transport.fireOpen()
+      expect(socket.status()).toBe('open')
+    } finally {
+      socket.close()
+      vi.unstubAllGlobals()
+    }
   })
 
   it('user receives frames out of order and the client drops everything older than the painted one', () => {

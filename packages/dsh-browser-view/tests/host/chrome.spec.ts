@@ -6,8 +6,8 @@
 
 import { mkdtemp, mkdir, readFile, stat, symlink, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { homedir, tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   CHROME_INSTALL_CANDIDATES,
@@ -183,23 +183,23 @@ describe('removeTempProfile', () => {
     // Given a path that resolves outside the OS temp directory
     // When the profile is removed
     // Then the marker file outside survives untouched
-    // Resolving ".." takes this path out of the temp root, which is exactly the
-    // mis-resolved case the guard exists for: it must return without touching
-    // anything.
-    const dir = await mkdtemp(join(tmpdir(), 'dsh-bv-guard-'))
-    const outside = join(tmpdir(), '..', 'dsh-bv-guard-escape')
-    await mkdir(outside, { recursive: true })
+    // The guard compares the raw path against the temp root, so the escape
+    // directory has to be somewhere the runner can really write: one level up
+    // from the temp root is "/" on Linux, where mkdir is denied to a normal
+    // user. The home directory stays outside the temp root on every platform.
+    const root = resolve(tmpdir())
+    const outside = await mkdtemp(join(homedir(), '.dsh-bv-guard-'))
+    expect(outside.startsWith(root)).toBe(false)
     await writeFile(join(outside, 'marker.txt'), 'keep', 'utf8')
 
     await removeTempProfile(outside)
 
     expect(await readFile(join(outside, 'marker.txt'), 'utf8')).toBe('keep')
-    // Named deletes only, never a recursive removal: the marker file, the now
-    // empty directory, the temp directory this test created.
+    // Named deletes only, never a recursive removal: the marker file and the
+    // now empty directory this test created.
     const { unlink, rmdir } = await import('node:fs/promises')
     await unlink(join(outside, 'marker.txt'))
     await rmdir(outside)
-    await removeTempProfile(dir)
   })
 })
 describe('dispose decides on evidence', () => {

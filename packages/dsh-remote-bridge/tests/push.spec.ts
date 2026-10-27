@@ -222,6 +222,46 @@ describe('push channel: the device table', () => {
     // And an unknown device is refused rather than added
     expect(await roster.registerPush('dev_nobody', REGISTRATION)).toBe(false)
   })
+
+  it('operator opens a table holding one phone twice and one token twice and it is compacted on load', async () => {
+    // Given a hand-written table holding one phone twice, one APNs token on two
+    // rows of a phone whose key was regenerated, and a row that is nobody's twin
+    const file = await rosterFile()
+    const old = { ...legacyRow(1), deviceId: 'dev_old', fingerprint: 'fp-phone', lastSeenAt: 1_700_000_000_100, push: { ...REGISTRATION, registeredAt: 1_700_000_000_100 } }
+    const fresh = { ...legacyRow(2), deviceId: 'dev_fresh', fingerprint: 'fp-phone', lastSeenAt: 1_700_000_000_900 }
+    const rotated = { ...legacyRow(3), deviceId: 'dev_rotated', fingerprint: 'fp-key-1', push: { ...REGISTRATION, deviceToken: 'eeff0011', registeredAt: 1_700_000_000_300 } }
+    const latest = { ...legacyRow(4), deviceId: 'dev_latest', fingerprint: 'fp-key-2', push: { ...REGISTRATION, deviceToken: 'eeff0011', registeredAt: 1_700_000_000_800 } }
+    await writeRoster(file, { version: ROSTER_VERSION, devices: [old, fresh, rotated, latest, legacyRow(5)] })
+    const logs: string[] = []
+    // When a process loads it
+    const roster = new DeviceRoster({ file, log: message => { logs.push(message) } })
+    await roster.load()
+    // Then one row per phone survives — the most recently seen one — and the
+    // rows nothing shared are untouched
+    expect(roster.devices().map(row => row.deviceId).sort()).toEqual(['dev_fresh', 'dev_latest', 'dev_probe5', 'dev_rotated'])
+    expect(roster.devices().filter(row => row.fingerprint === 'fp-phone')).toHaveLength(1)
+    // And the token sits on the newest registration only, on the row that survived
+    expect(roster.pushTargets().map(target => [target.deviceId, target.push.deviceToken]).sort())
+      .toEqual([['dev_fresh', REGISTRATION.deviceToken], ['dev_latest', 'eeff0011']])
+    // And a row that lost its registration keeps its identity
+    expect(roster.devices().find(row => row.deviceId === 'dev_rotated')?.push).toBeUndefined()
+    // Then the file itself was rewritten compacted, still in the current schema
+    const written = JSON.parse(await readFile(file, 'utf8')) as {
+      version: number
+      devices: { deviceId: string; push?: { deviceToken: string; registeredAt: number } }[]
+    }
+    expect(written.version).toBe(ROSTER_VERSION)
+    expect(written.devices.map(row => row.deviceId).sort()).toEqual(['dev_fresh', 'dev_latest', 'dev_probe5', 'dev_rotated'])
+    expect(written.devices.filter(row => row.push !== undefined).map(row => row.deviceId).sort()).toEqual(['dev_fresh', 'dev_latest'])
+    expect(written.devices.find(row => row.deviceId === 'dev_fresh')?.push?.registeredAt).toBe(1_700_000_000_100)
+    // And the pass is reported once, because it changed something
+    expect(logs.filter(line => line.includes('compacted 1 duplicate row(s), retired 1 stale registration(s)'))).toHaveLength(1)
+    // When the compacted file is loaded again, nothing further is retired
+    logs.length = 0
+    const again = new DeviceRoster({ file, log: message => { logs.push(message) } })
+    await again.load()
+    expect(logs.some(line => line.includes('compacted'))).toBe(false)
+  })
 })
 
 describe('push channel: push.register on the wire', () => {
@@ -331,6 +371,41 @@ describe('push channel: what is sent and when', () => {
     expect(sink.sent[1]?.notification.aps.alert.body).toBe('回合异常结束')
     // And the state is the only thing that names the failure: no reason text rides along
     expect(Object.keys(sink.sent[1]?.notification ?? {}).sort()).toEqual(['aps', 's', 'st', 'url'])
+  })
+
+  it('operator holds two rows for one APNs token and that one phone is told once', async () => {
+    // Given two roster rows carrying the same APNs token: one phone, paired twice
+    const clock = { now: 1_000 }
+    const sink = recorder()
+    const pairedAgain: PushAddress = { deviceToken: PHONE.deviceToken, environment: 'sandbox', bundle: 'dev.dsh.Whale', locale: 'zh-Hans' }
+    const other: PushAddress = { deviceToken: 'eeff0011', environment: 'production', bundle: 'dev.dsh.Whale' }
+    const addresses: PushAddress[] = [PHONE, pairedAgain]
+    const push = new PushNotifier({
+      targets: () => addresses,
+      sender: sink.sender,
+      titles: id => (id === 's-1' ? '重构推送通道' : undefined),
+      now: () => clock.now,
+    })
+    // When one turn ends
+    push.notify('turn-end', 's-1')
+    await settle()
+    // Then the token was delivered to once, at the first row holding it
+    expect(sink.sent).toHaveLength(1)
+    expect(sink.sent[0]?.target).toBe(PHONE)
+    // And the payload is that one event's
+    expect(sink.sent[0]?.notification).toEqual({
+      aps: { alert: { title: '重构推送通道', body: '回合结束' }, sound: 'default' },
+      s: 's-1',
+      st: 'turn-end',
+      url: 'whale://session/s-1',
+    })
+    // When a second phone with a token of its own is registered
+    clock.now += PUSH_DEDUPE_MS + 1
+    addresses.push(other)
+    push.notify('turn-end', 's-1')
+    await settle()
+    // Then each distinct token was delivered to once, so convergence is per token
+    expect(sink.sent.map(entry => entry.target.deviceToken)).toEqual([PHONE.deviceToken, PHONE.deviceToken, other.deviceToken])
   })
 
   it('operator sees one notification per event however many connections saw it', async () => {
@@ -507,7 +582,7 @@ describe('push channel: the payload carries no session content', () => {
     // Given the handshake a client of this channel reads
     // When it reads the minor and the capability name
     // Then both are the published ones
-    expect(MINOR).toBe(19)
+    expect(MINOR).toBe(21)
     expect(CAP_PUSH).toBe('push.v1')
   })
 })

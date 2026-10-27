@@ -4,7 +4,7 @@
  * The host half owns the CDP connection and pushes state, JPEG frames, tool
  * actions and errors over one socket per mounted panel (see ../core/protocol.ts
  * for the frozen wire contract). This module is the only place the browser half
- * touches the wire: it derives the same-origin socket URL, narrows every
+ * touches the wire: it derives the page or shell-owned socket URL, narrows every
  * incoming message through the protocol's discriminant, drops stale frames,
  * and reconnects with exponential backoff.
  *
@@ -102,24 +102,45 @@ export interface BrowserViewSocket {
 /** Commands held while the socket is down; the oldest drop first. */
 const PENDING_COMMAND_LIMIT = 16
 
+/** The network authority of a shell-owned Host, without credentials or a path. */
+function hostAuthorityOf(base: string | undefined): { protocol: string; authority: string } | undefined {
+  if (base === undefined || base === '') return undefined
+  let url: URL
+  try {
+    url = new URL(base)
+  } catch {
+    return undefined
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return undefined
+  if (url.username !== '' || url.password !== '' || url.host === '') return undefined
+  return { protocol: url.protocol, authority: url.host }
+}
+
 /**
- * Derive the same-origin socket URL from a location.
+ * Derive the socket URL from a web page or its application shell's Host.
  *
- * Only http/https are transport candidates: a page delivered by any other
- * scheme (the desktop shell's dsh-app:, a file: snapshot) has no host the host
- * half could be reached on, and guessing would produce a socket that fails on
- * every retry.
+ * A web page keeps its own origin even when a transport hook is present. An
+ * application-delivered page such as the desktop shell's dsh-app: cannot carry
+ * a WebSocket upgrade on that scheme, so it uses the Host authority the shell
+ * publishes instead. The shell rewrites that handshake; the Host fence is unchanged.
  * @param location - origin the panel is rendered on.
- * @returns the absolute ws/wss URL, or null when this page cannot carry one.
+ * @param streamBaseUrl - official `__DSH_TRANSPORT__.streamBaseUrl`, when published.
+ * @returns the absolute ws/wss URL, or null when no safe Host authority is known.
  */
-export function browserViewSocketUrl(location: { readonly protocol: string; readonly host: string }): string | null {
-  const protocol = location.protocol === 'https:'
+export function browserViewSocketUrl(
+  location: { readonly protocol: string; readonly host: string },
+  streamBaseUrl?: string,
+): string | null {
+  const pageProtocol = location.protocol === 'https:'
     ? 'wss:'
     : location.protocol === 'http:'
       ? 'ws:'
       : null
-  if (protocol === null) return null
-  return `${protocol}//${location.host}${BROWSER_VIEW_SOCKET_PATH}`
+  if (pageProtocol !== null) return `${pageProtocol}//${location.host}${BROWSER_VIEW_SOCKET_PATH}`
+  const base = hostAuthorityOf(streamBaseUrl)
+  if (base === undefined) return null
+  const protocol = base.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${protocol}//${base.authority}${BROWSER_VIEW_SOCKET_PATH}`
 }
 
 /**
@@ -249,11 +270,18 @@ export function connectBrowserViewSocket(
   handlers: BrowserViewSocketHandlers,
   options: BrowserViewSocketOptions = {},
 ): BrowserViewSocket {
-  const WebSocketImpl = options.WebSocketImpl ?? (globalThis as { WebSocket?: BrowserViewWebSocketCtor }).WebSocket
-  const location = options.location ?? (globalThis as { location?: { protocol: string; host: string } }).location
+  const globals = globalThis as {
+    WebSocket?: BrowserViewWebSocketCtor
+    location?: { protocol: string; host: string }
+    __DSH_TRANSPORT__?: { streamBaseUrl?: unknown }
+  }
+  const WebSocketImpl = options.WebSocketImpl ?? globals.WebSocket
+  const location = options.location ?? globals.location
   const setTimer = options.setTimer ?? ((handler, ms) => setTimeout(handler, ms))
   const clearTimer = options.clearTimer ?? ((handle) => { clearTimeout(handle as ReturnType<typeof setTimeout>) })
-  const url = location === undefined ? null : browserViewSocketUrl(location)
+  const publishedBase = globals.__DSH_TRANSPORT__?.streamBaseUrl
+  const streamBaseUrl = typeof publishedBase === 'string' ? publishedBase : undefined
+  const url = location === undefined ? null : browserViewSocketUrl(location, streamBaseUrl)
 
   let status: BrowserViewSocketStatus = 'connecting'
   let socket: BrowserViewWebSocketLike | null = null

@@ -16,12 +16,12 @@ Status: implemented
 - **数量有上限，拒绝按会话只记一行。** `WATCHER_LIMIT` 为 64；超过之后该会话不开流，且只有一行说明（`watcher refused session=… reason=limit(64)`），并记住这条会话，后续注册不再重复刷。
 - **自己结束的流一秒后重新武装一次。** `WATCHER_REOPEN_MS` 为 1000 毫秒：跟随流被关不等于会话有结论，仍有卡的会话继续被看着。
 - **失败只记一行，从不抛给调用方。** 宿主拒绝的流、中途抛错的 follow、读不到名册的对账，各自记一行 `watcher` 日志后丢弃；被拒绝的流不重试，直到名册再变。
-- **一个 `turn/end` 同时供给两个面。** 配了活卡通道时先结卡，通知在旁边发出，一行可 grep 的日志写明发的是哪条：`watcher turn-end session=… reason=completed pushed=card`；没有卡通道时是 `pushed=notification-only`。
+- **一个 `turn/end` 同时供给两个面，并且经由安静门。** 观察者把回合结束登记进 `TurnEndQuietGate`，并记一行 `watcher turn-end session=… reason=… held=quiet-gate`；宿主报告该会话安静时由门发出，通知在前、结卡在侧（这条规则的家在[`§28` 的安静门](2026-10-21-remote-bridge-push-notifications.md)）。没装门的观察者集合（例如套件自己拼的）仍然在帧上上报，记 `pushed=card` 或 `pushed=notification-only`。
 - **不加第三层去重。** 桥在看的会话被客户端同时打开时，同一个 `turn/end` 会上报两次；§28.5 的 `sessionId+event` 窗口与 §29 的内容键已经把这件事定下来，测试断言的是一张卡、一条通知、一行日志。
 
 ## Testing
 
-`tests/watchers.spec.ts`（10 例）在连接层覆盖：有卡的会话各一条流以及它请求的地址、被看的回合结束时卡被结掉且 §28 通知同时在侧、没有推送路径的桥什么都不开且不记日志、会话失去最后一张卡时流关闭、数量到上限且拒绝只记一次、自己结束的流能接住下一个回合、宿主拒绝的流在不碰任何帧的情况下存活、两个流报同一个 `turn/end` 仍只产出一张卡与一条通知、桥被 dispose 时所有流关闭、以及 `push.register` 就是武装观察者的那一步。`pnpm typecheck` 为绿，包内 40 个文件 565 个用例为绿。
+`tests/watchers.spec.ts`（11 例）在连接层覆盖：有卡的会话各一条流以及它请求的地址、被看的回合结束时卡被结掉且 §28 通知同时在侧、没有推送路径的桥什么都不开且不记日志、会话失去最后一张卡时流关闭、数量到上限且拒绝只记一次、自己结束的流能接住下一个回合、宿主拒绝的流在不碰任何帧的情况下存活、两个流报同一个 `turn/end` 仍只产出一张卡与一条通知、桥被 dispose 时所有流关闭、`push.register` 就是武装观察者的那一步，以及被扣住的回合结束能在子会话落定通知之后存活。`pnpm typecheck` 为绿，包内 45 个文件 626 个用例为绿。
 
 ## Alternatives considered
 

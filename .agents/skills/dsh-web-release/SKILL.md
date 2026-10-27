@@ -324,8 +324,8 @@ git ls-remote --tags origin | grep "vX.Y.Z"         # tag 已在远端
   `@org` token（如 `@deepseek-ai`）：GitHub 会渲染成 mention 并把该账号列进
   release 页的 Contributors 框（v0.3.14 事故）；脚本渲染路径已自动加反引号转义，
   维护者手写条目也必须用反引号包裹（release 页面同理，发布后抽查
-  `user-mention` 是否为 0）。桌面安装包由 `desktop-release.yml` 在 tag 推送后
-  自动构建并上传到 Release（dispatch 可为存量 tag 补发，`ref` 输入可指定
-  构建分支）。
+  `user-mention` 是否为 0）。桌面安装包不再随 tag 产出：Electron 桌面应用与
+  `desktop-release.yml` 打包通道已在 v0.4.2 期移除（64beab4ad），Release 只保留
+  GitHub 自动源码归档；历史遗留的 desktop-release 运行记录不代表当前仍有该通道。
 - **卫星仓与本仓同版本**（从下一版本起，见第 2 节）：卫星先发、本仓后发；任一卫星版本未在 registry 解析前不得推送本仓 tag。
 - 本技能适用于 @linxin666/dsh-* 全家桶整体发版；单包 hotfix 也遵循同一流程（版本仍全仓统一）。

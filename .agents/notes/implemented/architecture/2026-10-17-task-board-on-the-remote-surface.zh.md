@@ -16,7 +16,7 @@ Status: implemented
 
 看板经两道增量扩展缝和一个新包到达远端面，两道缝彼此都不认识对方的词。
 
-1. **桥提供一道通用扩展缝。** `packages/dsh-remote-bridge` 发布 cordis 服务 `remoteBridge`，含 `registerMethods({ capability?, methods })`（返回 disposer）与 `broadcast(topic, payload, capability?)`。桥在自己的闸门之后派发已注册的名字——未注册的名字最先回 `unknown-method`，未配对连接回 `unpaired`（与协议方法一致），从未声明该表能力的客户端被告知方法不存在——并把插件的 `{ok, r}` 或 `{ok:false, code, msg}` 原样穿过。`hello` 回 `minor: 1`，主版本 1 与全部冻结字段、方法名、主题名都没有变化。
+1. **桥提供一道通用扩展缝。** `packages/dsh-remote-bridge` 发布 cordis 服务 `remoteBridge`，含 `registerMethods({ capability?, methods })`（返回 disposer）与 `broadcast(topic, payload, capability?)`。桥在自己的闸门之后派发已注册的名字——未注册的名字最先回 `unknown-method`，未配对连接回 `unpaired`（与协议方法一致），从未声明该表能力的客户端被告知方法不存在——并把插件的 `{ok, r}` 或 `{ok:false, code, msg}` 原样穿过。`hello` 回 `minor: 1`，主版本 1 与全部冻结字段、方法名、主题名都没有变化。同一道缝也决定握手公告什么：插件早已注册 `board.v1` 与其方法，而 `hello` 只回桥自己的静态 `SERVED_CAPABILITIES`，于是从握手读自己 `board.v1` 能力的手机判定这台宿主不提供 Tasks。现在答案取 `SERVED_CAPABILITIES` 与 `RemoteBridgeRegistry.capabilities()` 的并集——后者是注册表里各表所门控的去重、非空能力名，升序——每次握手现算，因此桥建好之后才挂载的插件对下一条连接也可见，而撤下的表会把它的能力名一起带走，除非还有别的方法要求它。
 2. **看板多一个窄的进程内面。** `taskBoard` 服务增加 `snapshot()`、`apply(requestId, action, initiator?)`、`subscribe(listener)` 与 `verificationOptions()`，每一个都是宿主同名服务方法的**转发**。发布出去的对象里没有闸门、没有归一化、没有状态，因此经这条路到达看板的消费者，被拒绝的规则与浏览器完全相同。原有两个成员一字未动。
 3. **一个绑定包。** `packages/dsh-task-board-remote` 拥有看板的线路词表（`board.v1`、`board.snapshot`、`board.options`、`board.apply`、`board.changed`、`board-unavailable` / `board-refused`），结构化解析两个席位（`ctx.get` 加 `ctx.inject`，不 import 任何一方），只做形状转发、按连接的 `requestId` 重放与一波合并。所有业务判定——运行中锁、权限确认门、子任务深度、调度次数预算、验收契约——留在账本里。
 
@@ -45,6 +45,10 @@ Status: implemented
 
 **让插件自建传输（自己的 WebSocket 或自己的 HTTP 路由），而不是扩展桥。** 否决：第二条连接面会重复设备令牌、配对与能力判定——那正是远端面可信的来源——而手机还得带两个客户端。
 
+**把 `board.v1` 写进 `SERVED_CAPABILITIES`。** 否决：那个常量说的是这座桥自己服务什么，而桥不是看板的作者——没挂看板的宿主会照样公告 `board.v1`，其背后的方法却回 `unknown-method`，这正是能力清单唯一不能说的一种谎。它还会让下一个面（计划、日志、第二个插件）继续变成同一个常量的又一处编辑，而这恰恰是这道缝要消掉的耦合。
+
+**把并集算一次、存成进程级常量。** 否决：桥对象在任何插件注册之前就已存在，那时注册表还是空的，清单会在那一刻被截住，上面的症状会原样留下——看板在桥之后挂载，它的能力名永远不会被公告。并集只是每次握手走一遍集合，且随这条连接那次握手结束。
+
 **把 `board.*` 写进 `KNOWN_METHODS`，让桥直接服务看板。** 否决：桥从此持有看板词表，看板的任何变化（新动作种类、新 meta 字段）都会变成协议变更，而且桥再也不能和一块它不认识的看板一起挂载。
 
 ## Consequences
@@ -53,4 +57,5 @@ Status: implemented
 - 看板发布的面现在是兼容面。四个转发必须持续跟随它们所转发的宿主服务方法；宿主方法改名会变成可见的类型断裂，而不是静默错位。
 - 手机发起的动作不传 `initiator`。看板把该字段定义为发起动作的 DSH 会话 id，而手机不是会话；塞一个替身会以从未存在过的会话 id 进入执行审计与工作区继承查询。代价是手机建的卡片拿不到会话工作区钉子，执行时回落到看板的「最近工作区」规则。
 - 全量快照没有分页。任务多到超过协议 v1 的 10 MiB 帧上限时只回 `board-unavailable`；§12 记下这条限制，本记录不解除它。
+- 公告的能力清单是一份桥并不完全拥有的并集。`MINOR` 仍然只数协议 v1 自己的追加，插件的能力名出现是因为有已注册的表要求它、而不是桥认领了它，因此读 `hello` 的客户端看到的是那一刻注册表的状态——会话中途被卸下的插件不会出现在下一次握手里。
 - 这里没有做手机端的端到端验证：桥扩展缝、看板面与插件各自有自己的测试，真机往返仍是人工步骤。

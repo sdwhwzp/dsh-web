@@ -12,7 +12,7 @@ The personal fork contains account isolation and deployment integrations alongsi
 
 The [personal fork rules](../../../../AGENTS.md#branches-commits-and-prs) require fetching the original source, merging it into the current working branch, preferring its implementation, adapting required local behavior, validating, publishing all unpublished local branches to the owned fork under their existing names, and fetching again to check for missing source commits. The push guard accepts the owned fork over HTTPS or SSH and rejects other destinations regardless of remote name.
 
-The fork uses the upstream 0.4.8 family and Harness 0.2.1-rc.3 SDK. Local deployment candidates use the unified version `0.4.8-dsh.20261026.2`; an accepted artifact is immutable. Workspace SDK ranges, Host peers, CI mount pins and desktop Host seeds track the same cohort. Package extensions restore runtime dependencies omitted from published client manifests.
+The fork uses the upstream 0.4.11 family and Harness 0.2.1-rc.3 SDK. Local deployment candidates use the unified version `0.4.11-dsh.20261027.1`; an accepted artifact is immutable. Workspace SDK ranges, Host peers, CI mount pins and desktop Host seeds track the same cohort. Package extensions restore runtime dependencies omitted from published client manifests.
 
 The aggregate mounts family plugins by their real package names. Compatibility shell exports retain old profile addressing, including `clientOnly` for deployments whose gateway owns the task-board Host. Such deployments must register the task-board browser module separately and must not load another Host ledger. Satellite account adaptations remain owned by their individual repositories.
 

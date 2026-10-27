@@ -13,11 +13,20 @@
  * - `approval/request` is claimed in-process while a paired device is connected,
  *   and delegated (`next()`) in every other case, which the Host normalizes to
  *   the fail-closed `'unavailable'`.
+ * - `ui_present` is this bridge's own model tool (protocol §35): one whole
+ *   self-contained page is announced as `ui.request` to the paired clients that
+ *   declared `ui.v1`, and the user's first action inside it comes back as that
+ *   tool call's result. `ui.event` settles it, `ui.list` reads the cards still
+ *   held. No paired client that declared the channel means the call answers
+ *   `unavailable` at once instead of holding the agent.
  * - `user-questions/request` is claimed the same way and published as
  *   `question.request` to the devices that declared `questions.v1`; their
  *   `question.answer` settles the host's own ask while it is open, or reaches a
- *   continued question through the host's Remote `answer`. Every other case
- *   delegates, and the question keeps the Host's own deadline.
+ *   continued question through the host's Remote `answer`. With no paired
+ *   connection on the wire the claim is still made when a roster device registered
+ *   for notifications, which is reached by the alert and holds the question for one
+ *   window before it goes back to the host's chain (§11.3, §32). Every other case
+ *   delegates, and a timed question keeps the Host's own deadline.
  *
  * The browser half lives in `src/client/` and is declared by `dsh.client`: one
  * sidebar-foot panel that reads the same loopback-gated token route over a
@@ -34,22 +43,27 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-api-gateway'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import { ApprovalRegistry } from './core/approvals.ts'
 import type { ConnectionAuth } from './core/connection.ts'
 import { DeviceRoster } from './core/devices.ts'
 import { createRemoteBridgeFace, RemoteBridgeRegistry, REMOTE_BRIDGE_SERVICE } from './core/extension.ts'
 import { JobRoster, type JobRegistryFace } from './core/jobs.ts'
-import { BridgeHub } from './core/hub.ts'
+import { BridgeHub, OFFLINE_QUESTION_CLAIM_TTL_MS } from './core/hub.ts'
 import { createOwnerPeer } from './core/owner-peer.ts'
 import { PairingService } from './core/pairing.ts'
 import { LiveActivityNotifier } from './core/liveactivity.ts'
 import { PushNotifier } from './core/push.ts'
 import { QuestionClaims } from './core/questions.ts'
+import { UiCards } from './core/ui.ts'
 import { WS_PATH } from './core/protocol.ts'
 import { SessionMeta, type SessionStoreFace, type SessionTitleFace, type WorkspacesFace } from './core/session-meta.ts'
+import { sessionQuietProbe, TURN_END_QUIET_MAX_MS, TurnEndQuietGate } from './core/turn-end-quiet.ts'
 import { SessionPermissions, type ApprovalPolicyFace, type PermissionPresetsFace, type SandboxPolicyFace } from './core/session-permissions.ts'
-import { UsageService, type CredentialStoreFace, type SessionRosterFace, type SettingsFace } from './core/usage.ts'
+import { selectionOf, modelSelectionOf } from './core/connection.ts'
+import { UsageService, type CredentialStoreFace, type SessionRosterFace, type SessionRouteFace, type SettingsFace } from './core/usage.ts'
+import { UsageStatsReader } from './core/usage-stats.ts'
 import { wireArgs, type GatewayPeer } from './core/wire.ts'
 import { dshHome } from './host/dsh-home.ts'
 import { ApnsSender, apnsConfigFromEnv } from './host/apns.ts'
@@ -57,16 +71,63 @@ import { StandingWatchers } from './host/watchers.ts'
 import { LoopbackSquads } from './host/squads.ts'
 import { mountOnce } from './mount-once.ts'
 import { makePairTokenRoute } from './host/routes.ts'
+import { createUiPresentTool } from './host/ui-tools.ts'
+import { hostWebOrigin, LoopbackUsage } from './host/usage-stats.ts'
 import { isWebSocketUpgrade, presentedTokenOf, readSecWebSocketKey, refuseUpgrade, serveUpgrade } from './host/websocket.ts'
 
 /** Loader row identity of this plugin. */
 export const name = 'remote-bridge'
 
-/** The Host services this plugin cannot run without. */
-export const inject = ['typertGateway', 'webServer']
+/**
+ * The Host services this plugin cannot run without.
+ *
+ * `tools` is what protocol §35 added: this bridge contributes one model tool of
+ * its own (`ui_present`), so a host that composes no tool registry is a host where
+ * the card channel has no caller — the row simply does not mount here.
+ */
+export const inject = ['typertGateway', 'webServer', 'tools']
 
 /** Where the paired-device roster lives inside the DSH home. */
 export const ROSTER_PATH = 'remote-bridge/devices.json'
+
+/** The environment variable that moves the offline claim window (§32.2). */
+export const OFFLINE_CLAIM_TTL_ENV = 'DSH_REMOTE_BRIDGE_OFFLINE_CLAIM_TTL_MS'
+
+/**
+ * The offline claim window this process runs with.
+ *
+ * The window is the bridge's own constant and never a host fact, so a deployment
+ * moves it here. A value that is missing, unreadable or not positive falls back to
+ * the constant instead of closing the window: a zero window would silently switch
+ * the channel off, and an operator who wanted that would be turning off push.
+ * @param env - the process environment, injectable for a suite.
+ * @returns the window in milliseconds.
+ */
+export function offlineClaimTtl(env: NodeJS.ProcessEnv = process.env): number {
+  const configured = Number(env[OFFLINE_CLAIM_TTL_ENV])
+  return Number.isFinite(configured) && configured > 0 ? configured : OFFLINE_QUESTION_CLAIM_TTL_MS
+}
+
+/** The environment variable that moves how long a finished turn waits for its session to go quiet (§28). */
+export const TURN_END_QUIET_MAX_ENV = 'DSH_REMOTE_BRIDGE_TURN_END_QUIET_MAX_MS'
+
+/**
+ * The quiet-wait budget this process runs with.
+ *
+ * The budget is the bridge's own constant and never a host fact, so a deployment
+ * moves it here. A value that is missing, unreadable or not positive falls back to
+ * the constant instead of closing the window: a zero budget would announce every
+ * turn end at its frame, and an operator who wanted that would be turning push
+ * off. The budget only bounds the wait — a session that does fall quiet inside it
+ * is announced then, and one that does not is announced at the end with the
+ * reason it was still busy.
+ * @param env - the process environment, injectable for a suite.
+ * @returns the budget in milliseconds.
+ */
+export function turnEndQuietMaxWait(env: NodeJS.ProcessEnv = process.env): number {
+  const configured = Number(env[TURN_END_QUIET_MAX_ENV])
+  return Number.isFinite(configured) && configured > 0 ? configured : TURN_END_QUIET_MAX_MS
+}
 
 /** This machine's IANA time zone, or undefined when the platform has none. */
 function localTimeZone(): string | undefined {
@@ -185,6 +246,48 @@ function sessionRoster(ctx: Context, peer: GatewayPeer, log: (message: string) =
 }
 
 /**
+ * 一条会话此刻的路由，按 `usage.session` 的模型窗口那一档读出来。
+ *
+ * 折叠与 `session.models` 的 `current` 逐字一致：下一步的选择、其次是用过的那个、
+ * 最后才是目录默认。两个方法读同一个折叠，就不可能出现「模型选择器说 A、模型窗口
+ * 按 B 算」这种事。每次读都走本桥自己的 owner peer；读不到任何一档就回 undefined，
+ * 那一档读数（`modelContextWindow`）因此根本不出现，而不是补一个默认值。
+ * @param ctx - 插件的上下文，携带网关。
+ * @param peer - 本桥自己的 owner peer，每次调用都以它发声。
+ * @param log - 读不到时记一行日志。
+ * @returns 路由 face。
+ */
+function sessionRoute(ctx: Context, peer: GatewayPeer, log: (message: string) => void): SessionRouteFace {
+  const invoke = async (method: string, args: Readonly<Record<string, unknown>>): Promise<unknown> => await ctx.typertGateway.invoke({
+    namespace: 'session',
+    method,
+    args: wireArgs('session', method, args),
+    peer,
+  })
+  return {
+    current: async (sessionId: string) => {
+      try {
+        const folded = modelSelectionOf(await invoke('projections', { sessionId }))
+        const selected = folded.next ?? folded.lastUsed
+        // 还没选过模型的会话在目录默认上——它下一步就会用那个，也正是
+        // `session.models` 对同一条会话给出的答案。
+        const fallback = selected === undefined ? selectionOf(catalogDefaultOf(await invoke('modelCatalog', {}))) : undefined
+        const answer = selected ?? fallback
+        return answer === undefined ? undefined : { provider: answer.provider, model: answer.model }
+      } catch (error) {
+        log(`the route of session ${sessionId} could not be read: ${String(error)}`)
+        return undefined
+      }
+    },
+  }
+}
+
+/** `session/modelCatalog` 里的 `default` 一格。 */
+function catalogDefaultOf(value: unknown): unknown {
+  return typeof value === 'object' && value !== null ? (value as { default?: unknown }).default : undefined
+}
+
+/**
  * 解析 `usage.v1` 要读的宿主服务，现在就解析一次。
  *
  * 与元数据的三个 face 同一条理由：四者都不在本插件的 `inject` 里，缺一个不该
@@ -203,6 +306,7 @@ function usageFaces(ctx: Context, peer: GatewayPeer, log: (message: string) => v
     roster: sessionRoster(ctx, peer, log),
     credentials: ctx.get('credentials') as CredentialStoreFace | undefined,
     settings: ctx.get('settings') as SettingsFace | undefined,
+    route: sessionRoute(ctx, peer, log),
   }
 }
 
@@ -265,6 +369,9 @@ function applyImpl(ctx: Context): void {
   // it is gated by the bridge's own pairing check (see core/owner-peer.ts).
   const ownerPeer = createOwnerPeer(ctx)
   const questions = new QuestionClaims({ gateway: ctx.typertGateway, peer: ownerPeer, log })
+  // 整页卡（§35）：一张宿主级的卡表，所有连接共享——一条动作只属于发起它的那个
+  // 工具调用，与它从哪台设备回来无关。
+  const ui = new UiCards()
   // One roster per mount, shared by every connection: a background job is a fact
   // about the host, not about the device that asked about it.
   const jobs = new JobRoster({ faces: () => jobFaces(ctx), log })
@@ -272,7 +379,12 @@ function applyImpl(ctx: Context): void {
   // 用量读数：一条会话的窗口与组成靠宿主广播的事件折出来，余额靠宿主自己的
   // 凭据与设置查出来。一个宿主一份、所有连接共享——两台手机重复问，上游也只
   // 该收到一次请求（core/usage.ts）。
-  const usage = new UsageService({ faces: () => usageFaces(ctx, ownerPeer, log), now: () => Date.now(), log })
+  // 台账聚合读的是宿主上 dsh-usage 插件的两条 HTTP 路由，走本机回环 origin：那个
+  // 插件不发布任何 cordis 服务，端口从 `webServer` 来（先 getOrigin()，拿不到再退回
+  // 监听端口）。没有它时 `usage.stats` 答 no-usage-plugin，其余读数一概不变。
+  const usageRoutes = new LoopbackUsage({ origin: () => hostWebOrigin(ctx.webServer), log })
+  const usageStats = new UsageStatsReader({ transport: () => usageRoutes, now: () => Date.now(), log })
+  const usage = new UsageService({ faces: () => usageFaces(ctx, ownerPeer, log), now: () => Date.now(), stats: usageStats, log })
   // The push channel is OFF unless this machine holds an Apple signing key: no
   // key, no sender, and every notification path is a no-op — which is what keeps
   // the protocol byte-identical for every deployment that has none (§28).
@@ -318,6 +430,18 @@ function applyImpl(ctx: Context): void {
       return dropped
     },
   })
+  // The quiet gate both channels announce a finished turn through: §28's
+  // notification and §29's card end wait for the host's own answer that nothing is
+  // left running under that session — its own agent, any descendant, and any job
+  // the host attributes to either. Inert while no key is configured, because both
+  // channels are then off and no timer is worth arming.
+  const turnEndQuiet = new TurnEndQuietGate({
+    push,
+    liveActivity,
+    probe: sessionQuietProbe({ gateway: ctx.typertGateway, peer: ownerPeer, jobs }),
+    maxWaitMs: turnEndQuietMaxWait(),
+    log,
+  })
   // The bridge's own follow streams (§28/§29): a suspended phone has no socket,
   // so the turn end its card has to show would otherwise be seen by nobody. One
   // watcher per session that still holds a card token, armed from the roster and
@@ -336,6 +460,7 @@ function applyImpl(ctx: Context): void {
     peer: ownerPeer,
     sessions: watchedSessions,
     ...(apnsSender === undefined ? {} : { liveActivity, push }),
+    turnEndQuiet,
     log,
   })
   const permissions = new SessionPermissions(() => permissionFaces(ctx), log)
@@ -359,6 +484,8 @@ function applyImpl(ctx: Context): void {
     log,
   })
   const extensions = new RemoteBridgeRegistry()
+  // 离线认领的窗口归桥所有，宿主从不认识它（§32.2）：常量是默认值，部署可用环境变量覆盖。
+  const offlineClaimTtlMs = offlineClaimTtl()
   const hub = new BridgeHub({
     extensions,
     gateway: ctx.typertGateway,
@@ -366,6 +493,7 @@ function applyImpl(ctx: Context): void {
     roster,
     approvals,
     questions,
+    ui,
     jobs,
     sessionMeta,
     usage,
@@ -374,6 +502,8 @@ function applyImpl(ctx: Context): void {
     squads,
     push,
     liveActivity,
+    turnEndQuiet,
+    offlineClaimTtlMs,
     onPushRegistered: () => { watchers.sync() },
     now: () => Date.now(),
     clientTimeZone: localTimeZone,
@@ -405,10 +535,23 @@ function applyImpl(ctx: Context): void {
       disposeUpgrade()
       disposeRoute()
       watchers.dispose()
+      turnEndQuiet.dispose()
       hub.dispose()
       jobs.dispose()
     }
   }, 'remote-bridge: protocol v1 routes')
+
+  // §35 的模型工具：`ui_present` 把 agent 写的整页交给已配对的客户端，并在用户
+  // 动作时把结构化事件作为它自己的返回值交回。注册在 `ctx.effect` 里、返回
+  // disposer，所以插件卸载时工具名随行消失，宿主工具表不会留下一根指向空实现的
+  // 指针；`execute` 把 `exec.signal` 一路传到认领表，回合被取消时那张卡立刻结算。
+  ctx.effect(() => {
+    const disposeTool = ctx.tools.register(createUiPresentTool({
+      present: async (card, signal) => await hub.present(card, signal),
+    }))
+    log('model tool ui_present registered')
+    return () => { disposeTool() }
+  }, 'remote-bridge: ui_present tool')
 
   // 会话事件是 `usage.session` 唯一的来源：桥不读会话日志、也不回填历史，所以
   // 这个监听器挂上之前广播的事件不会有读数，宿主没广播过的窗口也不会被编出来。

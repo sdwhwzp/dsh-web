@@ -25,6 +25,8 @@ Status: implemented
 
 必需检查的名字由仓库 ruleset `integration-branch-policy` 冻结——`CI checks`、`plugin-mount`、`Validate PR contribution evidence`、`guard-agent-notes`——因此沿用旧名的是汇聚 job，而不是让三条通道变成新的必需上下文；并且聚合判断是显式写出的，不依赖 `needs` 默认语义：被跳过或被取消的通道永远不能算作满足了必需检查。
 
+`windows.yml` 落在这一切之外，也落在必需检查之外：它唯一的 job `Windows smoke` 跑在 `windows-latest` 上，由推送到 `dev` 或 `main` 以及 `workflow_dispatch` 触发，用 `--frozen-lockfile --ignore-scripts` 安装整个 workspace 后执行 `@linxin666/dsh-remote-bridge` 与 `@linxin666/dsh-client-ui-browser-view` 两个套件，不做任何构建；原因是 v0.4.9 里唯一带平台色彩的改动——`packages/dsh-remote-bridge/src/core/devices.ts` 里的串行 `#writeQueue`，名单写入要经过它，因为 Windows 拒绝重叠 rename——从未在 Windows 上执行过，而其余每条通道都跑在 `ubuntu-latest`。它不改任何 job 名、也不出现在任何 `needs` 里，因此四个被冻结的必需上下文含义不变、必需墙钟不动；它不推进下面清单里的任何条目——那些条目衡量的都是必需检查的延迟或 runner 成本——逐条回答写在 workflow 自己的头部。
+
 ### 每一处摆放的理由
 
 - **文本规则跑在 `pnpm install` 之后，不是之前。** 在没有 `node_modules` 的树里执行任何 `pnpm` 脚本，pnpm 会先自作主张跑一遍完整的 workspace 安装。runner 上实测：`Scope: all 19 workspace projects` … `Packages: +429` … `added 429, done`，脚本本身开始前已经过去 21.7s（该步骤 24s，慢 runner 上 34s；而改动前该步骤跑在安装之后只要 1s）；在仓库外的临时副本里同一个门禁在缺 `node_modules` 时 33.99s、存在时 5.01s，而裸脚本两种情况都约 1s。这次隐式安装用的还是 pnpm 自己的参数，而不是通道的 `--frozen-lockfile --ignore-scripts`，所以「安装前先失败」既更慢也更不受控。三条规则保留在真正值得快速失败的位置：Typecheck 与 Build 之前。
@@ -89,6 +91,8 @@ Status: implemented
 ## Consequences
 
 必需检查的墙钟现在是 `max(静态通道, 最慢分片, 一致性通道) + 汇聚`，而不是各门禁耗时之和，因此新增一道门禁不再线性拉长检查。代价是 runner 分钟：一次运行九个 job 记录而不是三个。这在公开仓库的标准 runner 上免费，但在私有 fork 上是真实开销——该取舍只在当前前提下成立，一旦仓库转为私有就需要重议第 12 条。
+
+Windows 通道花掉的是每次符合条件的推送一条 job 记录——在公开仓库的标准 runner 上免费，且不在必需路径上——换来的是合并之后才拿到的覆盖：只在 Windows 上出现的回归会在 `dev` 或 `main` 上暴露，而不是在携带它的那条 pull request 上，因为它不是必需上下文。
 
 汇聚 job 自身不报告任何门禁细节，因此读者必须点开各通道才能知道哪道门禁失败；各通道正因如此保留了自己命名的步骤。某个套件实质变化后需要重新测量 `scripts/test-shard.mjs` 的权重，但权重过期只会让分片失衡，绝不会让某个包从运行中被丢掉。
 

@@ -158,6 +158,26 @@ export class RemoteBridgeRegistry {
   }
 
   /**
+   * The capabilities the registered tables require a client to declare.
+   *
+   * A table registered without a capability contributes none: nothing gates its
+   * methods, so there is nothing for a client to announce. A name stays listed
+   * while any registered method still requires it, so withdrawing one table
+   * withdraws its capability only when it was the last one holding it. Sorted,
+   * because this answer travels on the wire: one set must read the same way
+   * whatever order the plugins happened to mount in.
+   * @returns the distinct non-blank capabilities, ascending; empty when no
+   * extension is registered.
+   */
+  capabilities(): readonly string[] {
+    const names = new Set<string>()
+    for (const entry of this.#methods.values()) {
+      if (entry.capability !== undefined && entry.capability.trim() !== '') names.add(entry.capability)
+    }
+    return [...names].sort()
+  }
+
+  /**
    * @param method - the method name a client asked for.
    * @param declares - whether the calling connection declared a capability.
    * @returns the handler when the caller may use the method, else undefined.

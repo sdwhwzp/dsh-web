@@ -10,6 +10,8 @@ interface HostServices {
   readonly roster?: readonly string[]
   readonly credentials?: UsageFaces['credentials']
   readonly settings?: UsageFaces['settings']
+  /** 会话此刻的路由；省略就是这台宿主给不出这一档。 */
+  readonly route?: UsageFaces['route']
 }
 
 /** 一份用量服务，时钟与上游都由套件自己拿着。 */
@@ -21,6 +23,7 @@ function usageOver(services: HostServices, clock: { now: number }, fetch: FetchF
       ...(services.roster === undefined ? {} : { roster: { ids: async () => services.roster } }),
       ...(services.credentials === undefined ? {} : { credentials: services.credentials }),
       ...(services.settings === undefined ? {} : { settings: services.settings }),
+      ...(services.route === undefined ? {} : { route: services.route }),
     }),
     now: () => clock.now,
     log,
@@ -36,6 +39,30 @@ function upstreamOf(answer: { readonly status: number; readonly body: unknown } 
     fetch: async (url, _init) => {
       calls.push(url)
       if (answer === 'timeout') throw new Error('The operation was aborted due to timeout')
+      return {
+        ok: answer.status >= 200 && answer.status < 300,
+        status: answer.status,
+        json: async () => answer.body,
+      }
+    },
+  }
+}
+
+/**
+ * 一个按 URL 应答模型目录的 fetch 替身：记下每次请求的地址与请求头。
+ *
+ * 目录那一档与余额那一档打的是不同主机，各自要断言的也不一样，所以这个替身只
+ * 服务 `/models`：读了几次、带没带凭据、打没打到对的 origin，都由调用方检查。
+ */
+function catalogOf(answer: { readonly status: number; readonly body: unknown }): {
+  readonly fetch: FetchFace
+  readonly calls: { readonly url: string; readonly headers: Record<string, string> }[]
+} {
+  const calls: { url: string; headers: Record<string, string> }[] = []
+  return {
+    calls,
+    fetch: async (url, init) => {
+      calls.push({ url, headers: init?.headers ?? {} })
       return {
         ok: answer.status >= 200 && answer.status < 300,
         status: answer.status,
@@ -79,7 +106,7 @@ describe('usage channel over protocol v1', () => {
     expect(hello.capabilities).toEqual([...SERVED_CAPABILITIES])
     expect(hello.capabilities).toContain(CAP_USAGE)
     expect(hello.minor).toBe(MINOR)
-    expect(MINOR).toBe(19)
+    expect(MINOR).toBe(21)
   })
 
   it('user that declared no capability is told neither usage method exists and every other method still answers', async () => {
@@ -276,5 +303,94 @@ describe('usage channel over protocol v1', () => {
       granted: 10,
       updatedAt: clock.now,
     })
+  })
+
+  it('user reading a session the host broadcast a window for is never offered a model declaration', async () => {
+    // Given a session whose host broadcast the real window, on a route whose
+    // catalog declares a different one
+    const clock = { now: 1_700_000_000_000 }
+    const catalog = catalogOf({ status: 200, body: { data: [{ id: 'deepseek-chat', context_length: 65_536 }] } })
+    const usage = usageOver({
+      live: ['s-1'],
+      credentials: OFFICIAL_CREDENTIALS,
+      settings: OFFICIAL_SETTINGS,
+      route: { current: async () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }) },
+    }, clock, catalog.fetch)
+    usage.record('s-1', { type: 'request/context', data: { contextWindow: 131_072 } })
+    // When the user asks about it
+    const answer = await usage.session('s-1')
+    // Then only the host's own reading is there: the two numbers are never mixed,
+    // and the catalog was not even read
+    expect(answer).toEqual({ contextWindow: 131_072 })
+    expect(catalog.calls).toEqual([])
+  })
+
+  it('user reading a session the host never broadcast a window for is offered the catalog window', async () => {
+    // Given a session with no host window, on the official route, whose catalog
+    // declares both a context length and a max input size for that model
+    const clock = { now: 1_700_000_000_000 }
+    const catalog = catalogOf({
+      status: 200,
+      body: { data: [{ id: 'deepseek-chat', context_length: 65_536, max_input_tokens: 999 }, { id: 'other', context_window: 1_024 }] },
+    })
+    const usage = usageOver({
+      live: ['s-1'],
+      credentials: OFFICIAL_CREDENTIALS,
+      settings: OFFICIAL_SETTINGS,
+      route: { current: async () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }) },
+    }, clock, catalog.fetch)
+    // When the user asks about it
+    const answer = await usage.session('s-1')
+    // Then the declaration crosses under its own key, first field name first, and
+    // the request went to that route's own catalog with that route's credential
+    expect(answer).toEqual({ modelContextWindow: 65_536 })
+    expect(catalog.calls).toEqual([{
+      url: 'https://api.deepseek.com/models',
+      headers: { accept: 'application/json', authorization: 'Bearer sk-official' },
+    }])
+  })
+
+  it('user reading two sessions of one route inside the window causes one catalog read', async () => {
+    // Given two live sessions on the same route, neither with a host window
+    const clock = { now: 1_700_000_000_000 }
+    const catalog = catalogOf({ status: 200, body: { data: [{ id: 'deepseek-chat', context_length: 65_536 }] } })
+    const usage = usageOver({
+      live: ['s-1', 's-2'],
+      credentials: OFFICIAL_CREDENTIALS,
+      settings: OFFICIAL_SETTINGS,
+      route: { current: async () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }) },
+    }, clock, catalog.fetch)
+    // When both are read
+    const [first, second] = await Promise.all([usage.session('s-1'), usage.session('s-2')])
+    // Then one catalog read served both, because the declaration is a fact about
+    // the route rather than about either session
+    expect(first).toEqual({ modelContextWindow: 65_536 })
+    expect(second).toEqual({ modelContextWindow: 65_536 })
+    expect(catalog.calls).toHaveLength(1)
+  })
+
+  it('user reading a session whose route has no readable catalog is answered without that key', async () => {
+    // Given a route whose catalog answers an error
+    const clock = { now: 1_700_000_000_000 }
+    const failing = catalogOf({ status: 500, body: { error: 'boom' } })
+    const unavailable = usageOver({
+      live: ['s-1'],
+      credentials: OFFICIAL_CREDENTIALS,
+      settings: OFFICIAL_SETTINGS,
+      route: { current: async () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }) },
+    }, clock, failing.fetch)
+    // When the user asks about it
+    // Then the key is absent rather than invented, and the read was attempted once
+    expect(await unavailable.session('s-1')).toEqual({})
+    expect(failing.calls).toHaveLength(1)
+    // And a catalog that does not list this model is the same absence, not a fallback
+    const silent = catalogOf({ status: 200, body: { data: [{ id: 'another-model', context_length: 4_096 }] } })
+    const missing = usageOver({
+      live: ['s-1'],
+      credentials: OFFICIAL_CREDENTIALS,
+      settings: OFFICIAL_SETTINGS,
+      route: { current: async () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }) },
+    }, clock, silent.fetch)
+    expect(await missing.session('s-1')).toEqual({})
   })
 })

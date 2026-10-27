@@ -1,13 +1,22 @@
 import { describe, expect, it } from 'vitest'
 import { createRemoteBridgeFace, RemoteBridgeRegistry } from '../src/core/extension.ts'
-import { answerOf, makeBareHub, makeConnection, RecordingTransport, requestFrame } from './support/harness.ts'
+import { CAP_AGENTS, SERVED_CAPABILITIES } from '../src/core/protocol.ts'
+import { answerOf, makeBareHub, makeConnection, makeHub, RecordingTransport, requestFrame } from './support/harness.ts'
 
 /** Capability the demo tables in this suite require. */
 const DEMO_CAP = 'demo.v1'
 
+/** Capability the board plugin requires, the surface this seam was built for. */
+const BOARD_CAP = 'board.v1'
+
 /** Greet the bridge so the connection records the capabilities it declares. */
 async function greet(connection: { handleText(text: string): Promise<void> }, id: number, cap: readonly string[]): Promise<void> {
   await connection.handleText(requestFrame(id, 'hello', { proto: 1, cap: [...cap] }))
+}
+
+/** The capability list one greeting was answered with. */
+function capabilitiesOfAnswer(harness: Parameters<typeof answerOf>[0], id: number): string[] {
+  return (answerOf(harness, id).r as { capabilities: string[] }).capabilities
 }
 
 describe('the extension seam registry', () => {
@@ -257,5 +266,124 @@ describe('the seam event fan-out', () => {
     face.broadcast('demo.board.changed', payload, DEMO_CAP)
     // Then the bridge neither renames nor reshapes it
     expect(transport.ofType('ev')).toEqual([{ t: 'ev', seq: 1, m: 'demo.board.changed', p: payload }])
+  })
+})
+
+describe('the capability registry the bridge reads', () => {
+  it('operator reads the capabilities of an empty registry and gets none', () => {
+    // Given a bridge no plugin has registered on
+    const registry = new RemoteBridgeRegistry()
+    // When the registry is asked what a client would have to declare
+    // Then there is nothing to announce
+    expect(registry.capabilities()).toEqual([])
+  })
+
+  it('operator reads the capabilities of two tables in the order the wire expects', () => {
+    // Given two plugins whose capabilities arrive in the reverse of their names
+    const registry = new RemoteBridgeRegistry()
+    registry.registerMethods({ capability: 'zulu.v1', methods: { 'zulu.list': () => ({ ok: true }) } })
+    registry.registerMethods({ capability: 'alpha.v1', methods: { 'alpha.list': () => ({ ok: true }) } })
+    // When the registry is read
+    // Then the names are deduplicated and ascending, so mounting order cannot
+    // reach the wire
+    expect(registry.capabilities()).toEqual(['alpha.v1', 'zulu.v1'])
+  })
+
+  it('operator withdraws the last table holding a capability and the name is gone', () => {
+    // Given two tables gated by the same capability
+    const registry = new RemoteBridgeRegistry()
+    const first = registry.registerMethods({ capability: BOARD_CAP, methods: { 'board.snapshot': () => ({ ok: true }) } })
+    const second = registry.registerMethods({ capability: BOARD_CAP, methods: { 'board.apply': () => ({ ok: true }) } })
+    // When the first one is withdrawn
+    // Then the capability is still there, because a registered method requires it
+    first()
+    expect(registry.capabilities()).toEqual([BOARD_CAP])
+    // When the last one is withdrawn too
+    second()
+    // Then the name is gone with it
+    expect(registry.capabilities()).toEqual([])
+  })
+
+  it('operator registers a table without a capability and the registry announces none', () => {
+    // Given a table whose methods are open to every paired client
+    const registry = new RemoteBridgeRegistry()
+    registry.registerMethods({ methods: { 'demo.open': () => ({ ok: true }) } })
+    // When the registry is read
+    // Then a client has nothing to declare, so nothing is advertised
+    expect(registry.capabilities()).toEqual([])
+  })
+})
+
+describe('the capabilities a hello advertises', () => {
+  it('user greets a bridge with no extension mounted and reads exactly the served capabilities', async () => {
+    // Given a bridge nothing registered on
+    const harness = makeConnection({ paired: true })
+    // When a client greets it
+    await greet(harness.connection, 1, [])
+    // Then the answer is the protocol's own list, unchanged: an empty registry
+    // adds nothing and reorders nothing
+    expect(capabilitiesOfAnswer(harness, 1)).toEqual([...SERVED_CAPABILITIES])
+  })
+
+  it('user greets a bridge whose plugin registered board.v1 and finds board.v1 advertised', async () => {
+    // Given a plugin that gated its methods behind the board capability
+    const harness = makeConnection({ paired: true })
+    harness.extensions.registerMethods({ capability: BOARD_CAP, methods: { 'board.snapshot': () => ({ ok: true }) } })
+    // When a client greets the bridge
+    await greet(harness.connection, 1, [])
+    // Then the capability the plugin requires is announced, so a client can tell
+    // this host serves the board from one that does not
+    const capabilities = capabilitiesOfAnswer(harness, 1)
+    expect(capabilities).toContain(BOARD_CAP)
+    // And the protocol's own names are still there, in their own order, in front
+    expect(capabilities.slice(0, SERVED_CAPABILITIES.length)).toEqual([...SERVED_CAPABILITIES])
+  })
+
+  it('user greets again after the plugin withdrew its table and board.v1 is no longer advertised', async () => {
+    // Given a greeting that announced the plugin's capability
+    const harness = makeConnection({ paired: true })
+    const dispose = harness.extensions.registerMethods({ capability: BOARD_CAP, methods: { 'board.snapshot': () => ({ ok: true }) } })
+    await greet(harness.connection, 1, [])
+    expect(capabilitiesOfAnswer(harness, 1)).toContain(BOARD_CAP)
+    // When the plugin is unmounted and the same socket greets again
+    dispose()
+    await greet(harness.connection, 2, [])
+    // Then the name is withdrawn with it, because the list is computed on every
+    // greeting rather than frozen when the bridge was built
+    expect(capabilitiesOfAnswer(harness, 2)).toEqual([...SERVED_CAPABILITIES])
+  })
+
+  it('user greets a bridge where two tables require the same capability and reads it once', async () => {
+    // Given two plugins that gate on the same capability
+    const harness = makeConnection({ paired: true })
+    harness.extensions.registerMethods({ capability: BOARD_CAP, methods: { 'board.snapshot': () => ({ ok: true }) } })
+    harness.extensions.registerMethods({ capability: BOARD_CAP, methods: { 'board.apply': () => ({ ok: true }) } })
+    // When a client greets the bridge
+    await greet(harness.connection, 1, [])
+    // Then the name appears exactly once
+    const capabilities = capabilitiesOfAnswer(harness, 1)
+    expect(capabilities.filter(name => name === BOARD_CAP)).toHaveLength(1)
+  })
+
+  it('user greets a connection the hub attached and reads the capability the plugin registered first', async () => {
+    // Given a hub whose registry already holds a plugin table, and a connection
+    // the hub itself built
+    const hub = makeHub()
+    hub.extensions.registerMethods({ capability: BOARD_CAP, methods: { 'board.snapshot': () => ({ ok: true }) } })
+    // When that connection greets the bridge
+    await greet(hub.connection, 1, [])
+    // Then the registry reached the greeting through the hub's own injection,
+    // which is the only path a real bridge takes
+    expect(capabilitiesOfAnswer(hub, 1)).toContain(BOARD_CAP)
+  })
+
+  it('user greets a bridge whose plugin gates on a capability the protocol already serves and reads that name once', async () => {
+    // Given a plugin that requires a capability this bridge serves itself
+    const harness = makeConnection({ paired: true })
+    harness.extensions.registerMethods({ capability: CAP_AGENTS, methods: { 'demo.presets': () => ({ ok: true }) } })
+    // When a client greets the bridge
+    await greet(harness.connection, 1, [])
+    // Then the union lists it once, in the position the protocol gave it
+    expect(capabilitiesOfAnswer(harness, 1)).toEqual([...SERVED_CAPABILITIES])
   })
 })

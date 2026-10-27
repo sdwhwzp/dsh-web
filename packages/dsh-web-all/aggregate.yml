@@ -40,6 +40,14 @@ patchFrom:
   # （#1901 之后家族行直挂真实包），与官方行名册和独立安装行 id（remote-bridge）
   # 都不相交，因此不需要 familyIds 覆盖。
   - ../dsh-remote-bridge
+  # dsh-task-board-remote 紧跟远程桥：它的宿主半区把看板的 board.v1 能力面绑到桥的
+  # remoteBridge 扩展缝上，还要拿到看板插件（dsh-task-board）的 taskBoard 服务。
+  # 两条接缝先就位更稳——行自身会等这两个服务，先挂载只是少一次等待，不是硬依赖，
+  # 所以不往前挪，也不拆散 update 与 remote-web-ui 那对共享侧栏 footer 席位的相邻关系。
+  # 行 id 派生为 web-ui-task-board-remote、行 name 就是真实包名（#1901 之后家族行直挂
+  # 真实包），与官方行名册和独立安装行 id（task-board-remote）都不相交，因此不需要
+  # familyIds 覆盖。
+  - ../dsh-task-board-remote
   - ../dsh-ssh
   - ../dsh-liangshen
   - ../dsh-skill-explorer
@@ -71,6 +79,8 @@ deps:
   - ../dsh-update
   # 与 patchFrom 同序：桥的行紧跟在远程访问面之后，两份清单可逐行对照。
   - ../dsh-remote-bridge
+  # 与 patchFrom 同序：看板的远程能力面行紧跟在桥之后（它绑桥的扩展缝）。
+  - ../dsh-task-board-remote
   - ../dsh-ssh
   - ../dsh-liangshen
   - ../dsh-skill-explorer

@@ -177,11 +177,33 @@ function isStoredDevice(value: unknown): value is StoredDevice {
 }
 
 /**
+ * Which of several rows for one phone is the one that survives.
+ *
+ * The most recently seen row wins and a tie is settled by the later
+ * `createdAt`: a pairing refreshes `lastSeenAt` on the row that is actually on
+ * the wire, so that is the row holding the credential in use.
+ * @param rows - rows that share one fingerprint.
+ * @returns the row to keep, or undefined when there is none.
+ */
+function survivorOf(rows: readonly StoredDevice[]): StoredDevice | undefined {
+  let survivor: StoredDevice | undefined
+  for (const row of rows) {
+    if (survivor === undefined || row.lastSeenAt > survivor.lastSeenAt
+      || (row.lastSeenAt === survivor.lastSeenAt && row.createdAt > survivor.createdAt)) survivor = row
+  }
+  return survivor
+}
+
+/**
  * The persisted, revocable device roster.
  *
  * Revocation is a file edit: protocol v1 has no revoke method, so an operator
  * removes the row (or deletes the file) and restarts. The in-memory copy is
  * loaded once per process.
+ *
+ * One phone is one row. Pairing again replaces the credential on the row the
+ * phone already has instead of adding a second one, and a table that still
+ * carries duplicates is compacted when it is read.
  */
 export class DeviceRoster {
   readonly #file: string
@@ -242,12 +264,28 @@ export class DeviceRoster {
     if (!isP256Spki(pubKey)) return undefined
     const fingerprint = fingerprintOfSpki(pubKey)
     if (fingerprint === undefined) return undefined
+    // Pairing again is a new credential for a phone that is already here, not a
+    // second phone: the same public key is the same fingerprint, so the rows it
+    // already owns are settled first, the newest one kept and the rest dropped.
+    const sameDevice = [...this.#devices.values()].filter(row => row.fingerprint === fingerprint)
+    for (const row of sameDevice) this.#devices.delete(row.tokenHash)
+    const survivor = survivorOf(sameDevice)
     const now = this.#now()
     const deviceId = `dev_${randomBase64Url(DEVICE_ID_BYTES)}`
     const token = base64UrlEncode(randomBytes(DEVICE_TOKEN_BYTES))
-    this.#devices.set(tokenHash(token), { deviceId, pubKey, fingerprint, createdAt: now, lastSeenAt: now, tokenHash: tokenHash(token) })
+    const hash = tokenHash(token)
+    if (survivor === undefined) {
+      this.#devices.set(hash, { deviceId, pubKey, fingerprint, createdAt: now, lastSeenAt: now, tokenHash: hash })
+      await this.#persist()
+      return { deviceId, deviceToken: token }
+    }
+    // The row keeps its id, its creation time and its registration; only the
+    // credential moves. The old map key went with the old token, so the token
+    // this phone was issued before the pairing no longer authenticates it.
+    const { tokenHash: _retired, ...kept } = survivor
+    this.#devices.set(hash, { ...kept, lastSeenAt: now, tokenHash: hash })
     await this.#persist()
-    return { deviceId, deviceToken: token }
+    return { deviceId: kept.deviceId, deviceToken: token }
   }
 
   /** Record that a device just reconnected; the file is refreshed at most once per call. */
@@ -310,6 +348,31 @@ export class DeviceRoster {
     return false
   }
 
+  /**
+   * Forget one device's notification registration for a token APNs will never
+   * accept again.
+   *
+   * A dead alert token is the whole app install's refusal: the phone was restored,
+   * reinstalled, or the token belongs to another environment or bundle, so the
+   * Live Activity tokens that same install registered are dead by the same fact
+   * and go with it. The next `push.register` — which a live app performs on launch
+   * — writes a complete new block. The device itself stays paired: revoking a
+   * phone is a roster edit, never something a push refusal may do.
+   * @param deviceToken - the token APNs refused.
+   * @returns whether any row changed.
+   */
+  async removePush(deviceToken: string): Promise<boolean> {
+    for (const [hash, row] of this.#devices) {
+      const registration = row.push
+      if (registration === undefined || registration.deviceToken !== deviceToken) continue
+      const { tokenHash, deviceId, pubKey, fingerprint, createdAt, lastSeenAt } = row
+      this.#devices.set(hash, { tokenHash, deviceId, pubKey, fingerprint, createdAt, lastSeenAt })
+      await this.#persist()
+      return true
+    }
+    return false
+  }
+
   /** @returns every paired device that registered for notifications. */
   pushTargets(): readonly PushTargetView[] {
     const targets: PushTargetView[] = []
@@ -318,6 +381,78 @@ export class DeviceRoster {
       targets.push({ deviceId: row.deviceId, push: row.push })
     }
     return targets
+  }
+
+  /**
+   * Collapse what earlier enrollments left behind, in memory.
+   *
+   * Two rules, both saying one phone is one row. Rows are collapsed to one per
+   * fingerprint first, because a table written before `enroll` reused a row
+   * carries a row per pairing. Then an APNs token is kept on the row that
+   * registered it last: a token belongs to the app install, so every other row
+   * holding it is the same phone and would be a second delivery of the same
+   * event. A row that loses its registration keeps its identity and simply asks
+   * for no notification, exactly as {@link removePush} leaves it.
+   * @returns how many rows and registrations this pass retired.
+   */
+  #compact(): { readonly rows: number; readonly registrations: number } {
+    const phones = new Map<string, StoredDevice[]>()
+    for (const row of this.#devices.values()) {
+      const held = phones.get(row.fingerprint)
+      if (held === undefined) phones.set(row.fingerprint, [row])
+      else held.push(row)
+    }
+    let rows = 0
+    for (const held of phones.values()) {
+      if (held.length < 2) continue
+      const survivor = survivorOf(held)
+      if (survivor === undefined) continue
+      for (const row of held) {
+        if (row === survivor) continue
+        this.#devices.delete(row.tokenHash)
+        rows += 1
+      }
+      if (survivor.push !== undefined) continue
+      // A survivor that never registered takes the newest registration one of
+      // its dropped rows carried: same phone, same install, same tokens.
+      let newest: PushRegistration | undefined
+      for (const row of held) {
+        if (row === survivor || row.push === undefined) continue
+        if (newest === undefined || row.push.registeredAt > newest.registeredAt) newest = row.push
+      }
+      if (newest !== undefined) this.#devices.set(survivor.tokenHash, { ...survivor, push: newest })
+    }
+    const holders = new Map<string, StoredDevice[]>()
+    for (const row of this.#devices.values()) {
+      const token = row.push?.deviceToken
+      if (token === undefined) continue
+      const held = holders.get(token)
+      if (held === undefined) holders.set(token, [row])
+      else held.push(row)
+    }
+    let registrations = 0
+    for (const held of holders.values()) {
+      if (held.length < 2) continue
+      const keeper = held.reduce((best, row) => (row.push?.registeredAt ?? 0) > (best.push?.registeredAt ?? 0) ? row : best)
+      for (const row of held) {
+        if (row === keeper) continue
+        if (this.#retirePush(row.tokenHash)) registrations += 1
+      }
+    }
+    return { rows, registrations }
+  }
+
+  /**
+   * Drop one row's registration and keep its identity.
+   * @param hash - the map key of the row holding it.
+   * @returns whether the row carried a registration to drop.
+   */
+  #retirePush(hash: string): boolean {
+    const row = this.#devices.get(hash)
+    if (row === undefined || row.push === undefined) return false
+    const { push: _dropped, ...rest } = row
+    this.#devices.set(hash, rest)
+    return true
   }
 
   async #read(): Promise<void> {
@@ -357,6 +492,10 @@ export class DeviceRoster {
       this.#devices.set(row.tokenHash, push === undefined ? rest : { ...rest, push })
     }
     this.#log(`device roster ${this.#file}: ${rows.length} paired device(s)`)
+    const compacted = this.#compact()
+    if (compacted.rows === 0 && compacted.registrations === 0) return
+    this.#log(`device roster ${this.#file}: compacted ${compacted.rows} duplicate row(s), retired ${compacted.registrations} stale registration(s)`)
+    await this.#persist()
   }
 
   /** Move a corrupt roster aside so the failure survives and the next write cannot erase it. */

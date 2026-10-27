@@ -497,7 +497,7 @@ describe('apply registration', () => {
           registered.push(entry.name)
           return () => {}
         },
-        spec: (name: string) => name === 'settings.plugin.item' ? { kind: 'keyed' } : undefined,
+        spec: (key: string) => key === 'plugins.bundle.config' ? { kind: 'keyed', scope: 'root' } : undefined,
       },
       configForms: {
         get: () => ({

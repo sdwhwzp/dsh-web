@@ -30,6 +30,9 @@ import type { PairingService } from './pairing.ts'
 import type { PushNotifier } from './push.ts'
 import { pushEventOfTurnEnd } from './push.ts'
 import type { ListedQuestion, QuestionAnswerItem, QuestionClaims, QuestionListPayload } from './questions.ts'
+import type { TurnEndQuietGate } from './turn-end-quiet.ts'
+import { uiEventFits, uiEventOf } from './ui.ts'
+import type { ListedCard, UiCards, UiListPayload } from './ui.ts'
 import {
   CAP_AGENTS,
   CAP_COMMANDS,
@@ -47,7 +50,10 @@ import {
   CAP_SESSION_SNAPSHOT_TRIM,
   CAP_SQUADS,
   CAP_SUBAGENT_THREAD,
+  CAP_UI,
+  CAP_UI_LIST,
   CAP_USAGE,
+  CAP_USAGE_STATS,
   CAP_WORKSPACE,
   CODE_APPROVAL_UNKNOWN,
   CODE_COMMANDS_UNAVAILABLE,
@@ -62,6 +68,7 @@ import {
   CODE_SNAPSHOT_UNAVAILABLE,
   CODE_SQUADS_UNAVAILABLE,
   CODE_TOKEN_INVALID,
+  CODE_UI_LIST_UNAVAILABLE,
   CODE_UNKNOWN_METHOD,
   CODE_UNKNOWN_SESSION,
   CODE_UNPAIRED,
@@ -95,6 +102,8 @@ import {
   METHOD_SESSION_SNAPSHOT,
   METHOD_SESSION_TITLES,
   METHOD_SESSION_UNARCHIVE,
+  METHOD_UI_EVENT,
+  METHOD_UI_LIST,
   METHOD_SESSION_UNPIN,
   METHOD_SQUADS_LIST,
   METHOD_SQUADS_RUNS,
@@ -103,6 +112,7 @@ import {
   METHOD_SQUADS_STATE,
   METHOD_USAGE_BALANCE,
   METHOD_USAGE_SESSION,
+  METHOD_USAGE_STATS,
   METHOD_WORKSPACE_LIST,
   MINOR,
   PROTO,
@@ -180,6 +190,11 @@ export interface BridgeConnectionOptions {
   readonly approvals: ApprovalRegistry
   /** Pending user questions: the claims this bridge holds and the answer path back to the host. */
   readonly questions: QuestionClaims
+  /**
+   * 整页卡（§35）：`ui_present` 持有的每一张卡，`ui.event` 结算它们，`ui.list`
+   * 把它们念回去。与提问表平级、各自认领各自结算——两条通道互不改形状（§35.8）。
+   */
+  readonly ui: UiCards
   /** The host's background jobs: the read-only projection and the scopes this connection watches. */
   readonly jobs: JobRoster
   /** Process-local session metadata: live titles and the host's archive set. */
@@ -239,6 +254,15 @@ export interface BridgeConnectionOptions {
    */
   readonly liveActivity?: LiveActivityNotifier
   /**
+   * The gate a finished turn is announced through (§28, §29).
+   *
+   * Absent is a bridge assembled without one — a suite, or an embedder — and then
+   * both channels report at the frame, exactly as they did before the gate
+   * existed. The mount always hands one, because it is the only assembly that can
+   * read the host's own answer.
+   */
+  readonly turnEndQuiet?: TurnEndQuietGate
+  /**
    * Called after a registration changed the device table.
    *
    * A session's first live-activity token is what asks this bridge to keep a
@@ -253,6 +277,39 @@ export interface BridgeConnectionOptions {
 /** A device the connection proved itself to be, resolved from the upgrade request. */
 export interface ConnectionAuth {
   readonly deviceId: string
+}
+
+/**
+ * Whether one follow increment proves its session is working again.
+ *
+ * Deliberately narrow, and never "anything that is not a turn end": a parent's
+ * stream also carries a settled child's message (`source.kind` `subagent-settled`
+ * or `agent-message`, which the frames read as an agent actor), the usage count the
+ * host publishes as an assistant message finishes, and the catalog changes of the
+ * threads that session spawned. Reading any of those as a new turn would drop the
+ * turn end a waiting phone has not been told about yet — the one whose session is
+ * still busy with a running child, which is the case §28's gate exists for.
+ *
+ * One shared rule on purpose: this connection's own drain and the standing watchers
+ * both read it, so the two paths cannot disagree about what a new turn looks like.
+ * @param delta - one increment of a follow stream.
+ * @returns whether assistant work is streaming, or this session's own user wrote.
+ */
+export function isTurnStartDelta(delta: { readonly kind: string; readonly actor?: { readonly kind?: string } }): boolean {
+  switch (delta.kind) {
+    case 'text':
+    case 'reasoning':
+    case 'tool-call':
+    case 'tool-result':
+      return true
+    case 'user-message':
+      // A message with no actor is not evidence: a durable log written before
+      // sources existed carries none, and guessing "human" there would drop a real
+      // announcement.
+      return delta.actor?.kind === 'human'
+    default:
+      return false
+  }
 }
 
 /** The answer of a subscription's opening frame: a baseline, or why there is none. */
@@ -502,15 +559,23 @@ function answersOf(value: unknown): readonly QuestionAnswerItem[] | undefined {
   return answers
 }
 
-/** One model selection, in the field names the protocol publishes. */
-type ModelSelection = {
+/**
+ * One model selection, in the field names the protocol publishes.
+ *
+ * Exported beside {@link selectionOf} and {@link modelSelectionOf} because the
+ * host half resolves a session's current route for `usage.stats`'s neighbour
+ * key `usage.session`/`modelContextWindow` with exactly this fold: two readings
+ * of "which model is this session on" would let the two methods name different
+ * routes for the same session.
+ */
+export type ModelSelection = {
   readonly provider: string
   readonly model: string
   readonly reasoningEffort?: string
 }
 
 /** @returns the selection this value describes, or undefined when it describes none. */
-function selectionOf(value: unknown): ModelSelection | undefined {
+export function selectionOf(value: unknown): ModelSelection | undefined {
   if (!isRecord(value)) return undefined
   const provider = optionalText(value.provider)
   const model = optionalText(value.model)
@@ -525,7 +590,7 @@ function selectionOf(value: unknown): ModelSelection | undefined {
  * Both halves stay optional: a session that never ran has neither, and the
  * catalog default is then the only truthful current value.
  */
-function modelSelectionOf(value: unknown): { readonly next?: ModelSelection; readonly lastUsed?: ModelSelection } {
+export function modelSelectionOf(value: unknown): { readonly next?: ModelSelection; readonly lastUsed?: ModelSelection } {
   if (!isRecord(value) || !isRecord(value.values)) return {}
   const selection = value.values.modelSelection
   if (!isRecord(selection)) return {}
@@ -869,6 +934,21 @@ export class BridgeConnection {
     if (USAGE_METHODS.has(frame.m) && !this.declares(CAP_USAGE)) {
       return refusal(CODE_UNKNOWN_METHOD, `unknown method ${frame.m}`)
     }
+    // 台账聚合是另一个能力，因为它读的是另一个插件挂在这个宿主上的路由：不宣告
+    // `usage.stats.v1` 的客户端看不到这个方法，本桥也不会替它去读那两条路由。
+    if (frame.m === METHOD_USAGE_STATS && !this.declares(CAP_USAGE_STATS)) {
+      return refusal(CODE_UNKNOWN_METHOD, `unknown method ${frame.m}`)
+    }
+    // 整页卡是 §35 的一条通道、一个能力：不宣告 `ui.v1` 的客户端看到的仍是它从前
+    // 看到的 `unknown-method`，本桥也不会替它把一条动作交给某个工具调用。
+    if (frame.m === METHOD_UI_EVENT && !this.declares(CAP_UI)) {
+      return refusal(CODE_UNKNOWN_METHOD, `unknown method ${frame.m}`)
+    }
+    // 对账读是它自己的能力，与 §24 同一判据：不宣告 `ui.list.v1` 的客户端读不到卡表，
+    // 本桥也不会替它翻一遍认领表。
+    if (frame.m === METHOD_UI_LIST && !this.declares(CAP_UI_LIST)) {
+      return refusal(CODE_UNKNOWN_METHOD, `unknown method ${frame.m}`)
+    }
     // Unconditional: a loopback Host buys nothing here. Without a device token
     // only the handshake and the two pairing steps run.
     if (!this.paired && !UNPAIRED_METHODS.has(frame.m)) return refusal(CODE_UNPAIRED, 'this connection is not paired')
@@ -896,9 +976,12 @@ export class BridgeConnection {
       case METHOD_APPROVAL_RESOLVE: return this.#approvalResolve(frame.p)
       case METHOD_QUESTION_ANSWER: return await this.#questionAnswer(frame.p)
       case METHOD_QUESTION_LIST: return this.#questionList(frame.p)
+      case METHOD_UI_EVENT: return this.#uiEvent(frame.p)
+      case METHOD_UI_LIST: return this.#uiList(frame.p)
       case METHOD_PUSH_REGISTER: return await this.#pushRegister(frame.p)
       case METHOD_USAGE_SESSION: return await this.#usageSession(frame.p)
       case METHOD_USAGE_BALANCE: return await this.#usageBalance(frame.p)
+      case METHOD_USAGE_STATS: return await this.#usageStats(frame.p)
       case METHOD_JOBS_LIST: return await this.#jobsList(frame.p)
       case METHOD_PRESETS_LIST: return await this.#presetsList()
       case METHOD_SESSION_CREATE: return await this.#sessionCreate(frame.p)
@@ -950,7 +1033,29 @@ export class BridgeConnection {
     }
   }
 
-  #hello(payload: Readonly<Record<string, unknown>>): DispatchOutcome {    const proto = payload.proto
+  /**
+   * The capabilities this greeting advertises: the protocol's own, and every
+   * capability a mounted extension currently requires a client to declare.
+   *
+   * Computed per greeting rather than held once, because a plugin may register
+   * its table after this bridge was built — a name frozen at build time would
+   * leave that surface invisible to every phone that ever connects. The
+   * protocol's own names come first and keep their order, so a bridge with no
+   * extension mounted advertises exactly the list it always did; extension
+   * names follow in their registry's order. A name both halves know is listed
+   * once.
+   * @returns the served capabilities, one name each.
+   */
+  #servedCapabilities(): string[] {
+    const capabilities = [...SERVED_CAPABILITIES]
+    for (const capability of this.#options.extensions?.capabilities() ?? []) {
+      if (!capabilities.includes(capability)) capabilities.push(capability)
+    }
+    return capabilities
+  }
+
+  #hello(payload: Readonly<Record<string, unknown>>): DispatchOutcome {
+    const proto = payload.proto
     if (proto !== PROTO) return refusal(CODE_PROTO_UNSUPPORTED, `this bridge speaks protocol ${PROTO}`)
     this.#capabilities = capabilitiesOf(payload.cap)
     // The frame form is decided where the frame is written, so the carrier is
@@ -965,7 +1070,7 @@ export class BridgeConnection {
         proto: PROTO,
         minor: MINOR,
         server: SERVER_ID,
-        capabilities: [...SERVED_CAPABILITIES],
+        capabilities: this.#servedCapabilities(),
         resume: 'snapshot',
         auth: this.paired ? 'paired' : 'unpaired',
       },
@@ -2058,6 +2163,61 @@ export class BridgeConnection {
   }
 
   /**
+   * Answer one `ui.event`: the first action a user took inside a presented page
+   * (§35.3).
+   *
+   * The event is carried and never interpreted — `type` is the presenter's own
+   * closed set, so this bridge does not validate its value, refuse an unknown one
+   * or rewrite it. A card this bridge never claimed, or one that was settled
+   * elsewhere, is refused `ui-unknown`; a card whose own first event already
+   * settled it is refused `ui-settled`, because a repeated tap and a nonexistent
+   * card are two different answers. The payload is measured here rather than on the
+   * client: a refusal on that side would leave the agent waiting for a card that
+   * will never settle (§35.2's rule, one channel over).
+   * @param payload - `{sessionId, callId, event:{type, payload?}}`.
+   */
+  #uiEvent(payload: Readonly<Record<string, unknown>>): DispatchOutcome {
+    const sessionId = stringArg(payload, 'sessionId')
+    const callId = stringArg(payload, 'callId')
+    const event = uiEventOf(payload.event)
+    if (sessionId === undefined || callId === undefined || event === undefined) {
+      return refusal(CODE_INVALID_ARGS, 'ui.event requires sessionId, callId and event of {type, payload?}')
+    }
+    if (!uiEventFits(event)) return refusal(CODE_INVALID_ARGS, 'ui.event payload is over the 8 KiB cap')
+    const reply = this.#options.ui.settle(sessionId, callId, event)
+    return reply.ok ? { ok: true, r: { ok: true } } : refusal(reply.code, reply.msg)
+  }
+
+  /**
+   * Answer one `ui.list`: the cards this bridge is still holding (§35.4).
+   *
+   * A pure read — it claims nothing, moves no deadline, triggers no settlement and
+   * writes no host state — because its whole purpose is to let a client that was
+   * disconnected reconcile the cards it already holds. `settled` never appears in
+   * it: the list's definition is "still held", and a settled card is a notice the
+   * host already sent, not a row.
+   *
+   * Only a COMPLETE list may retire a card on the client, so a registry this bridge
+   * cannot read answers `ui-list-unavailable` rather than an empty list: an
+   * unreadable set is not an empty one.
+   * @param payload - must be the empty object: the held set is global, not scoped.
+   */
+  #uiList(payload: Readonly<Record<string, unknown>>): DispatchOutcome {
+    if (Object.keys(payload).length > 0) {
+      return refusal(CODE_INVALID_ARGS, 'ui.list takes no arguments')
+    }
+    let cards: readonly ListedCard[]
+    try {
+      cards = this.#options.ui.listed()
+    } catch (error) {
+      this.#options.log(`ui.list could not read the held cards: ${failureText(error)}`)
+      return refusal(CODE_UI_LIST_UNAVAILABLE, 'this bridge could not read the cards it is holding')
+    }
+    const answer: UiListPayload = { cards, complete: true }
+    return { ok: true, r: answer }
+  }
+
+  /**
    * The body of `push.register` (protocol §28.3).
    *
    * A write, and the only one this channel has: the device's APNs registration
@@ -2168,6 +2328,23 @@ export class BridgeConnection {
     const provider = stringArg(payload, 'provider')
     if (provider === undefined) return refusal(CODE_INVALID_ARGS, 'usage.balance requires provider')
     return { ok: true, r: await this.#options.usage.balance(provider) }
+  }
+
+  /**
+   * 答一次 `usage.stats`：宿主自己那份按天记的 token 台账的聚合。
+   *
+   * `days` 省略按 14，超出 60 按 60 收——收窗口的是 `core/usage-stats.ts`，不是
+   * 协议：客户端给的天数只是「想看多深」，不该被当成一次分配。这里只拒绝根本
+   * 不是数字的那种值，其余一律转发，包括读不到时那份 `unsupported`，
+   * 因为「这台 Mac 没挂那个插件」不是一次失败。
+   * @param payload - `{days?}`。
+   */
+  async #usageStats(payload: Readonly<Record<string, unknown>>): Promise<DispatchOutcome> {
+    const days = payload.days
+    if (days !== undefined && (typeof days !== 'number' || !Number.isFinite(days))) {
+      return refusal(CODE_INVALID_ARGS, 'usage.stats requires days to be a number')
+    }
+    return { ok: true, r: await this.#options.usage.stats(days) }
   }
 
   /**
@@ -2408,10 +2585,11 @@ export class BridgeConnection {
         // know. The call returns before anything is sent and swallows its own
         // failures: the frame above is already gone, and a notification is not
         // worth a delayed or aborted stream (protocol §28.5).
-        if (delta.kind === 'turn-end') {
-          this.#options.push?.notify(pushEventOfTurnEnd(delta.reason), subscription.sessionId)
-          this.#options.liveActivity?.noteTurnEnd(subscription.sessionId, delta.reason)
-        }
+        if (delta.kind === 'turn-end') this.#announceTurnEnd(subscription.sessionId, delta.reason)
+        // Only an increment that proves this session's own work proves a new turn; a
+        // settled child, a usage count and a catalog change all arrive here without
+        // meaning the user prompted again.
+        else if (isTurnStartDelta(delta)) this.#options.turnEndQuiet?.noteTurnStarted(subscription.sessionId)
       }
     } catch (error) {
       if (!subscription.controller.signal.aborted) {
@@ -2420,6 +2598,24 @@ export class BridgeConnection {
     } finally {
       this.#forget(subscription)
     }
+  }
+
+  /**
+   * Hand one finished turn to the channel that announces it.
+   *
+   * The gate holds it until the session is quiet (§28, §29); a connection built
+   * without one has no host answer to wait for and reports at the frame.
+   * @param sessionId - the session the turn belonged to.
+   * @param reason - the host's own reason for ending it.
+   */
+  #announceTurnEnd(sessionId: string, reason: string): void {
+    const gate = this.#options.turnEndQuiet
+    if (gate !== undefined) {
+      gate.noteTurnEnd(sessionId, reason)
+      return
+    }
+    this.#options.push?.notify(pushEventOfTurnEnd(reason), sessionId)
+    this.#options.liveActivity?.noteTurnEnd(sessionId, reason)
   }
 
   /** Await a subscription's opening frame under a bounded wait. */
