@@ -11,7 +11,7 @@ importers:
   .:
     dependencies:
       '@linxin666/dsh-web-all':
-        specifier: ^0.4.11-dsh.20261028.1
+        specifier: ^0.4.11-dsh.20261028.2
         version: link:packages/dsh-web-all
     devDependencies:
       '@deepseek-ai/cordis':
@@ -101,15 +101,6 @@ importers:
 
   packages/dsh-agents:
     dependencies:
-      '@deepseek-ai/dsh-brand':
-        specifier: ^0.2.2-alpha.2
-        version: 0.2.2-alpha.2(@deepseek-ai/cordis@4.0.6-alpha.1)
-      '@deepseek-ai/dsh-session-persistence':
-        specifier: ^0.2.2-alpha.2
-        version: 0.2.2-alpha.2(@deepseek-ai/cordis@4.0.6-alpha.1)(@deepseek-ai/dsh-brand@0.2.2-alpha.2(@deepseek-ai/cordis@4.0.6-alpha.1))(@deepseek-ai/dsh-session@0.2.2-alpha.2(@deepseek-ai/cordis@4.0.6-alpha.1)(@deepseek-ai/dsh-scope@0.2.2-alpha.2(@deepseek-ai/cordis@4.0.6-alpha.1)))(@deepseek-ai/dsh-timeout@0.2.2-alpha.2(@deepseek-ai/cordis@4.0.6-alpha.1))
-      '@deepseek-ai/dsh-session-projection':
-        specifier: ^0.2.2-alpha.2
-        version: 0.2.2-alpha.2(@deepseek-ai/cordis@4.0.6-alpha.1)(@deepseek-ai/dsh-session@0.2.2-alpha.2(@deepseek-ai/cordis@4.0.6-alpha.1)(@deepseek-ai/dsh-scope@0.2.2-alpha.2(@deepseek-ai/cordis@4.0.6-alpha.1)))
       '@deepseek-ai/schemastery':
         specifier: ^3.18.6-alpha.1
         version: 3.18.6-alpha.1
@@ -124,6 +115,9 @@ importers:
         specifier: ^0.2.2-alpha.2
         version: 0.2.2-alpha.2(228da3fded6027e4820d3075c4c678e2)
       '@deepseek-ai/dsh-api-gateway':
+        specifier: ^0.2.2-alpha.2
+        version: 0.2.2-alpha.2(@deepseek-ai/cordis@4.0.6-alpha.1)
+      '@deepseek-ai/dsh-brand':
         specifier: ^0.2.2-alpha.2
         version: 0.2.2-alpha.2(@deepseek-ai/cordis@4.0.6-alpha.1)
       '@deepseek-ai/dsh-client-locale':
@@ -159,6 +153,12 @@ importers:
       '@deepseek-ai/dsh-session':
         specifier: ^0.2.2-alpha.2
         version: 0.2.2-alpha.2(@deepseek-ai/cordis@4.0.6-alpha.1)(@deepseek-ai/dsh-scope@0.2.2-alpha.2(@deepseek-ai/cordis@4.0.6-alpha.1))
+      '@deepseek-ai/dsh-session-persistence':
+        specifier: ^0.2.2-alpha.2
+        version: 0.2.2-alpha.2(@deepseek-ai/cordis@4.0.6-alpha.1)(@deepseek-ai/dsh-brand@0.2.2-alpha.2(@deepseek-ai/cordis@4.0.6-alpha.1))(@deepseek-ai/dsh-session@0.2.2-alpha.2(@deepseek-ai/cordis@4.0.6-alpha.1)(@deepseek-ai/dsh-scope@0.2.2-alpha.2(@deepseek-ai/cordis@4.0.6-alpha.1)))(@deepseek-ai/dsh-timeout@0.2.2-alpha.2(@deepseek-ai/cordis@4.0.6-alpha.1))
+      '@deepseek-ai/dsh-session-projection':
+        specifier: ^0.2.2-alpha.2
+        version: 0.2.2-alpha.2(@deepseek-ai/cordis@4.0.6-alpha.1)(@deepseek-ai/dsh-session@0.2.2-alpha.2(@deepseek-ai/cordis@4.0.6-alpha.1)(@deepseek-ai/dsh-scope@0.2.2-alpha.2(@deepseek-ai/cordis@4.0.6-alpha.1)))
       '@deepseek-ai/dsh-subagent':
         specifier: ^0.2.2-alpha.2
         version: 0.2.2-alpha.2(f3b3ecbe84fe196c31b2aef0692fdbaa)
