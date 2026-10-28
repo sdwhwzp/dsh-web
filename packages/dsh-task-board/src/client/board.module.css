@@ -912,6 +912,12 @@
 .modalHeader > .modalTitle {
   flex: 1;
   min-width: 0;
+  /* A header can now carry a fixed-width control cluster (the label manager's
+     clear rule), so the title has to shrink honestly instead of overflowing onto
+     it — the longer localised titles are where this shows. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tagManageList {
@@ -958,6 +964,116 @@
   flex: 1 0 100%;
   font-size: 12px;
   color: var(--dsw-alias-label-tertiary);
+}
+
+/* --- label cleanup (bulk clear) ----------------------------------------------
+ * Clearing acts on the whole ledger, not on the row above it, so the control sits
+ * in the card's corner beside the title instead of trailing the list. Only the
+ * cluster, the `?` and the field's width are new — the threshold field reuses the
+ * labeled field contract the schedule rows carry (.scheduleZone is already a label
+ * wrapping its text and its control) and both buttons reuse .ghostButton and
+ * .helpButton, so the corner never grows a second control style. The rule itself
+ * is not painted in the body: the `?` carries it as a bubble anchored under the
+ * button, which keeps it inside the modal box this stylesheet clips at .modal, and
+ * the same element is the button's aria-describedby target — one copy, shown on
+ * pointer hover and on keyboard focus alike. The notice
+ * stays plain supporting text in the body, not the error slot: "nothing matched"
+ * is an answer, not a failure.
+ * ----------------------------------------------------------------------------- */
+
+.tagCleanup {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: var(--dsh-tb-control-gap);
+}
+
+.tagCleanup .ghostButton {
+  flex: none;
+}
+
+/* The rule's carrier: a round `?` sized to the control rail, so it aligns with the
+   threshold field and the commit beside it. */
+.helpButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  flex: none;
+  width: var(--dsh-tb-control-h);
+  height: var(--dsh-tb-control-h);
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 50%;
+  color: var(--dsw-alias-label-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: help;
+}
+
+.helpButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+/* Anchor for the bubble: the header's flex row sizes it like the button alone. */
+.helpTipWrap {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+
+/* The rule itself, anchored under the `?` so it stays inside the modal box that
+   .modal clips. pre-line keeps the two sentences in their own paragraphs, and the
+   element doubles as the button's description. */
+.helpTip {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 4;
+  box-sizing: border-box;
+  width: max-content;
+  /* Anchored to the left edge of the `?` and opening rightwards: the `?` sits just
+     left of the clear control, so a right-anchored bubble would run past the modal's
+     left edge and be clipped by .modal's own overflow. 240px leaves room for the
+     narrowest shipped locale's control cluster while still staying inside the card. */
+  max-width: 240px;
+  padding: 10px 12px;
+  background: var(--dsw-alias-bg-base);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  box-shadow: var(--dsw-shadow-lv3);
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+  text-align: left;
+  white-space: pre-line;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 120ms ease;
+  pointer-events: none;
+}
+
+.helpTipWrap:hover .helpTip,
+.helpTipWrap:focus-within .helpTip {
+  opacity: 1;
+  visibility: visible;
+}
+
+.tagCleanupInput {
+  flex: none;
+  width: 64px;
+}
+
+.tagCleanupNotice {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--dsw-alias-label-secondary);
 }
 
 /* --- form sections (create/edit dialog) --------------------------------------

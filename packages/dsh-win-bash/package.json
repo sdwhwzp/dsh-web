@@ -1,7 +1,7 @@
 {
   "name": "@linxin666/dsh-win-bash",
   "description": "Pinned private bash for Windows x64 DSH sessions: one persistent bash process per session behind the win_bash tool, carrying a digested Git for Windows MinGit payload and no PATH fallback.",
-  "version": "0.4.11-dsh.20261027.3",
+  "version": "0.4.11-dsh.20261028.1",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
@@ -15,7 +15,7 @@
   },
   "dsh": {
     "engines": {
-      "dsh": ">=0.2.1-rc.3"
+      "dsh": ">=0.2.2-alpha.2"
     },
     "bundle": {
       "patch": "./cordis.patch.yml"
@@ -28,15 +28,15 @@
     "typecheck": "tsgo --noEmit"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh": ">=0.2.1-rc.3"
+    "@deepseek-ai/dsh": ">=0.2.2-alpha.2"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "^4.0.5",
-    "@deepseek-ai/dsh-agent": "^0.2.1-rc.3",
-    "@deepseek-ai/dsh-sandbox": "^0.2.1-rc.3",
-    "@deepseek-ai/dsh-subprocess": "^0.2.1-rc.3",
-    "@deepseek-ai/dsh-tools": "^0.2.1-rc.3",
-    "@deepseek-ai/schemastery": "^3.18.5",
+    "@deepseek-ai/cordis": "^4.0.6-alpha.1",
+    "@deepseek-ai/dsh-agent": "^0.2.2-alpha.2",
+    "@deepseek-ai/dsh-sandbox": "^0.2.2-alpha.2",
+    "@deepseek-ai/dsh-subprocess": "^0.2.2-alpha.2",
+    "@deepseek-ai/dsh-tools": "^0.2.2-alpha.2",
+    "@deepseek-ai/schemastery": "^3.18.6-alpha.1",
     "@types/node": "^22.20.0",
     "tsdown": "0.22.2",
     "typescript": "~5.7.2",

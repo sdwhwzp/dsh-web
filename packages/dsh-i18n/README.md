@@ -49,7 +49,7 @@ The plugin is a pure browser bundle (the host half intentionally has no behavior
 
 ## Install
 
-Requires DSH 0.2.1-rc.3 or later: the plugin is developed against the 0.2.1-rc.3 DSH cohort and its `@deepseek-ai/*` runtime services are provided by the host itself.
+Requires DSH 0.2.2-alpha.2 or later: the plugin is developed against the 0.2.2-alpha.2 DSH cohort and its `@deepseek-ai/*` runtime services are provided by the host itself.
 
 In your profile (e.g. `~/.dsh/profiles/web`):
 

@@ -44,7 +44,7 @@ The feature is deliberately structured as an **independent plugin row** (row id 
 
 ## Requirements
 
-- DSH `>= 0.2.1-rc.3`.
+- DSH `>= 0.2.2-alpha.2`.
 - The profile must own the family packages through npm: the aggregate
   `@linxin666/dsh-web-all`, or the family packages installed directly. A profile
   whose family is installed with local `link:` specs is reported as **local

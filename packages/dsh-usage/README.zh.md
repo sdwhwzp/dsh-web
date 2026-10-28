@@ -39,7 +39,7 @@
 
 ## 安装
 
-要求 DSH 0.2.1-rc.3 或更高：插件基于 0.2.1-rc.3 DSH cohort 开发（其设置页即宿主根据插件自身 Config schema 生成的页面），`@deepseek-ai/*` 运行时导入由宿主本体提供。
+要求 DSH 0.2.2-alpha.2 或更高：插件基于 0.2.2-alpha.2 DSH cohort 开发（其设置页即宿主根据插件自身 Config schema 生成的页面），`@deepseek-ai/*` 运行时导入由宿主本体提供。
 
 在 profile（如 `~/.dsh/profiles/web`）中：
 

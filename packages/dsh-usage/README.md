@@ -39,7 +39,7 @@ The published rule bills a Chinese public holiday entirely off-peak even on a Mo
 
 ## Install
 
-Requires DSH 0.2.1-rc.3 or later: the plugin is developed against the 0.2.1-rc.3 DSH cohort (its settings page is the Host-generated page of the plugin's own Config schema) and its `@deepseek-ai/*` runtime imports are provided by the host itself.
+Requires DSH 0.2.2-alpha.2 or later: the plugin is developed against the 0.2.2-alpha.2 DSH cohort (its settings page is the Host-generated page of the plugin's own Config schema) and its `@deepseek-ai/*` runtime imports are provided by the host itself.
 
 In your profile (e.g. `~/.dsh/profiles/web`):
 

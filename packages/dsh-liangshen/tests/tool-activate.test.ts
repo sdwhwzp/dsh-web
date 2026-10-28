@@ -37,6 +37,22 @@ function erroredActivation(namespace: string, callId: string) {
   ]
 }
 
+/** One activation dispatched from inside a program, the way ptc records it. */
+function dispatch(namespace: string, subCallId: string, isError = false) {
+  return [{
+    type: 'tool/ptc-dispatch',
+    data: {
+      rootCallId: 'call_root',
+      parentCallId: 'call_root',
+      subCallId,
+      name: 'tool_activate',
+      arguments: { namespace },
+      isError,
+      content: [{ type: 'text', text: isError ? 'unknown paged namespace' : 'Activated' }],
+    },
+  }]
+}
+
 describe('paging helpers', () => {
   it('derives namespaces from prefix patterns', () => {
     expect(patternNamespace('mcp__codegraph__codegraph_explore', 'mcp__*')).toBe('codegraph')
@@ -107,6 +123,30 @@ describe('paging helpers', () => {
       ...activation('ssh', 'c2'),
     ]
     const { active } = replayActivations(events, 3, ['mcp__*'])
+    expect(active).toEqual(['ssh'])
+  })
+
+  it('user retains paged activations dispatched from inside a program', () => {
+    // Given successful namespace activations recorded by a program.
+    const events = [
+      ...dispatch('github', 'call_root:ptc:1'),
+      ...dispatch('codegraph', 'call_root:ptc:2'),
+    ]
+    // When the recorded activations are replayed.
+    const { active } = replayActivations(events, 3, ['mcp__*'])
+    // Then both successful namespaces remain active.
+    expect(active).toEqual(['github', 'codegraph'])
+  })
+
+  it('user sees only successful dispatched activations in the active namespaces', () => {
+    // Given one failed activation followed by one successful activation.
+    const events = [
+      ...dispatch('github', 'call_root:ptc:1', true),
+      ...dispatch('ssh', 'call_root:ptc:2'),
+    ]
+    // When the recorded activations are replayed.
+    const { active } = replayActivations(events, 3, ['mcp__*'])
+    // Then the failed namespace stays unavailable.
     expect(active).toEqual(['ssh'])
   })
 

@@ -1,5 +1,5 @@
 import { a as listDegraded, o as recordDegraded, s as shellState } from "./degraded-DtoWhWX-.js";
-//#region ../../node_modules/.pnpm/@deepseek-ai+cosmokit@1.8.6/node_modules/@deepseek-ai/cosmokit/lib/index.js
+//#region ../../node_modules/.pnpm/@deepseek-ai+cosmokit@1.8.7-alpha.1/node_modules/@deepseek-ai/cosmokit/lib/index.js
 /** Return true when a value is `null` or `undefined`. */
 function isNullable(value) {
 	return value === null || value === void 0;
@@ -253,7 +253,7 @@ var Time;
 	Time.template = template;
 })(Time || (Time = {}));
 //#endregion
-//#region ../../node_modules/.pnpm/@deepseek-ai+schemastery@3.18.5/node_modules/@deepseek-ai/schemastery/lib/index.mjs
+//#region ../../node_modules/.pnpm/@deepseek-ai+schemastery@3.18.6-alpha.1/node_modules/@deepseek-ai/schemastery/lib/index.mjs
 const kSchema = Symbol.for("schemastery");
 const kValidationError = Symbol.for("ValidationError");
 globalThis.__schemastery_index__ ??= 0;
@@ -1031,9 +1031,13 @@ function liveRowConfig(config) {
 	const read = config.get;
 	return typeof read === "function" ? read.call(config) : config;
 }
-/** The config the real plugin receives: every row key but the shell's own. */
+/** Normalize persisted nested config; explicit current row fields take precedence. */
 function familyConfigOf(row) {
-	const { plugin: _spec, ...family } = row;
+	const { plugin: _spec, clientOnly: _clientOnly, config: legacy, ...fields } = row;
+	const family = isRowConfig(legacy) ? {
+		...legacy,
+		...fields
+	} : fields;
 	return Object.keys(family).length === 0 ? void 0 : family;
 }
 /** Whether two family configs carry the same values (row configs are JSON data). */
@@ -1155,8 +1159,16 @@ async function apply(ctx, config) {
 			return;
 		}
 		if (RETIRED_PLUGINS.has(spec)) return;
+		if (row.clientOnly !== void 0 && typeof row.clientOnly !== "boolean") {
+			recordDegraded(spec, "shape", /* @__PURE__ */ new Error("clientOnly must be a boolean"));
+			return;
+		}
+		if (row.config !== void 0 && !isRowConfig(row.config)) {
+			recordDegraded(spec, "shape", /* @__PURE__ */ new Error("legacy family config must be a mapping"));
+			return;
+		}
 		const family = familyConfigOf(row);
-		if (mounted !== void 0 && mounted.spec === spec && sameFamilyConfig(mounted.config, family)) return;
+		if (mounted !== void 0 && mounted.spec === spec && mounted.clientOnly === (row.clientOnly === true) && sameFamilyConfig(mounted.config, family)) return;
 		if (mounted !== void 0) {
 			const previous = mounted;
 			mounted = void 0;
@@ -1165,6 +1177,14 @@ async function apply(ctx, config) {
 			} catch (error) {
 				console.warn("[dsh-web-all] unmounting the previous family plugin failed:", error);
 			}
+		}
+		if (row.clientOnly === true) {
+			mounted = {
+				spec,
+				config: family,
+				clientOnly: true
+			};
+			return;
 		}
 		let mod;
 		try {
@@ -1186,6 +1206,7 @@ async function apply(ctx, config) {
 			mounted = {
 				spec,
 				config: family,
+				clientOnly: false,
 				dispose: fiber.dispose,
 				fiber: watchable(fiber)
 			};
@@ -1213,4 +1234,4 @@ async function apply(ctx, config) {
 //#endregion
 export { inject as i, _resetDegradedRouteForTest as n, apply as r, Config as t };
 
-//# sourceMappingURL=shell-Cu4sKRi5.js.map
+//# sourceMappingURL=shell-Bgj4DFmK.js.map

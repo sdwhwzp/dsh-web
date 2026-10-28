@@ -26,6 +26,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { apply, name } from '../presets/liangshen/tool-catalog.mjs'
+import { apply as applyActivate } from '../presets/liangshen/tool-activate.mjs'
 
 type Listener = (first: any, second: any, third: any) => Promise<any>
 
@@ -404,5 +405,79 @@ describe('gentle paging under the collapsed ptc wire', () => {
     // and the transport survives.
     expect(h.tools.sdkSchemas(agent).map((tool: any) => tool.name)).toEqual(['bash', 'read'])
     expect(h.warnings).toEqual([])
+  })
+})
+
+/**
+ * The activation tool has to offer exactly the namespaces the catalog
+ * advertises, and under `ptc` those are the ones the live restriction already
+ * removed from every scoped reader. The catalog pages the harness registry and
+ * the activation row resolves its enumeration through that same registry via
+ * `agent.ctx.tools` — only the row's own `ctx` is a capture stub — so the
+ * activation faces the same filtered scope the production session does:
+ * reading `tools.schemas(agent)` back would find an empty page and refuse a
+ * namespace the same request's catalog names.
+ */
+/** One activation as the ptc runtime records it: a dispatch, not a tool call. */
+function ptcDispatch(namespace: string, subCallId: string) {
+  return {
+    type: 'tool/ptc-dispatch',
+    data: {
+      rootCallId: 'call_root',
+      parentCallId: 'call_root',
+      subCallId,
+      name: 'tool_activate',
+      arguments: { namespace },
+      isError: false,
+      content: [{ type: 'text', text: 'Activated' }],
+    },
+  }
+}
+
+describe('tool_activate against the restricted ptc surface', () => {
+  /** Mount the sibling row against the harness registry and return its tool. */
+  function activateTool(): any {
+    const registered: any[] = []
+    applyActivate({ tools: { register: (spec: any) => registered.push(spec) }, get: () => undefined }, {})
+    expect(registered).toHaveLength(1)
+    return registered[0]
+  }
+
+  it('user activates a namespace hidden by the scope projection', async () => {
+    // Given a session whose projection withholds paged tools.
+    const h = harness()
+    const agent = await agentOf(h)
+    // The page is real: the projection the activation tool could read itself
+    // no longer lists the paged names.
+    expect(h.tools.schemas(agent).map((tool: any) => tool.name)).toEqual(['bash', 'read'])
+
+    // When the user activates the catalog's namespace.
+    const result = await activateTool().execute({ namespace: 'github' }, { callId: 'call-1', agent })
+    // Then the response names the activated tools.
+    expect(result.text).toContain('Activated namespace "github" (2 tools): mcp__github__create_issue, mcp__github__list_prs')
+  })
+
+  it('user can read a namespace activated inside a program', async () => {
+    // Given a successful namespace activation recorded by a program.
+    const h = harness()
+    const agent = await agentOf(h, [ptcDispatch('github', 'call_root:ptc:1')])
+
+    // When the next tool projection is read.
+    const names = h.tools.schemas(agent).map((tool: any) => tool.name)
+    // Then the activated namespace is available and the other stays paged.
+    expect(names).toContain('mcp__github__create_issue')
+    expect(names).not.toContain('mcp__codegraph__explore')
+  })
+
+  it('user gets an explicit refusal when activating an already active namespace', async () => {
+    // Given a session where the namespace is already active.
+    const h = harness()
+    const agent = await agentOf(h, [...activation('github', 'call-a')])
+    // Nothing of github is withheld any more, so that half of the page is not
+    // in the projection at all — the publication is what keeps it nameable.
+    expect(h.tools.schemas(agent).map((tool: any) => tool.name)).toContain('mcp__github__create_issue')
+    // When the user activates it again, then the refusal identifies its current state.
+    await expect(activateTool().execute({ namespace: 'github' }, { callId: 'call-b', agent }))
+      .rejects.toThrow(/already active/)
   })
 })
