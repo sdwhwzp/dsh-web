@@ -108,3 +108,20 @@ test('stays silent outside a checkout with submodules', () => {
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+test('stays silent for an uninitialized submodule instead of inspecting its parent checkout', () => {
+  const { root, inner } = fixture({ push: false })
+  try {
+    // Given a pin also present in the parent's object store, but no satellite
+    // checkout, Git's directory discovery would incorrectly select the parent.
+    git(['fetch', '-q', inner, 'main'], root)
+    rmSync(join(inner, '.git'), { recursive: true, force: true })
+    // When the push guard examines this supported uninitialized layout,
+    const result = runGuard(root)
+    // Then it makes no claim about the satellite's unavailable checkout.
+    assert.equal(result.status, 0, result.stderr)
+    assert.equal(result.stderr.trim(), '')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})

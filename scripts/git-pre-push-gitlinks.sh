@@ -33,6 +33,7 @@ remote="${1:-}"
 
 node - "$remote" <<'JS'
 const { spawnSync } = require('node:child_process')
+const { existsSync } = require('node:fs')
 
 const remote = process.argv[2]
 
@@ -56,6 +57,10 @@ for (const line of modules.split('\n')) {
   const name = match[1]
   const submodule = match[2].trim()
   const dir = `${root}/${submodule}`
+  // An uninitialized submodule is an ordinary directory. Git would walk up
+  // into the parent checkout and query its unrelated object store for the pin.
+  // Initialized submodules and worktrees have their own .git file or directory.
+  if (!existsSync(`${dir}/.git`)) continue
   if (git(['rev-parse', '--git-dir'], dir) === null) continue
 
   const pinned = git(['ls-tree', 'HEAD', '--', submodule], root)

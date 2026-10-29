@@ -12,6 +12,7 @@ Status: implemented
 
 - 钉住提交从 `git ls-tree HEAD` 读取，所以已提交、尚未推送的钉版按这次推送真正会带走的内容判定。
 - 钉住提交若已能从某个远程跟踪引用到达，直接放行、不触网；其余情况用一次 `git ls-remote --heads <url> <sha>` 向子模块自己的 `origin` 确认。
+- 运行 Git 仓库发现前，卫星目录必须有自己的 `.git` 文件或目录。未初始化的目录会被 Git 向上解析为父仓库，并可能触发无关的 partial-clone 对象扫描；这种情况沿用既有的「检出不可用」路径。
 - 失败信息点名子模块、缩写的钉住提交与远程，并打印修复命令：`git -C satellites/<repo> push origin main`。
 - 该钩子是诊断，不是门禁。当它无法证明钉版有问题时——没有 `node`、子模块目录不是检出、URL 解析不出——它保持沉默并放行，而不是凭猜测阻塞。
 
@@ -31,4 +32,4 @@ Status: implemented
 - 在同一次会话里先推卫星仓提交、再推钉版，多花一次 `git ls-remote` 往返；钉住提交已在远程时一次都不花。
 - 钩子需要 `PATH` 上的 `node`。它继承执行 `git push` 者的环境，而本仓其他工具本来就要求同一运行时。
 - 与 origin 守卫一样，安装是逐检出的选择：`ln -sf ../../scripts/git-pre-push-gitlinks.sh .git/hooks/pre-push`，或按脚本头部所示串联两个守卫。未安装钩子的全新克隆行为不变。
-- 验证：`node --test scripts/git-pre-push-gitlinks.test.mjs` 在一次性仓库上覆盖被拦下的钉版、放行的钉版与无子模块的检出；钩子也在本检出上跑过——把真实钉版移到只在本地的提交时被拦下，还原钉版后静默通过。
+- 验证：`node --test scripts/git-pre-push-gitlinks.test.mjs` 在一次性仓库上覆盖被拦下的钉版、放行的钉版、无子模块的检出与未初始化的卫星目录；钩子也在本检出上跑过——把真实钉版移到只在本地的提交时被拦下，还原钉版后静默通过。

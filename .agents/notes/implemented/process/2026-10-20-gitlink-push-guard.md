@@ -12,6 +12,7 @@ The market build reads the commit each `satellites/<repo>` gitlink records, and 
 
 - It reads the pin from `git ls-tree HEAD`, so a bump committed but not yet pushed is judged on what the push will actually carry.
 - A pin already reachable from a remote-tracking ref is accepted without a network call; anything else is confirmed with one `git ls-remote --heads <url> <sha>` against the submodule's own `origin`.
+- A satellite must have its own `.git` file or directory before Git discovery runs there. An uninitialized directory otherwise resolves to the parent checkout and can trigger an unrelated partial-clone object scan; it follows the existing unavailable-checkout path instead.
 - A failure names the submodule, the abbreviated pin and the remote, and prints the command that fixes it: `git -C satellites/<repo> push origin main`.
 - The hook is a diagnostic, not a gate. When it cannot prove the pin is broken — no `node`, a submodule directory that is not a checkout, no resolvable URL — it stays silent and lets the push through rather than blocking on a guess.
 
@@ -31,4 +32,4 @@ The market build reads the commit each `satellites/<repo>` gitlink records, and 
 - Pushing a satellite commit and then the pin in one session costs one extra `git ls-remote` round trip. A pin whose commit is already on the remote costs none.
 - The hook needs `node` on `PATH`. It inherits the environment of whoever runs `git push`, and the repository's other tooling already requires the same runtime.
 - Installing it is opt-in per checkout, like the origin guard: `ln -sf ../../scripts/git-pre-push-gitlinks.sh .git/hooks/pre-push`, or chain both guards as the script header shows. A fresh clone without the hook behaves as before.
-- Verification: `node --test scripts/git-pre-push-gitlinks.test.mjs` covers the blocked pin, the accepted pin and a checkout with no submodules against throwaway repositories; the hook was also run against this checkout with a real pin moved to a local-only commit, where it blocked, and again after the pin was restored, where it passed silently.
+- Verification: `node --test scripts/git-pre-push-gitlinks.test.mjs` covers the blocked pin, the accepted pin, a checkout with no submodules and an uninitialized satellite directory against throwaway repositories; the hook was also run against this checkout with a real pin moved to a local-only commit, where it blocked, and again after the pin was restored, where it passed silently.
