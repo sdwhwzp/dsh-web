@@ -1,6 +1,6 @@
 {
   "name": "dsh-web-shared",
-  "version": "0.0.0",
+  "version": "0.4.12-dsh.20261029.1",
   "private": true,
   "type": "module",
   "description": "Shared runtime modules for the dsh-web plugin family (inlined into each consumer bundle; never published).",

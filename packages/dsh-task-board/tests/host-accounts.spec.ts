@@ -10,7 +10,7 @@ import { TaskBoardAccounts, type TaskBoardPrincipal } from '../src/host-accounts
 import { HostTaskLedger } from '../src/host-ledger.ts'
 import { HostExecutionRunner } from '../src/host-runner.ts'
 import { TaskBoardHostService } from '../src/host-service.ts'
-import { createTask } from '../src/core/tasks.ts'
+import { createTask, startExecution } from '../src/core/tasks.ts'
 import { PowerInhibitor } from '../src/power-inhibitor.ts'
 import { parseActionEnvelope } from '../src/protocol.ts'
 import { makeTaskBoardRoutes } from '../src/host-routes.ts'
@@ -81,6 +81,36 @@ describe('task-board deployment identities', () => {
     fixture.revoke()
     // Then a later revoked request starts fresh without exposing another roster.
     await expect(host['reuseSessionFor'](task, alice)).resolves.toBeUndefined()
+    expect(invoke).toHaveBeenCalledOnce()
+  })
+
+  it('admin rework keeps the owner and reads only that account session roster', async () => {
+    // Given Alice's completed task and an idle session visible only with her principal.
+    const fixture = accountFixture()
+    const store = ledger()
+    store.applyRequest('create-alice', { kind: 'create', id: 'alice-task', input: input() }, undefined, alice)
+    const task = store.getTask('alice-task')!
+    store.saveTaskRecord(startExecution(task, 1, 'execution-a').task)
+    store.attachSession(task.id, 'execution-a', 'alice-session')
+    store.settle(task.id, 'execution-a', 'succeeded')
+    const invoke = vi.fn(async (request: InvokeRemoteRequest & { principal?: TaskBoardPrincipal }) => {
+      expect(request.principal).toEqual(alice)
+      return { items: [{ sessionId: 'alice-session', running: false }] }
+    })
+    const gateway = { currentPrincipal: vi.fn(() => undefined), invoke, wireStream: { open: vi.fn(), failure: vi.fn() }, hasLiveClient: vi.fn(), registerRemoteEvents: vi.fn(), getPendingRemoteEvents: vi.fn(() => []), stream: vi.fn() }
+    const host = new TaskBoardHostService(gateway, { ledger: store, accounts: fixture.accounts })
+    disposers.push(() => host.dispose())
+
+    // When Bob requests rework it is refused; Alice's request opens an account-owned run.
+    expect(() => store.applyRequest('rework-bob', { kind: 'rework', taskId: task.id, instructions: 'foreign' }, undefined, bob)).toThrow('another account')
+    const result = store.applyRequest('rework-alice', { kind: 'rework', taskId: task.id, instructions: 'fix the summary' }, undefined, alice)
+
+    // Then rework uses Alice's existing conversation even without the optional reuse toggle.
+    expect(result.runs?.[0]?.principal).toEqual(alice)
+    expect(result.runs?.[0]?.execution.rework).toEqual({ instructions: 'fix the summary' })
+    await expect(host['reworkSessionFor'](store.getTask(task.id)!, alice)).resolves.toBe('alice-session')
+    fixture.revoke()
+    await expect(host['reworkSessionFor'](store.getTask(task.id)!, alice)).rejects.toThrow('previous execution session')
     expect(invoke).toHaveBeenCalledOnce()
   })
 
