@@ -21,6 +21,7 @@ So the intuitively expensive part (the 4,678-file dist) was about 15% of the cos
 - After restoring, the helper verifies the whole tree against the stamp recorded at build time (path set, kind, size, and a per-path timestamp). A case that writes somewhere it did not declare fails there, by name, instead of silently corrupting a later case.
 - The one case that runs a full build rewrites every file under `market/dist`, so it cannot borrow the shared tree directly: `borrowWritableDist` renames the shared dist aside, hands the case a copy of it, and renames the original back afterwards. The original dist inodes are never written, and the 36k-file input cache stays shared, so the case costs one 1.3s dist copy instead of a 9s full materialization.
 - `market-build --check` materializes its comparison tree under `.market-check-tmp` and removes it on every path that reaches the comparison, but a rejection raised after that emit (`verifyTryonManifest` on an undeclared tryon file) leaves it behind. It used to disappear with the per-case copy, so the shared tree clears it after each case.
+- The CSS trailing-blank-line case borrows the shared tree and declares the skin's `patches.css` as its scratch path. The cleanup restores its bytes and timestamp before the final materialization guard runs.
 - A final case asserts the materialization counters: the shared tree was built exactly once, and the only other traversal is the single dist copy. The guard is a count, not a time budget, because the repository has no timing calibration and a budget would be machine-sensitive.
 - The materialization skips a package manager cache (`node_modules`) inside the fetched community directory. That directory is read as a single JSON file (`community.json`, `scripts/market-build:87`), so the gate never walks it, while a local install there added 29,458 files to a developer checkout's copy. The skin, pet and preset directories are walked by the gate (`listFiles`), so nothing is filtered there, and the guard asserts both halves of the exclusion: no `node_modules` under the community input, and the `community.json` the gate does read is present.
 - The materialization guard takes its test context, so the path where `.market-inputs` is absent — every lane that runs `pnpm test:scripts` without fetching inputs — skips the cases instead of failing on an undefined context.
@@ -53,11 +54,11 @@ What remains inside the file is the gate's own work: four cases run a full `mark
 
 ## Consequences
 
-The eight cases now share one tree, so a new case must declare its scratch paths; a case that forgets fails the stamp check by name rather than passing quietly. The stamp check costs one stat walk per case (about 0.2s), and the setup adds one full-tree walk. The full-build case still copies the 519MB dist, which is the largest remaining single cost inside the file. Nothing about `scripts/market-build` changed: the gate's semantics, the manifest fields, and the pin guard behave as before.
+The functional cases share one tree, so a new case must declare its scratch paths; a case that forgets fails the stamp check by name rather than passing quietly. The stamp check costs one stat walk per case (about 0.2s), and the setup adds one full-tree walk. The full-build case still copies the 519MB dist, which is the largest remaining single cost inside the file. Nothing about `scripts/market-build` changed: the gate's semantics, the manifest fields, and the pin guard behave as before.
 
 ## Testing
 
-`node --test scripts/market-build-clean.test.mjs` passes 9 of 9 (eight cases plus the materialization guard). Two negative controls were run against a symlinked copy of the checkout under `/tmp`, so no repository state was touched:
+`node --test scripts/market-build-clean.test.mjs` passes 10 of 10 (nine cases plus the materialization guard). Two negative controls were run against a symlinked copy of the checkout under `/tmp`, so no repository state was touched:
 
 - The pre-sharing file with the materialization guard appended fails that guard with `actual: 8`, while its eight original cases still pass — the guard can fail.
 - The current file with one undeclared write injected into a case passes that case's own assertions and then fails the isolation guard with `scripts/scratch.txt` named — the isolation guard can fail.
