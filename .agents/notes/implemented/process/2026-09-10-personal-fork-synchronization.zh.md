@@ -12,7 +12,9 @@ Status: implemented
 
 [个人 fork 约束](../../../../AGENTS.md#branches-commits-and-prs) 要求先获取原始来源，再合并到当前工作分支，优先采用源实现，适配必要的本地行为，通过验证后将全部未上传的本地分支按现有同名分支发布到自有 fork，并再次获取来源以检查遗漏提交。推送钩子接受自有 fork 的 HTTPS 或 SSH 地址，无论远程名称为何都会拒绝其他目标。
 
-本 fork 使用上游 0.4.11 家族版本及 Harness 0.2.2-alpha.2 SDK。本地部署候选统一使用 `0.4.11-dsh.20261028.1`；已验收构件不可替换。工作区 SDK 区间、Host peer、CI 挂载版本和桌面 Host 种子采用相同版本。packageExtensions 补齐已发布客户端清单遗漏的运行时依赖。当本地聚合包与更新的 registry 稳定版都满足根别名的 caret 区间时，工作区优先使用本地聚合包，使 SDK 依赖图跟随本候选。
+本 fork 使用上游 0.4.12 家族版本及 Harness 0.2.2-alpha.2 SDK。本地部署候选统一使用 `0.4.12-dsh.20261029.1`；已验收构件不可替换。工作区 SDK 区间、Host peer、CI 挂载版本和桌面 Host 种子采用相同版本。packageExtensions 补齐已发布客户端清单遗漏的运行时依赖。当本地聚合包与更新的 registry 稳定版都满足根别名的 caret 区间时，工作区优先使用本地聚合包，使 SDK 依赖图跟随本候选。
+
+Browser-view 的可选 CDP 设置新增的 settings、store、remotes 和 plugin-manager SDK 依赖同样采用 0.2.2-alpha.2 版本。外部浏览器仍由整个 Host 共享，因此启用 CDP 不会放宽下文的账号部署限制。
 
 聚合包通过各家族插件的真实包名挂载。兼容 shell 出口保留旧 profile 地址，包括供网关持有任务看板 Host 的部署使用的 `clientOnly`。这些部署必须单独注册任务看板浏览器模块，不能加载第二个 Host 账本。卫星插件的账号适配仍由各自仓库维护。
 
