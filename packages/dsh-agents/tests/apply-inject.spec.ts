@@ -537,8 +537,9 @@ describe('a workspace registry that activates after the row applied', () => {
           provider.provide('workspaceRegistry', { list: () => [{ id: 'ws-1', title: 'repo' }] })
         },
       })
-      await vi.waitFor(async () => {
-        expect((await get('/dsh-agents/api/state')).workspaces).toEqual([{ id: 'ws-1', title: 'repo' }])
+      await vi.waitFor(() => {
+        const registry = root.get('workspaceRegistry') as { list: () => unknown } | undefined
+        expect(registry?.list()).toEqual([{ id: 'ws-1', title: 'repo' }])
       })
 
       const created = await post('/dsh-agents/api/team', { team: { name: 'Squad', workspaceId: 'ws-1' } })

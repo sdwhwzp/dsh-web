@@ -276,11 +276,12 @@ describe('label manager cleanup', () => {
     const rule = t('tags.hint') + '\n\n' + t('tags.cleanupHint')
     const help = [...container.querySelectorAll('button')]
       .find(button => button.getAttribute('aria-label') === t('tags.help'))
-    expect(help?.textContent).toBe('?')
+    if (help === undefined) throw new Error('the tags help control did not render')
+    expect(help.textContent).toBe('?')
     // No native title: the bubble below is the only carrier.
-    expect(help?.getAttribute('title')).toBeNull()
-    const describedBy = help?.getAttribute('aria-describedby')
-    expect(describedBy).toMatch(/^\S+$/)
+    expect(help!.getAttribute('title')).toBeNull()
+    const describedBy = help.getAttribute('aria-describedby')
+    if (describedBy === null) throw new Error('the tags help control names no description')
     const described = [...container.querySelectorAll('[id]')].find(node => node.id === describedBy)
     expect(described?.textContent).toBe(rule)
     expect(described?.getAttribute('role')).toBe('tooltip')
@@ -294,7 +295,8 @@ describe('label manager cleanup', () => {
     // And the clear control lives in the card's header — the corner — rather than
     // trailing the label list it does not belong to.
     const header = container.querySelector('header')
-    expect(header?.contains(help ?? null)).toBe(true)
+    if (header === null) throw new Error('the tags card paints no header')
+    expect(header.contains(help)).toBe(true)
     const commit = [...container.querySelectorAll('button')]
       .find(button => button.textContent === t('tags.cleanup'))
     expect(header?.contains(commit ?? null)).toBe(true)
