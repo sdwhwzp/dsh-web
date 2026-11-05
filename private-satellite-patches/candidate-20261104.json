@@ -5,15 +5,17 @@
   "patch": "candidate-20261104.patch",
   "patchPathPrefix": "satellite repository directory name",
   "sources": {
-    "dsh-community-plugins": "04ce116569aaa00c876175fb66d14ea90e7a0328",
-    "dsh-pet": "d19284a539618e5eadb6c263d842008a2b600bb0",
+    "dsh-community-plugins": "4974658c01bd833bb6730f0aa825006a4f8c6b6e",
+    "dsh-pet": "c41934cc74b37e6bc9934c8473d765bae584d503",
     "dsh-presets": "8f15e62b03dabf68d147fb92a911652dd0fd1bca",
-    "dsh-skins": "5415a7e01b9244e02ca6808928451f00cbf3b2ae"
+    "dsh-skins": "eb543940b188f14058bffc8aadacd2f9d2b3e6e2"
   },
   "accountContract": {
     "pet": "Preserves production source/id hash, pet-accounts persistence, trusted requestPrincipal authentication, account-local settings and gameplay; rejects unresolved identity and suppresses Host-global data/actions in account views.",
     "skinsAndPresets": "Host-shared state; preserve gateway administrator-only access policy.",
     "communityPlugins": "Inert catalog only."
   },
-  "productionManifest": "manifest.json remains the historical accepted deployment pin; this candidate does not authorize or describe a server cutover."
+  "productionManifest": "manifest.json remains the historical accepted deployment pin; this candidate does not authorize or describe a server cutover.",
+  "rebasedOnto": "upstream/dev 1c96cdd8518d4dc1880269781ce6fad48311a416",
+  "patchApplicability": "candidate-20261104.patch applies cleanly with patch -p1 onto these public pins; pet account isolation hunks are unchanged."
 }
