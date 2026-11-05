@@ -1,7 +1,7 @@
 /**
  * The protocol v1 pairing panel: the QR symbol, the countdown with its expiry
- * state, the one address fact the reader must not miss, and the two actions that
- * keep a fresh code on screen.
+ * state, the line that says which kind of address the code carries, and the two
+ * actions that keep a fresh code on screen.
  *
  * The shell is the official headless `Modal` and every action is the official
  * `Button`, so the overlay, the mask, the card, the focus trap, the Escape
@@ -17,6 +17,7 @@ import {
   IconRefreshOutlineRegular, IconWarningOutlineRegular, Modal,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
+import { isLanOrigin, type PairOriginSource } from '../core/pair-address.ts'
 import {
   EXPIRED_ATTR, PART_COPY, PART_NOTICE, PART_PANEL, PART_QR, PART_REFRESH, PLUGIN_ATTR, QR_VALUE_ATTR,
 } from './semantic.ts'
@@ -24,6 +25,14 @@ import css from './panel.module.css'
 
 /** The custom property carrying the dialog's own enter keyframe name. */
 const EXIT_NAME_VAR = '--pair-exit-name'
+
+/**
+ * Where a reader of the beta build can reach the people running it. The URL is
+ * code, not copy: the dictionaries carry the sentence, this constant carries the
+ * destination, so a translation cannot retarget the link and a check can assert
+ * the real one.
+ */
+export const COMMUNITY_INVITE_URL = 'https://discord.gg/nBy28kjun'
 
 /** What the panel is currently showing. */
 export type PairPanelState =
@@ -34,9 +43,20 @@ export type PairPanelState =
    * public origin, is what the QR encodes: a `{token, url}` document the iOS
    * client parses into both halves of its configuration, so one scan sets the
    * address AND the token. With no origin the QR carries the bare token and the
-   * panel says the address has to be set on the phone by hand.
+   * panel says the address has to be set on the phone by hand. `originSource`
+   * and the literal itself decide which of the two located lines renders: a
+   * public origin is stated as a kind and never printed, while a LAN literal is
+   * named because it answers only inside the network this page is already on.
    */
-  | { kind: 'ready'; token: string; issuedAt: number; expiresAt: number; origin: string | null; pairingUrl: string | null }
+  | {
+    kind: 'ready'
+    token: string
+    issuedAt: number
+    expiresAt: number
+    origin: string | null
+    originSource: PairOriginSource | null
+    pairingUrl: string | null
+  }
   /** 403 from the loopback gate: this page is not open on the machine itself. */
   | { kind: 'forbidden' }
   /** The host route answered with an unexpected status or shape. */
@@ -107,6 +127,11 @@ export function PairPanel({
   // A refusal the host raised is retried; a live or expired code is minted again.
   const primaryLabel = state.kind === 'failed' || state.kind === 'unreachable' ? t('action.retry') : t('pair.refresh')
   const located = ready && state.pairingUrl !== null
+  // A located origin answers only inside this network when the host said so or
+  // the literal itself is a private one; anything else counts as public, because
+  // the one thing this line must never do is print a hostname the host did not
+  // vouch for.
+  const onLan = located && isLanOrigin(state.origin, state.originSource)
 
   // The library owns the enter animation and the bundler scopes its keyframe
   // name, so the leave leg cannot name it in CSS. Read the mounted dialog's own
@@ -205,12 +230,26 @@ export function PairPanel({
               </div>
 
               <p className={css.address} data-tone={located ? 'plain' : 'warning'}>
-                {ready && located && t('origin.located', { origin: state.origin ?? '' })}
+                {ready && located && !onLan && t('origin.public')}
+                {ready && onLan && t('origin.lan', { origin: state.origin ?? '' })}
                 {ready && !located && t('origin.missing', { host })}
               </p>
               <p className={css.hint}>{t('pair.usedHint')}</p>
             </>
           )}
+
+          {/* The one way out of a beta, offered in every state including a
+              refusal: a reader who cannot pair is exactly the one with a
+              question. It closes the body, so the last thing on the card is the
+              way to ask rather than the code they already have. */}
+          <a
+            className={css.invite}
+            href={COMMUNITY_INVITE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {t('community.invite')}
+          </a>
         </div>
 
         {/* The row exists only while it holds an action: a refusal offers

@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 /**
  * The pairing panel: the symbol and the single machine string it carries, the
- * countdown and the expiry state, the address fact, the single-use hint, the
+ * countdown and the expiry state, the address line, the single-use hint, the
  * action row, and the three refusals. Pure presentation — the clock arrives as a
- * prop, so the expiry flip is a value, not a wait.
+ * prop, so the expiry flip is a value, not a wait. The address line is asserted
+ * both ways: what it says, and the public hostname it must never say.
  *
  * The panel's shell is the official Modal and its actions are the official
  * Button, so the primitive components are replaced by contract fakes: the real
@@ -65,8 +66,9 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => {
   }
 })
 
-import { PairPanel, type PairCopyState, type PairPanelState } from '../src/client/PairPanel.tsx'
-import { zh, type RemoteBridgeKey } from '../src/client/locales.ts'
+import { COMMUNITY_INVITE_URL, PairPanel, type PairCopyState, type PairPanelState } from '../src/client/PairPanel.tsx'
+import type { PairOriginSource } from '../src/core/pair-address.ts'
+import { en, zh, type RemoteBridgeKey } from '../src/client/locales.ts'
 
 /** Translate stub over the zh dictionary, with {param} interpolation. */
 function makeTranslate(): PropsLocale<'remote-bridge'>['t'] {
@@ -88,9 +90,33 @@ const PAYLOAD_URL = `{"token":"${TOKEN}","url":"${ORIGIN}/ios/v1?token=${TOKEN}"
 const ISSUED_AT = 1_000_000
 const WINDOW_MS = 30_000
 
-/** A live code with the given origin knowledge. */
-function liveCode(origin: string | null, pairingUrl: string | null): PairPanelState {
-  return { kind: 'ready', token: TOKEN, issuedAt: ISSUED_AT, expiresAt: ISSUED_AT + WINDOW_MS, origin, pairingUrl }
+/** A live code with the given origin knowledge; an unnamed source counts as public. */
+function liveCode(
+  origin: string | null,
+  pairingUrl: string | null,
+  originSource: PairOriginSource | null = null,
+): PairPanelState {
+  return {
+    kind: 'ready',
+    token: TOKEN,
+    issuedAt: ISSUED_AT,
+    expiresAt: ISSUED_AT + WINDOW_MS,
+    origin,
+    originSource,
+    pairingUrl,
+  }
+}
+
+/**
+ * The panel's markup with the symbol's own part removed. The symbol is the one
+ * part allowed to mirror the payload — the contract says so — so a public
+ * hostname anywhere else in the markup, text or attribute, is a leak the panel
+ * must not have.
+ */
+function markupWithoutSymbol(container: HTMLElement): string {
+  const clone = container.cloneNode(true) as HTMLElement
+  clone.querySelector('[data-dsh-part="qr"]')?.remove()
+  return clone.innerHTML
 }
 
 /** Render the panel in one state and return the DOM. */
@@ -160,15 +186,70 @@ describe('protocol v1 pairing panel', () => {
     expect(slot?.querySelector('svg')).toBeNull()
   })
 
-  it('operator on a host that knows its public address is told which address the phone dials', () => {
-    // Given a host that located its relay origin and handed back the code for it
-    const panel = mount(liveCode(ORIGIN, PAYLOAD_URL))
+  it('operator on a host that knows its public address is told what the code carries, and the hostname stays off the panel', () => {
+    // Given a host that located its public relay origin and handed back the code for it
+    const panel = mount(liveCode(ORIGIN, PAYLOAD_URL, 'realtime'))
     // When the panel renders
     const qr = panel.container.querySelector('[data-dsh-part="qr"]')
-    // Then the symbol carries the whole {token,url} document so one scan sets both
-    // halves, and the panel says which address that is
+    // Then the symbol still carries the whole {token,url} document so one scan sets
+    // both halves, while the durable public hostname is nowhere in the rendered text
     expect(qr?.getAttribute('data-dsh-qr-value')).toBe(PAYLOAD_URL)
-    expect(screen.getByText(`手机将连到 ${ORIGIN}`)).toBeInstanceOf(HTMLElement)
+    expect(panel.container.textContent).toContain(zh['origin.public'])
+    expect(panel.container.textContent).not.toContain(ORIGIN)
+    expect(panel.container.textContent).not.toContain('dsh-market.com')
+    expect(panel.container.querySelector('[data-tone="plain"]')?.textContent).toBe(zh['origin.public'])
+    // And nothing outside the symbol carries it either: a title, an aria-label or
+    // a data attribute added later would leak just as a sentence does
+    expect(markupWithoutSymbol(panel.container)).not.toContain(ORIGIN)
+    expect(markupWithoutSymbol(panel.container)).not.toContain('dsh-market.com')
+  })
+
+  it('operator on a host that located its address by configuration reads the same line as a live one', () => {
+    // Given each way a host can name a public origin without a LAN literal
+    for (const source of ['realtime', 'env'] as const) {
+      // When the panel renders
+      const panel = mount(liveCode(ORIGIN, PAYLOAD_URL, source))
+      // Then both read as the public kind, and neither prints the hostname
+      expect(panel.container.querySelector('[data-tone="plain"]')?.textContent).toBe(zh['origin.public'])
+      expect(markupWithoutSymbol(panel.container)).not.toContain('dsh-market.com')
+      cleanup()
+    }
+  })
+
+  it('operator on a configured base that is a private address is shown that literal', () => {
+    // Given a host that called its configured base public while the address itself
+    // answers only inside this network
+    const lan = 'http://192.168.1.5:3080'
+    const panel = mount(liveCode(lan, `ws://192.168.1.5:3080/ios/v1?token=${TOKEN}`, 'env'))
+    // When the panel renders its address line
+    // Then the literal decides the kind, not the host's own word for it
+    const address = panel.container.querySelector('[data-tone="plain"]')
+    expect(address?.textContent).toBe(zh['origin.lan'].replace('{origin}', lan))
+    expect(panel.container.textContent).not.toContain(zh['origin.public'])
+  })
+
+  it('operator on a host whose address source this panel does not know still reads no hostname', () => {
+    // Given a code whose host named no source: an older host, or one this panel
+    // has never heard of
+    const panel = mount(liveCode(ORIGIN, PAYLOAD_URL))
+    // When the panel renders its address line
+    // Then an unknown source is treated as public rather than printed
+    expect(panel.container.textContent).toContain(zh['origin.public'])
+    expect(panel.container.textContent).not.toContain(ORIGIN)
+    expect(markupWithoutSymbol(panel.container)).not.toContain(ORIGIN)
+  })
+
+  it('operator on a host whose only address is the local network is shown that literal', () => {
+    // Given a LAN origin, which only a phone on the same network can dial
+    const lan = 'http://192.168.1.5:3080'
+    const panel = mount(liveCode(lan, `ws://192.168.1.5:3080/ios/v1?token=${TOKEN}`, 'lan'))
+    // When the panel renders its address line
+    // Then it names that literal, because a private address answers only inside the
+    // network this page is already on
+    const address = panel.container.querySelector('[data-tone="plain"]')
+    expect(address?.textContent).toBe(zh['origin.lan'].replace('{origin}', lan))
+    // And the public kind is not stated anywhere beside it
+    expect(panel.container.textContent).not.toContain(zh['origin.public'])
   })
 
   it('operator on a host without a public address is told to fill the relay in by hand', () => {
@@ -302,5 +383,74 @@ describe('protocol v1 pairing panel', () => {
     expect(failedText).toContain('宿主返回了 HTTP 500')
     expect(unreachableText).toContain('请求没有到达宿主')
     expect(unreachable.container.querySelector('[data-dsh-part="notice"]')?.getAttribute('role')).toBe('alert')
+  })
+
+  it('operator reads the beta framing of the iOS app on the head of the panel', () => {
+    // Given a panel holding a live code
+    const panel = mount(liveCode(null, null))
+    // When the head is read
+    // Then the title names the app and its platform, and the subtitle names the
+    // beta the code is for, in the operator's words instead of the wire
+    // protocol's
+    expect(screen.getByText('iOS App 配对')).toBeInstanceOf(HTMLElement)
+    expect(panel.container.textContent).toContain(
+      '用 iOS App（内测）扫描二维码，把 iPhone 连到这台电脑上。配对码只在本机显示。',
+    )
+  })
+
+  it('operator in every state is offered the same community invite as a real link', () => {
+    // Given the five states the panel can hold: a read in flight, a live code,
+    // and the three refusals
+    const states: PairPanelState[] = [
+      { kind: 'reading' },
+      liveCode(null, null),
+      { kind: 'forbidden' },
+      { kind: 'failed', status: 500 },
+      { kind: 'unreachable' },
+    ]
+    expect(COMMUNITY_INVITE_URL).toBe('https://discord.gg/nBy28kjun')
+    for (const state of states) {
+      // When each renders
+      const panel = mount(state)
+      const invite = within(panel.container).getByRole('link', { name: zh['community.invite'] })
+      // Then the invitation is on screen in all of them, the sentence itself is
+      // the target, it closes the body, and it leaves for the community in its
+      // own tab without handing the opener over
+      expect(invite.textContent).toBe(zh['community.invite'])
+      expect(invite.getAttribute('href')).toBe(COMMUNITY_INVITE_URL)
+      expect(invite.getAttribute('target')).toBe('_blank')
+      expect(invite.getAttribute('rel')).toBe('noopener noreferrer')
+      expect(invite.parentElement?.lastElementChild).toBe(invite)
+      cleanup()
+    }
+  })
+
+  it('operator reads no internal protocol wording in any state or dictionary entry', () => {
+    // Given the five states the panel can hold
+    const states: PairPanelState[] = [
+      { kind: 'reading' },
+      liveCode(null, null),
+      { kind: 'forbidden' },
+      { kind: 'failed', status: 500 },
+      { kind: 'unreachable' },
+    ]
+    for (const state of states) {
+      // When each renders
+      const panel = mount(state)
+      const text = panel.container.textContent ?? ''
+      // Then no state names the wire protocol or its version marker
+      expect(text).not.toContain('协议')
+      expect(text.toLowerCase()).not.toContain('protocol')
+      cleanup()
+    }
+    // And no key of either dictionary carries the term either, so a state added
+    // later cannot bring it back through a sentence this suite never renders
+    for (const [key, value] of Object.entries(zh)) {
+      expect(value, key).not.toContain('协议')
+      expect(value.toLowerCase(), key).not.toContain('protocol')
+    }
+    for (const [key, value] of Object.entries(en)) {
+      expect(value.toLowerCase(), key).not.toContain('protocol')
+    }
   })
 })

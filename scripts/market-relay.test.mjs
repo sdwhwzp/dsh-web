@@ -2,13 +2,35 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import worker from '../market/worker/src/index.js'
-import { relayIdOf } from '../market/worker/src/relay.js'
+import { REGISTER_MAX_PER_ID, relayIdOf } from '../market/worker/src/relay.js'
 
 const RELAY_HOST = 'abcd1234abcd1234.dsh-market.com'
 const SECRET = 'A'.repeat(43)
 const TARGET = 'https://minted-tunnel-name.trycloudflare.com'
 
 function context() { return { waitUntil() {} } }
+
+/**
+ * The binding rules real D1 applies before a statement ever runs, read off the
+ * runtime that serves it: workerd's D1PreparedStatement.bind maps every value
+ * through number / string / boolean / null / byte array / ArrayBuffer view and
+ * throws D1_TYPE_ERROR for anything else. `undefined` is one of those
+ * refusals, so a double that accepts it is more permissive than the database it
+ * stands in for -- which is how a lease upsert binding a missing field reached
+ * production as a 503 instead of failing here. `null` is a supported binding
+ * and stays legal.
+ */
+function rejectUnbindable(args) {
+  for (const value of args) {
+    const type = typeof value
+    if (type === 'number' || type === 'string' || type === 'boolean') continue
+    if (value === null) continue
+    if (Array.isArray(value) && value.every((byte) => typeof byte === 'number' && byte >= 0 && byte < 256)) continue
+    if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) continue
+    throw new Error("D1_TYPE_ERROR: Type '" + type + "' not supported for value '" + String(value) + "'")
+  }
+  return args
+}
 
 /** D1 mock keyed by table: registrations and rate-limit rows in memory. */
 function relayDb(seed = {}) {
@@ -20,6 +42,7 @@ function relayDb(seed = {}) {
     s.bind = (...a) => ({ sql, args: a, get bound() { return s.boundArgs = a } })
     return {
       bind(...bindArgs) {
+        rejectUnbindable(bindArgs)
         return {
           sql, args: bindArgs,
           async first() { return firstOf(sql, bindArgs) },
@@ -185,15 +208,19 @@ test('relay proxy never caches a non-200 for a hashed asset path', async () => {
   }
 })
 
-test('relay proxy serves a bilingual offline page for unknown or dead ids', async () => {
+test('relay proxy serves a bilingual offline page only to a browser navigation', async () => {
   const db = relayDb()
-  const response = await proxy(db, '/')
+  const response = await proxy(db, '/', { method: 'GET', headers: { accept: 'text/html,application/xhtml+xml' } })
   assert.equal(response.status, 503)
   assert.equal(response.headers.get('x-robots-tag'), 'noindex')
   const html = await response.text()
   assert.match(html, /远程实例当前离线/)
   assert.match(html, /currently offline/)
-  assert.equal((await proxy(db, '/some/deep/path')).status, 503)
+  // A device asks for data, not a document: the same dead id answers the frozen
+  // failure body instead (see scripts/market-relay-failure-json.test.mjs).
+  const data = await proxy(db, '/some/deep/path')
+  assert.equal(data.status, 503)
+  assert.equal((await data.json()).code, 'instance-offline')
 })
 
 test('relay unregister requires the secret and removes the row', async () => {
@@ -214,12 +241,16 @@ test('relay unregister requires the secret and removes the row', async () => {
 
 test('relay registration is rate-limited per id window', async () => {
   const db = relayDb()
-  for (let i = 0; i < 6; i++) {
+  // The budget is one explicit constant, so this reads it instead of repeating it.
+  for (let i = 0; i < REGISTER_MAX_PER_ID; i++) {
     const response = await register(db, { id: 'abcd1234abcd1234', secret: SECRET, new_secret: SECRET, target: TARGET })
-    assert.equal(response.status, 200)
+    assert.equal(response.status, 200, 'registration ' + String(i + 1) + ' stays inside the budget')
   }
-  const seventh = await register(db, { id: 'abcd1234abcd1234', secret: SECRET, target: TARGET })
-  assert.equal(seventh.status, 429)
+  const refused = await register(db, { id: 'abcd1234abcd1234', secret: SECRET, target: TARGET })
+  assert.equal(refused.status, 429)
+  const body = await refused.json()
+  assert.equal(body.code, 'rate-limited')
+  assert.equal(body.error, 'rate-limited')
 })
 
 test('dsh-market.com paths never dispatch to the relay', async () => {

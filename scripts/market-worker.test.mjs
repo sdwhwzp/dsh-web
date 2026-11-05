@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 
 import worker from '../market/worker/src/index.js'
 import { ATTEST_MAX_PATHS } from '../market/worker/src/asset-attest.js'
-import { ROLLUP_HISTORY_DAYS, refreshDailyRollups, rollupDayStatements } from '../market/worker/src/telemetry.js'
+import { HEARTBEAT_RAW_RETENTION_DAYS, ROLLUP_HISTORY_DAYS, refreshDailyRollups, rollupDayStatements } from '../market/worker/src/telemetry.js'
 import { clearBadgeCaches, formatTotal, rangeWindows } from '../market/worker/src/npm-badge.js'
 
 /** Statements in one day's rollup rebuild batch. */
@@ -35,6 +35,28 @@ globalThis.caches = { default: workerCache }
 beforeEach(() => workerCacheEntries.clear())
 
 function context() { return { waitUntil() {} } }
+
+/**
+ * The binding rules real D1 applies before a statement ever runs, read off the
+ * runtime that serves it: workerd's D1PreparedStatement.bind maps every value
+ * through number / string / boolean / null / byte array / ArrayBuffer view and
+ * throws D1_TYPE_ERROR for anything else. `undefined` is one of those
+ * refusals, so a double that accepts it is more permissive than the database it
+ * stands in for -- which is how a lease upsert binding a missing field reached
+ * production as a 503 instead of failing here. `null` is a supported binding
+ * and stays legal.
+ */
+function rejectUnbindable(args) {
+  for (const value of args) {
+    const type = typeof value
+    if (type === 'number' || type === 'string' || type === 'boolean') continue
+    if (value === null) continue
+    if (Array.isArray(value) && value.every((byte) => typeof byte === 'number' && byte >= 0 && byte < 256)) continue
+    if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) continue
+    throw new Error("D1_TYPE_ERROR: Type '" + type + "' not supported for value '" + String(value) + "'")
+  }
+  return args
+}
 
 test('market worker answers like preflight with CORS', async () => {
   const response = await worker.fetch(new Request('https://dsh-market.com/api/like', {
@@ -378,7 +400,7 @@ function telemetryDb(options = {}) {
         // Statement SQL is exposed like the bound form so tests can inspect
         // statements the worker prepares without binds (the rollup rebuild).
         sql,
-        bind: (...args) => bound(args),
+        bind: (...args) => bound(rejectUnbindable(args)),
         async run() { return bound([]).run() },
         async first() { return bound([]).first() },
         async all() { return options.all ? options.all(sql) : { results: [] } },
@@ -502,6 +524,34 @@ test('telemetry rejects malformed submissions', async () => {
   assert.equal(db.batches.length, 0)
 })
 
+test('the cron prunes raw heartbeats on the short window while keeping pv on the long one', async () => {
+  // Given a worker whose telemetry tables hold rows of every age
+  const db = telemetryDb()
+
+  // When the cron tick prunes
+  await worker.scheduled({}, { DB: db })
+
+  // Then the raw-heartbeat delete and the whole-table delete ride one batch,
+  //      and each carries its own window
+  // The rollup rebuild also names kind = 'hb', so the prune batch is the one that
+  // deletes on it.
+  const prune = db.batches.find((statements) => statements.some((stmt) => stmt.sql.includes('DELETE FROM telemetry_events') && stmt.sql.includes("kind = 'hb'")))
+  assert.ok(prune, 'the heartbeat prune reaches D1')
+  const heartbeat = prune.find((stmt) => stmt.sql.includes('DELETE FROM telemetry_events') && stmt.sql.includes("kind = 'hb'"))
+  const wholeTable = prune.find((stmt) => stmt.sql.includes('DELETE FROM telemetry_events') && !stmt.sql.includes("kind = 'hb'"))
+  assert.ok(wholeTable, 'the whole-table delete shares the batch')
+  assert.equal(prune.indexOf(heartbeat) < prune.indexOf(wholeTable), true,
+    'the heartbeat delete consults the marker table before the same batch clears old markers')
+  assert.equal(HEARTBEAT_RAW_RETENTION_DAYS, 7, 'the short window is one explicit constant')
+  assert.equal(heartbeat.args[0], utcDayBack(HEARTBEAT_RAW_RETENTION_DAYS), 'heartbeats are cut at the short window')
+  assert.equal(wholeTable.args[0], utcDayBack(ROLLUP_HISTORY_DAYS), 'pageviews keep the long window')
+  assert.equal(heartbeat.sql.includes('telemetry_rollup_days'), true,
+    'a heartbeat day is pruned only once its rollup marker exists, which is what keeps a rebuild from reading an empty day')
+  assert.equal(prune.some((stmt) => stmt.sql.includes('DELETE FROM telemetry_rollup_daily')), true,
+    'the rollup cleanup is the same batch')
+  // And nothing prunes the events one statement at a time
+  assert.equal(db.runs.some((entry) => entry.sql.includes('DELETE FROM telemetry_events')), false)
+})
 test('telemetry summary returns aggregates without pruning old events', async () => {
   const db = telemetryDb({
     summary: [
@@ -740,7 +790,7 @@ function badgeDb(users) {
   return {
     prepare(sql) {
       return {
-        bind() { return this },
+        bind(...args) { rejectUnbindable(args); return this },
         async first() { return String(sql).includes('badge_cache') ? { value: users } : { users } },
         async run() {},
       }
@@ -788,7 +838,10 @@ test('cron refreshes badge, rolls up the finished days, pre-warms two windows, a
   assert.equal(pathsLimit(lightChunks[0]), 10, 'the first-paint window uses the 10-row pages')
   assert.equal(pathsLimit(lightChunks[1]), 20, 'the rotation window uses the default /data pages')
   assert.equal(db.runs.some((entry) => entry.sql.includes('INSERT INTO badge_cache')), true)
-  assert.equal(db.runs.some((entry) => entry.sql.includes('DELETE FROM telemetry_events')), true)
+  assert.equal(db.batches.some((statements) => statements.some((stmt) => stmt.sql.includes('DELETE FROM telemetry_events'))), true,
+    'the event prune rides a batch')
+  assert.equal(db.runs.some((entry) => entry.sql.includes('DELETE FROM telemetry_events')), false,
+    'not one statement at a time: the raw-heartbeat delete and the whole-table delete commit together')
   assert.equal(db.runs.some((entry) => entry.sql.includes('DELETE FROM telemetry_rollup_daily')), false,
     'day rollups are pruned in a batch, not one statement at a time')
 })
@@ -894,14 +947,15 @@ test('total downloads badge sums the npm, npmmirror, and GitHub release channels
   }
   try {
     clearBadgeCaches()
-    const expected = formatTotal((25 * 100 + 25 * 200) * windows.length + 10) + ' total'
+    // The whitelist carries 24 family packages after dsh-remote-web-ui retired.
+    const expected = formatTotal((24 * 100 + 24 * 200) * windows.length + 10) + ' total'
     const first = await worker.fetch(new Request('https://dsh-market.com/api/npm-badge/total'), {}, context())
     const badge = await first.json()
     assert.equal(badge.schemaVersion, 1)
     assert.equal(badge.label, 'downloads')
     assert.equal(badge.message, expected)
-    assert.equal(calls.npm, 25 * windows.length)
-    assert.equal(calls.mirror, 25 * windows.length)
+    assert.equal(calls.npm, 24 * windows.length)
+    assert.equal(calls.mirror, 24 * windows.length)
     assert.equal(calls.github, 1)
     const snapshot = { ...calls }
     const second = await worker.fetch(new Request('https://dsh-market.com/api/npm-badge/total'), {}, context())
@@ -925,7 +979,7 @@ test('total downloads badge keeps serving when one channel fails', async () => {
     clearBadgeCaches()
     const response = await worker.fetch(new Request('https://dsh-market.com/api/npm-badge/total'), {}, context())
     const badge = await response.json()
-    assert.equal(badge.message, formatTotal(25 * 100 * windows.length) + ' total')
+    assert.equal(badge.message, formatTotal(24 * 100 * windows.length) + ' total')
     assert.equal(badge.color, 'blue')
   } finally {
     globalThis.fetch = originalFetch

@@ -1,4 +1,4 @@
-//#region ../../../../../../../../../private/tmp/dsh-web-main-sync-20261029-ssd-modules/@deepseek-ai+cosmokit@1.8.7-alpha.1/node_modules/@deepseek-ai/cosmokit/lib/index.js
+//#region ../../node_modules/.pnpm/@deepseek-ai+cosmokit@1.9.0/node_modules/@deepseek-ai/cosmokit/lib/index.js
 /** Return true when a value is `null` or `undefined`. */
 function isNullable(value) {
 	return value === null || value === void 0;
@@ -252,7 +252,7 @@ var Time;
 	Time.template = template;
 })(Time || (Time = {}));
 //#endregion
-//#region ../../../../../../../../../private/tmp/dsh-web-main-sync-20261029-ssd-modules/@deepseek-ai+schemastery@3.18.6-alpha.1/node_modules/@deepseek-ai/schemastery/lib/index.mjs
+//#region ../../node_modules/.pnpm/@deepseek-ai+schemastery@3.19.0/node_modules/@deepseek-ai/schemastery/lib/index.mjs
 const kSchema = Symbol.for("schemastery");
 const kValidationError = Symbol.for("ValidationError");
 globalThis.__schemastery_index__ ??= 0;
@@ -928,11 +928,9 @@ function listDegraded() {
 /** Every retired package name, sorted: what the shell skips without importing. Derived from
 *  RETIRED_FAMILIES so the two can never disagree. */
 const RETIRED_PLUGINS$1 = Object.freeze(Object.values({
-	"describe-image": "@linxin666/dsh-tool-describe-image",
-	"desktop-launcher": "@linxin666/dsh-desktop-launcher",
-	"doctor": "@linxin666/dsh-doctor",
-	"dsh-perf": "@linxin666/dsh-perf",
-	"model-capabilities": "@linxin666/dsh-client-ui-model-capabilities"
+	"git-graph": "@linxin666/dsh-client-ui-git-graph",
+	"remote-web-ui": "@linxin666/dsh-remote-web-ui",
+	"update": "@linxin666/dsh-update"
 }).sort());
 Schema.any().volatile();
 /**

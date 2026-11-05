@@ -13,6 +13,7 @@
  */
 import type { TaskStore } from './store.ts'
 import { hasOpenExecution, withStatus, type NewTaskInput, type TaskRecord, type TaskStatus } from './tasks.ts'
+import type { TaskAttachment, TaskAttachmentKind } from './attachment.ts'
 import { applyArchiveTask, applyRestoreTask } from './use-cases/task-archive.ts'
 import { applyCreateTask } from './use-cases/task-create.ts'
 import { applyDeleteTask } from './use-cases/task-delete.ts'
@@ -31,6 +32,7 @@ import type {
 } from '../protocol.ts'
 import type {
   TaskBoardExtensionActionRequest,
+  TaskBoardGroupingSelector,
   TaskBoardVisibilityPredicate,
 } from './extension.ts'
 
@@ -48,6 +50,12 @@ export interface TaskBoardTransport {
    * that cannot parse simply omits it, and the form hides the section.
    */
   parseDraft?(request: TaskBoardParseRequest, signal?: AbortSignal): Promise<TaskBoardParseDraft>
+  /**
+   * Upload one file or image into the Host's attachment storage. Optional: a
+   * deployment that serves no attachment storage omits it, and the form then
+   * refuses to stage an attachment.
+   */
+  uploadAttachment?(file: File, kind: TaskAttachmentKind): Promise<TaskAttachment>
 }
 
 /**
@@ -152,7 +160,7 @@ export interface ExecutionOptionsSnapshot {
  * (revision/scheduler/power); a full snapshot also carries the deployment
  * constants the UI reads (session default permission, subtask depth).
  */
-export type HostMirror = Pick<TaskBoardSnapshot, 'revision' | 'scheduler' | 'power' | 'sessionDefaultPermission' | 'maxSubtaskDepth' | 'goalRunEnabled' | 'cardDefaults' | 'extensions'>
+export type HostMirror = Pick<TaskBoardSnapshot, 'revision' | 'scheduler' | 'power' | 'sessionDefaultPermission' | 'maxSubtaskDepth' | 'goalRunEnabled' | 'cardDefaults' | 'extensions' | 'attachmentLimits'>
 
 /** Immutable controller snapshot for UI subscriptions. */
 export interface ControllerSnapshot {
@@ -177,6 +185,8 @@ export interface ControllerSnapshot {
    * hand-built snapshot (tests, a shell-less composition) defaults to visible.
    */
   visibility?: readonly TaskBoardVisibilityPredicate[]
+  /** Provider source-group selectors, in registration order; browser-only functions. */
+  grouping?: readonly TaskBoardGroupingSelector[]
   /** Read-only summaries published by running extensions, keyed by extension id. */
   extensions?: Readonly<Record<string, unknown>>
 }
@@ -228,6 +238,8 @@ export class BoardController {
   private hostState: HostMirror | undefined
   /** Provider visibility predicates (immutable array; replaced on change). */
   private visibility: readonly TaskBoardVisibilityPredicate[] = []
+  /** Provider source-group selectors (immutable array; replaced on change). */
+  private grouping: readonly TaskBoardGroupingSelector[] = []
   private remoteSubscribed = false
   private remoteInitialization: Promise<boolean> | undefined
 
@@ -279,6 +291,7 @@ export class BoardController {
       ...(this.transportError === undefined ? {} : { transportError: this.transportError }),
       ...(this.hostState === undefined ? {} : { host: this.hostState }),
       visibility: this.visibility,
+      grouping: this.grouping,
       ...(this.hostState?.extensions === undefined ? {} : { extensions: this.hostState.extensions }),
     }
   }
@@ -294,6 +307,18 @@ export class BoardController {
       const next = this.visibility.filter(candidate => candidate !== predicate)
       if (next.length === this.visibility.length) return
       this.visibility = next
+      this.notify()
+    }
+  }
+
+  /** Register one source-group selector; registration order breaks ownership ties. */
+  registerGrouping(selector: TaskBoardGroupingSelector): () => void {
+    this.grouping = [...this.grouping, selector]
+    this.notify()
+    return () => {
+      const next = this.grouping.filter(candidate => candidate !== selector)
+      if (next.length === this.grouping.length) return
+      this.grouping = next
       this.notify()
     }
   }
@@ -510,6 +535,23 @@ export class BoardController {
     const parse = transport?.parseDraft
     if (transport === undefined || parse === undefined) throw new Error('task parsing is unavailable')
     return await parse.call(transport, request, signal)
+  }
+
+  /**
+   * Upload one attachment into the Host's attachment storage.
+   *
+   * The form calls this when the card is SAVED, never when a file is picked:
+   * a staged file is a local preview until the card is really saved.
+   * @param file - the picked file.
+   * @param kind - whether the file is stored as an image or verbatim.
+   * @returns the metadata the Host computed, or undefined when this
+   *   deployment serves no attachment storage.
+   */
+  async uploadAttachment(file: File, kind: TaskAttachmentKind): Promise<TaskAttachment | undefined> {
+    const transport = this.deps.transport
+    const upload = transport?.uploadAttachment
+    if (transport === undefined || upload === undefined) return undefined
+    return await upload.call(transport, file, kind)
   }
 
   moveTask(id: string, status: TaskStatus): void {
@@ -850,6 +892,9 @@ export class BoardController {
     // is the mirror image of the staleness this key is re-read for.
     const cardDefaults = snapshot.cardDefaults
     const extensions = snapshot.extensions ?? this.hostState?.extensions
+    // The attachment limits are carried over: a deployment that lowers them
+    // must keep the browser's refusal in step until the next snapshot.
+    const attachmentLimits = snapshot.attachmentLimits ?? this.hostState?.attachmentLimits
     return {
       revision: snapshot.revision,
       scheduler: snapshot.scheduler,
@@ -859,6 +904,7 @@ export class BoardController {
       ...(goalRunEnabled === undefined ? {} : { goalRunEnabled }),
       ...(cardDefaults === undefined ? {} : { cardDefaults }),
       ...(extensions === undefined ? {} : { extensions }),
+      ...(attachmentLimits === undefined ? {} : { attachmentLimits }),
     }
   }
 

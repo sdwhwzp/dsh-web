@@ -5,7 +5,7 @@
 <p align="center">
   <img src="https://img.shields.io/npm/v/@linxin666/dsh-update?style=flat-square" alt="Version">
   &nbsp;
-  <img src="https://img.shields.io/badge/DSH-%3E%3D0.2.1--rc.3-4c6ef5?style=flat-square&amp;labelColor=454a54" alt="DSH">
+  <img src="https://img.shields.io/badge/DSH-%3E%3D0.2.2--rc.1-4c6ef5?style=flat-square&amp;labelColor=454a54" alt="DSH">
   &nbsp;
   <img src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" alt="License">
 </p>
@@ -17,9 +17,11 @@
 
 > dsh web GUI 家族自更新插件：侧边栏设置席位旁的下载触发器，探测 npm 上更新的 `@linxin666/dsh-web-*` 版本，并在当前 profile 内执行 `pnpm update --latest`。
 
+> **全家桶不包含本包。** `@linxin666/dsh-web-all` 不挂载更新行，也不依赖 `@linxin666/dsh-update`；需要自更新的 profile 单独安装本包。聚合包只保留 `update` 的 tombstone 子路径，因此仍记录 `@linxin666/dsh-web-all/update` 的 profile 也能解析该导出，只是不挂载任何东西。
+
 本仓库是 DeepSeek Harness（DSH）的外部插件包，双半区结构：host 半区挂载 `/api/update` 路由族，browser 半区渲染侧边栏触发器与更新面板。
 
-该能力刻意做成**独立插件行**（行 id `update`，聚合行 `web-ui-update`），而不是 `dsh-remote-web-ui` 的一个席位：关闭远程访问、甚至整体禁用远程访问插件，都不应该把更新入口一起带走。
+该能力刻意做成**独立插件行**（行 id `update`），而不是 `dsh-remote-web-ui` 的一个席位：关闭远程访问、甚至整体禁用远程访问插件，都不应该把更新入口一起带走；该行只属于本包。
 
 ## 功能
 
@@ -32,12 +34,11 @@
   `pnpm update --latest`，随后重新读取安装版本。pnpm 11/12 的 `minimumReleaseAge`
   门禁可能静默跳过当日发布，因此只看 pnpm 退出码为 0 不会报告成功。
 - **发布说明**：面板拉取对应 GitHub Release 说明，并列出本次实际变动的组件版本。
-- **宿主要求**：发现新版时，面板显示该版本声明的最低 DSH 版本，便于在需要时先升级宿主。
 - **重启提示**：更新成功后提示重启 `dsh web`——新版本要重启才会加载。
 
 ## 环境要求
 
-- DSH `>= 0.2.2-alpha.2`。
+- DSH `>= 0.2.2-rc.1`。
 - profile 需通过 npm 持有家族包：聚合包 `@linxin666/dsh-web-all`，或直接安装的
   家族包。家族包以本地 `link:` 方式安装的 profile 会报告为**本地开发模式**并拒绝
   更新（请改为同步本地仓库）。
@@ -52,7 +53,7 @@ dsh plugin --profile <profile> add @linxin666/dsh-update
 dsh plugin --profile <profile> add link:<repo>/packages/dsh-update
 ```
 
-装在全家桶里时该行已经存在；若某个 profile 不需要自更新，在插件管理里按行关闭即可。
+安装本包即挂载该行；卸载本包、或在插件管理里按行关闭，即可让该 profile 不再提供自更新。
 
 ## 配置
 

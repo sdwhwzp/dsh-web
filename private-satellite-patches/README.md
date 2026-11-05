@@ -11,3 +11,9 @@ Skin center and the community index retain their accepted RC1 artifacts. `skin-f
 The three external rows retain `web-ui-pet`, `web-ui-skin-center` and `web-ui-community-plugins`. Their old aggregate subpath exports remain available. Existing account data and settings keys need no migration. SSH, local-directory access and desktop behavior stay in the current family source.
 
 Preset center uses the accepted `0.4.1-dsh.20260924.2` artifact after its source moves to `dsh-presets`. Its manifest entry records the source commit in this repository before relocation. The external `web-ui-preset-center` row loads that artifact directly; its settings keys and preset library paths are unchanged.
+
+## Source synchronization candidate
+
+`candidate-20261104.json` records the four upstream source commits for the `0.4.15-dsh.20261104.1` candidate on Harness `0.2.2-rc.1`. `candidate-20261104.patch` carries the private version changes and the Pet account adaptation against those exact commits. Apply it from an isolated directory containing the four repositories under their recorded names. The source overlay is published in this personal fork; upstream satellite repositories remain read-only, and their gitlinks continue to identify public source.
+
+The Pet adaptation retains the previously deployed account-file hash and trusted identity provider. Skin selection and preset enablement remain shared Host state and require the gateway's administrator policy. Candidate tarball checksums, dependency overrides and validation evidence live with the deployment artifacts; this source record does not change any accepted production manifest or authorize rollout.

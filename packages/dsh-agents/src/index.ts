@@ -157,8 +157,8 @@ export function resolveCommandDispatcher(ctx: Context): CommandDispatcherFace | 
  * @returns the llm runtime, or undefined when this deployment serves none.
  */
 export function resolveLlm(ctx: Context): LlmRuntime | undefined {
-  const llm = readService<LlmRuntime>(ctx, 'llm', false)
-  return llm !== undefined && typeof llm.stream === 'function' ? llm : undefined
+  const llm = readService<{ stream?: unknown }>(ctx, 'llm', false)
+  return llm !== undefined && typeof llm.stream === 'function' ? llm as unknown as LlmRuntime : undefined
 }
 
 /**
@@ -218,10 +218,21 @@ function resolveTypertGateway(ctx: Context): TypertGatewayFace | undefined {
 export type TeamRuntimeGate = 'ready' | 'host-teams' | 'host-teams-declared' | 'missing-faces'
 
 /**
- * Published activation unit of the official Agent Teams runtime: enabling this
- * bundle in a profile is what inserts the rows that provide `agentTeams`.
+ * Published activation units of the official Agent Teams runtime: enabling one
+ * of these in a profile is what inserts the rows that provide `agentTeams`.
+ *
+ * Both generations are listed because both own the same service name. The
+ * legacy generation ships as the experimental profile bundle; the current one
+ * moved to `packages/team/` upstream and ships the `@deepseek-ai/dsh-agent-team`
+ * package (with `@deepseek-ai/dsh-tool-agent-team` for the model-facing tools).
+ * The newer names are the forward-compatible half: while the current runtime is
+ * composed into the base bundle rather than published as a profile bundle, a
+ * profile cannot list it, and the service probe is what catches it.
  */
-export const OFFICIAL_TEAMS_BUNDLE = '@deepseek-ai/dsh-experimental-agent-team-profile'
+export const OFFICIAL_TEAMS_BUNDLES = [
+  '@deepseek-ai/dsh-experimental-agent-team-profile',
+  '@deepseek-ai/dsh-agent-team',
+] as const
 
 /** The launcher's profile facts, narrowed to the one field this gate reads. */
 interface ProfileBundlesFace {
@@ -242,7 +253,8 @@ interface ProfileBundlesFace {
  */
 export function profileMountsOfficialTeams(ctx: Context): boolean {
   const profile = readService<ProfileBundlesFace>(ctx, 'profileContext', false)
-  return Array.isArray(profile?.startedBundles) && profile.startedBundles.includes(OFFICIAL_TEAMS_BUNDLE)
+  if (!Array.isArray(profile?.startedBundles)) return false
+  return OFFICIAL_TEAMS_BUNDLES.some(bundle => profile.startedBundles?.includes(bundle) === true)
 }
 
 /**
@@ -268,7 +280,7 @@ export function teamRuntimeGate(ctx: Context): TeamRuntimeGate {
   const agents = readService<{ get?: unknown; list?: unknown }>(ctx, 'agents', false)
   const sessions = readService<{ get?: unknown; flush?: unknown }>(ctx, 'sessions', false)
   const sessionPersistence = readService<unknown>(ctx, 'sessionPersistence', false)
-  const sessionProjections = readService<{ register?: unknown; stateOf?: unknown }>(ctx, 'sessionProjections', false)
+  const sessionProjections = readService<{ register?: unknown }>(ctx, 'sessionProjections', false)
   const subagents = readService<{ startActivation?: unknown }>(ctx, 'subagents', false)
   const servesFaces = typeof agents?.get === 'function'
     && typeof agents?.list === 'function'
@@ -276,7 +288,6 @@ export function teamRuntimeGate(ctx: Context): TeamRuntimeGate {
     && typeof sessions?.flush === 'function'
     && sessionPersistence !== undefined
     && typeof sessionProjections?.register === 'function'
-    && typeof sessionProjections?.stateOf === 'function'
     && typeof subagents?.startActivation === 'function'
   return servesFaces ? 'ready' : 'missing-faces'
 }
@@ -369,8 +380,9 @@ export function apply(ctx: Context, config?: Config): void {
     onSquadRun: () => { teamTools?.refresh() },
   })
 
-  ctx.effect(async () => {
+  ctx.effect(() => {
     const disposers: Array<() => void> = []
+    let cancelled = false
     try {
       // A ledger this process cannot own or read still mounts: the routes answer
       // with the named failure instead of the panel finding no host at all, and
@@ -404,24 +416,22 @@ export function apply(ctx: Context, config?: Config): void {
         // second owner of one service rather than a coexistence.
         warn(ctx, gate === 'host-teams'
           ? '[dsh-agents] this deployment already serves the official Agent Teams runtime (agentTeams); the forked Agent Teams runtime and its Team tools stay unmounted so one service keeps one owner, and squads keep member runs, the ledger and the routes'
-          : '[dsh-agents] this deployment mounts the official Agent Teams runtime bundle (@deepseek-ai/dsh-experimental-agent-team-profile); the forked Agent Teams runtime and its Team tools stay unmounted so that row keeps the agentTeams service, and squads keep member runs, the ledger and the routes')
+          : `[dsh-agents] this deployment mounts an official Agent Teams runtime bundle (${OFFICIAL_TEAMS_BUNDLES.join(' or ')}); the forked Agent Teams runtime and its Team tools stay unmounted so that row keeps the agentTeams service, and squads keep member runs, the ledger and the routes`)
       } else if (gate === 'missing-faces') {
         warn(ctx, '[dsh-agents] this deployment does not serve the agents/sessions/sessionPersistence/sessionProjections/subagents set; the forked Agent Teams runtime stays unmounted and only member runs are available')
       } else {
-        const runtime = new TeamService(ctx, {}, { pins: createTeammatePins(gateway) })
-        if (await runtime.ready) {
-          // Installed only into sessions this Host launched as a squad run: the
-          // forked runtime answers { role: 'lead' } for any root Session, so
-          // membership alone would put the Team tools into everyday chat. The cast
-          // states the runtime whose projection is ready.
+        // Manual construction does not invoke the class-plugin init hook, so the
+        // asynchronous projection handle arrives through the explicit factory.
+        void TeamService.create(ctx, {}, { pins: createTeammatePins(gateway) }).then(() => {
+          if (cancelled) return
           teamTools = installTeamTools(ctx as unknown as TeamServiceContext, {
             isTeamSession: agent => service.isSquadSession(agent.id, agent.session.header.parentSession),
           })
-          disposers.push(() => teamTools?.dispose())
-          // A live Agent that already qualifies (a deployment that re-executes the
-          // row) gets its tools now rather than at the next creation edge.
           teamTools.refresh()
-        }
+        }).catch((error: unknown) => {
+          warn(ctx, '[dsh-agents] the forked Agent Teams runtime failed to initialize; only member runs are available', error)
+        })
+        disposers.push(() => teamTools?.dispose())
       }
     } catch (error) {
       for (const dispose of disposers.splice(0)) dispose()
@@ -429,6 +439,7 @@ export function apply(ctx: Context, config?: Config): void {
       throw error
     }
     return () => {
+      cancelled = true
       abort.abort()
       for (const dispose of disposers.splice(0)) dispose()
       teamTools = undefined

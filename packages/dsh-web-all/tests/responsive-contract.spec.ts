@@ -151,6 +151,22 @@ describe('aggregate responsive compat contract', () => {
     expect(rule).not.toMatch(/display:|visibility:|z-index:/)
   })
 
+  it('user viewing the mobile board keeps content in the visible grid cell', () => {
+    const rule = RESPONSIVE_CSS.match(/\[data-dsh-frame\] \[data-pane="conversation"\]\s*\{([^}]*)\}/)?.[1] ?? ''
+    expect(rule, 'Given the host uses column two, when mobile has one track, then content must occupy its first cell').toContain('grid-area: 1 / 1;')
+    expect(rule).toContain('width: 100%;')
+    expect(rule).toContain('min-width: 0;')
+  })
+
+  it('user opening the native drawer can still reach its controls', () => {
+    const selector = RESPONSIVE_CSS.match(/(\[data-dsh-frame\][^{]*?)::after\s*\{[^}]*z-index:\s*1050;/)?.[1] ?? ''
+    document.body.innerHTML = '<main data-dsh-frame data-sidebar-drawer></main>'
+    const frame = document.querySelector('main')!
+    expect(frame.matches(selector), 'Given the native drawer, when it opens, then the legacy mask must not cover its controls').toBe(false)
+    frame.removeAttribute('data-sidebar-drawer')
+    expect(frame.matches(selector), 'Legacy hosts retain their overlay mask').toBe(true)
+  })
+
   it('keeps an open settings dialog reachable in the collapsed narrow rail (#1510)', () => {
     // The official settings panel renders inside the sidebar foot, which the
     // collapse rule hides and the collapsed pane freezes with pointer-events:
@@ -218,7 +234,7 @@ describe('aggregate responsive compat contract', () => {
     expect(RESPONSIVE_CSS).toContain(':not(:first-child)')
     expect(RESPONSIVE_CSS).toContain('[data-dsh-part="summon-button"] {')
     expect(RESPONSIVE_CSS).toContain('z-index: 40 !important')
-    expect(RESPONSIVE_CSS).toMatch(/\[data-dsh-frame\]:not\(\[data-sidebar-collapsed\]\)::after\s*\{[^}]*z-index:\s*1050;[^}]*background:/s)
+    expect(RESPONSIVE_CSS).toMatch(/\[data-dsh-frame\]:not\(\[data-sidebar-drawer\]\):not\(\[data-sidebar-collapsed\]\)::after\s*\{[^}]*z-index:\s*1050;[^}]*background:/s)
     expect(RESPONSIVE_CSS).toMatch(/\[data-dsh-frame\]\[data-sidebar-collapsed\] \[data-dsh-center-view-back\]\s*\{[^}]*margin-inline-start:\s*52px;/s)
     document.body.innerHTML = `
       <main class="shell_frame" data-sidebar-collapsed>

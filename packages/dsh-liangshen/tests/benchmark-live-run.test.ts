@@ -105,6 +105,7 @@ describe('benchmark variant materialization', () => {
   it('switches group N to the native presentation', () => {
     const text = composition('N')
     expect(text).toMatch(/^\s*presentation: 'native'$/m)
+    expect(text).toMatch(/- id: tool-executor-ptc\n\s*name: '@deepseek-ai\/dsh-tool-executor-ptc'\n\s*disabled: true/)
   })
 
   // The reference group mirrors the LIVE official bundle, so it needs a real

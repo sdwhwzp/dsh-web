@@ -275,25 +275,24 @@ describe('applyPresetOverrides', () => {
     expect(configOf(rowOf(applied, 'minimal-prompt'))['dispatcher']).toBe(false)
   })
 
-  it('operator gets the wire from the executor row, not from the catalog text', () => {
-    // Given the 0.2.x cohort, where the wire is chosen by which executor plugin
-    // the composition mounts, When the operator commits a presentation, Then the
-    // ptc executor's mount state follows it and the catalog keeps the value for
-    // its own description: one setting, two places, and the executor decides.
+  it('operator gets matching wire and executor rows from the presentation setting', () => {
+    // Given the split presentation/executor contract, When the operator commits
+    // a presentation, Then the catalog and the executor select the same mode.
     const ptc = applyPresetOverrides(rows(), { presentation: 'ptc' })
-    expect(rowOf(ptc, 'tool-executor-ptc').disabled).toBe(false)
     expect(configOf(rowOf(ptc, 'tool-catalog'))['presentation']).toBe('ptc')
+    expect(rowOf(ptc, 'tool-executor-ptc').disabled).toBe(false)
     const native = applyPresetOverrides(rows(), { presentation: 'native' })
-    expect(rowOf(native, 'tool-executor-ptc').disabled).toBe(true)
     expect(configOf(rowOf(native, 'tool-catalog'))['presentation']).toBe('native')
+    expect(rowOf(native, 'tool-executor-ptc').disabled).toBe(true)
+    expect(rowOf(native, 'tool-catalog').disabled).toBeUndefined()
   })
 
   it('operator keeps the shipped ptc wire when no presentation is committed', () => {
     // Given no committed presentation, When the overlay is applied, Then the
-    // executor row keeps the mount state the composition ships: the shipped
-    // default is the collapsed wire, and an absent setting never unmounts it.
+    // catalog row keeps the value the composition ships: the shipped default is
+    // the collapsed wire, and an absent setting never rewrites it.
     const applied = applyPresetOverrides(rows(), {})
-    expect(rowOf(applied, 'tool-executor-ptc').disabled).toBe(false)
+    expect(configOf(rowOf(applied, 'tool-catalog'))['presentation']).toBe('ptc')
   })
 
   it('operator is never given a row the composition does not carry', () => {

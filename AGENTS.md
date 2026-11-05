@@ -17,7 +17,7 @@ Before changing `packages/`, read [packages/AGENTS.md](packages/AGENTS.md). Befo
 ## Common Commands
 
 ```sh
-pnpm install
+pnpm run deps:install   # pnpm install --ignore-scripts, then pins node_modules/@deepseek-ai to the host DSH tree
 pnpm build
 pnpm dev:watch   # watch-rebuild browser bundles; the dsh web host reloads the GUI itself
 pnpm test
@@ -36,6 +36,10 @@ pnpm deploy:market
 node scripts/dsh-plugin-new <name>
 node scripts/link-profile.mjs   # link the local family and the satellite packages into the DSH profile
 ```
+
+When a complete host SDK tree is available, `node_modules/@deepseek-ai` is a symlink into that host installation rather than a registry copy: the packages here are loaded by the running host through the profile links, so a second SDK cohort beside the host one breaks service registration instead of failing loudly. pnpm reaches through that symlink, so dependency installs go through `pnpm run deps:install` (scripts/install-deps.mjs), which detaches the pin, installs, and pins it back; `pnpm run host-sdk:check` reports drift and [scripts/host-sdk-link.mjs](scripts/host-sdk-link.mjs) owns the mechanism. Incomplete or stale host trees are rejected and the registry cohort is used instead.
+
+The pin is a local single-instance contract, not a reason to keep retrying client-only version changes. Its current discovery, incomplete-tree behavior and validation evidence live in [the host SDK pin note](.agents/notes/implemented/process/2026-11-01-host-sdk-pin-and-install-entry.md); a plain registry install is the supported CI and incomplete-host fallback.
 
 Before merging, run at least `pnpm typecheck && pnpm test && pnpm test:standards && pnpm docs:check && pnpm i18n:check`. Run the aggregate and market checks when those areas change. [docs/development.md](docs/development.md) owns the test rules, their baseline, and the failure-path audit checklist; `.github/workflows/nightly.yml` is the Tier-2 lane that adds the coverage ratchet and three consecutive full-suite runs for flake detection. Two packages commit their build output under `lib/` (`dsh-market`, `dsh-web-all`); the satellite repositories carry the same rule for their own packages in their own CI. After changing the `src/` of either committing package, rebuild with `pnpm build`, record the new fingerprints with `pnpm libs:write`, and commit the refreshed `lib/` together with `scripts/lib-artifact-fingerprints.json`. A child plugin's client sources stay out of the aggregate's fingerprint: its `lib/` is only the compat layer plus the fault-isolation shell and every family row mounts the real package (issue #1901), so a child's `src/` change moves only that child's own `lib/`. `pnpm libs:check` is the gate. Market site changes must also commit the regenerated `market/dist` (never rebuild in CI; `market:check` verifies consistency, `deploy-market.yml` deploys the committed artifacts).
 

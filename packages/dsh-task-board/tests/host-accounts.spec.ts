@@ -50,6 +50,32 @@ afterEach(() => {
 })
 
 describe('task-board deployment identities', () => {
+  it('admin verified actions retain the authenticated owner and reject another account update', async () => {
+    const given = accountFixture()
+    const store = ledger()
+    const host = new TaskBoardHostService({ invoke: vi.fn() } as unknown as TypertGateway, { ledger: store, accounts: given.accounts })
+    disposers.push(() => host.dispose())
+
+    const when = await host.applyVerified('verified-create', { kind: 'create', id: 'verified-task', input: input() }, undefined, alice)
+    expect(when.tasks, 'Then the verified action creates one task').toHaveLength(1)
+    await expect(host.applyVerified('verified-update', {
+      kind: 'update', taskId: 'verified-task', patch: { title: 'Other owner' },
+    }, undefined, bob)).rejects.toThrow('another account')
+    expect(store.getTask('verified-task')?.title).toBe('Scheduled')
+  })
+
+  it('admin revoked while an action is being verified cannot commit it', async () => {
+    const given = accountFixture()
+    const store = ledger()
+    const host = new TaskBoardHostService({ invoke: vi.fn() } as unknown as TypertGateway, { ledger: store, accounts: given.accounts })
+    disposers.push(() => host.dispose())
+
+    const when = host.applyVerified('verified-revoked', { kind: 'create', id: 'revoked-task', input: input() }, undefined, alice)
+    given.revoke()
+    await expect(when).rejects.toThrow('account revoked')
+    expect(store.getTask('revoked-task'), 'Then no revoked action reaches the ledger').toBeUndefined()
+  })
+
   it('admin cannot reset acceptance or record a result on another owner task', () => {
     // Given a task persisted with Alice as its owner.
     const store = ledger()
@@ -225,7 +251,7 @@ describe('task-board deployment identities', () => {
     // Then the owner and occurrence survive, and the persisted rule has the Host zone.
     expect(migrated.taskPrincipal('scheduled')).toEqual(alice)
     expect(migrated.state().tasks[0].schedule).toMatchObject({ nextRunAt, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })
-    expect(JSON.parse(readFileSync(migrated.file, 'utf8')).schemaVersion).toBe(6)
+    expect(JSON.parse(readFileSync(migrated.file, 'utf8')).schemaVersion).toBe(7)
   })
 
   it('admin uses the same identity throughout task execution and inspection', async () => {

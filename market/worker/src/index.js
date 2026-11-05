@@ -19,8 +19,9 @@ import OPENAPI_SPEC from './openapi.js'
 import API_DOCS_HTML from './api-doc.js'
 
 const KINDS = new Set(['skin', 'pet', 'plugin', 'preset'])
-// The object class has to be exported from the entry module for wrangler to
-// find it; every instance of it lives in relay-bridge.js.
+// The object class has to be exported from the entry module so the wrangler
+// bundler (cf delegates the build to it) can resolve the "exports" entry in
+// cloudflare.config.ts; every instance of it lives in relay-bridge.js.
 export { RelayBridge } from './relay-bridge.js'
 
 const INSTALL_ACTIONS = new Set(['market-like', 'market-install'])
@@ -319,7 +320,7 @@ export default {
   /** Cron trigger: recompute the public badge counts, roll the finished UTC
    * days up (and backfill the days a fresh deployment still owes), refresh the
    * summary cache the dashboard reads, and prune expired telemetry
-   * (wrangler.jsonc triggers.crons). */
+   * (cloudflare.config.ts triggers.scheduled). */
   async scheduled(controller, env) {
     try {
       await refreshBadgeCache(env)
@@ -336,6 +337,8 @@ export default {
       await pruneOldEvents(env)
     } catch { /* best-effort; pruning retries on the next tick */ }
     try {
+      // Also drops rate-limit rows whose window has turned over, which is what
+      // keeps that table from growing with every identity that ever called.
       await pruneRelay(env)
     } catch { /* best-effort; the relay GC retries on the next tick */ }
     // Lease GC after the registry GC: it settles DNS and tunnel resources, the
@@ -347,7 +350,7 @@ export default {
 
   async fetch(request, env) {
     // tv.dsh-market.com rides the same wildcard routes as relay hosts (see
-    // wrangler.jsonc) but is the telemetry-view dashboard: forward the whole
+    // cloudflare.config.ts) but is the telemetry-view dashboard: forward the whole
     // hostname to the dedicated worker via the service binding. The Access
     // JWT header rides along; telemetry-view keeps verifying it itself.
     if (new URL(request.url).hostname === 'tv.dsh-market.com') {

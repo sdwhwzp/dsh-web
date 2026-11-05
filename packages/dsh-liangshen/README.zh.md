@@ -5,7 +5,7 @@
 <p align="center">
   <img src="https://img.shields.io/npm/v/@linxin666/dsh-liangshen?style=flat-square" alt="Version">
   &nbsp;
-  <img src="https://img.shields.io/badge/DSH-%3E%3D0.2.0--rc.2-4c6ef5?style=flat-square&amp;labelColor=454a54" alt="DSH">
+  <img src="https://img.shields.io/badge/DSH-%3E%3D0.2.2--rc.1-4c6ef5?style=flat-square&amp;labelColor=454a54" alt="DSH">
   &nbsp;
   <img src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" alt="License">
 </p>
@@ -50,7 +50,7 @@ DeepSeek V4.1 Flash 的后训练直接对齐其原生 DSML 工具调用面，官
 - 把拨杆拨下——拖动、点击或用键盘激活都算——即将开始的会话就组合为梁神模式；命中后播放中奖特效（闪光、冲击环、火花，以及「梁神模式」横幅叠文言文、二进制、摩斯三行）；
 
 - 把拨杆拨下——拖动、点击或用键盘激活都算——即将开始的会话就组合为梁神模式；命中后播放中奖特效（闪光、冲击环、火花，以及「梁神模式」横幅叠文言文、二进制、摩斯三行）；
-- 把拨杆上拨，依次选择此前可用的预设、部署默认预设、列表中第一个可用的非梁神预设；没有这类预设时，已开启的拨杆隐藏；
+- 把拨杆上拨，就回到你此前的模式——还没有记住任何模式时，回到部署默认预设；
 - 拨杆始终反映会话真实的预设，刷新页面后状态依然正确；且只在会话仍为空时渲染——会话一旦开始，宿主拒绝重新组合，整行控件直接从输入框中消失；
 - 被拒绝的切换会在拨杆下方显示宿主给出的原因，且不播放特效；`prefers-reduced-motion` 下保留状态变化、去掉动画。
 
@@ -66,7 +66,7 @@ DeepSeek V4.1 Flash 的后训练直接对齐其原生 DSML 工具调用面，官
 | `instructionSource` | `host` | 工作区指令送达模型的方式。`host`（默认）不追加任何自有段，也不改动宿主的 agent-instructions 注入，工作区指令以宿主自己的 user 角色消息送达：一条持久基线，加上触碰目录后的增量、替换与移除；`system-prompt` 在组装时读取 AGENTS.md 链并追加进系统提示词（harness 自己的注入被丢弃）；`hint` 把首次注入替换为一次性的、非命令式的参考文件提示，后续注入丢弃。 |
 | `instructionMaxBytes` | `65536` | 渲染后的 workspace-instructions 段的字节预算，仅在 `system-prompt` 模式下生效：最宽的文件先被省略，最具体的文件最后被截断。 |
 | `descriptionMaxLength` | `200` | 注入目录中单个工具一行摘要的长度上限，作用于所有未被策展表覆盖的工具；被策展的宿主内置工具直接使用整行手写短描述。完整关键参数语义保持完整。 |
-| `presentation` | `ptc` | 整个会话的 wire 呈现方式。`ptc`（出厂默认）把 wire 收拢为 `run_code`，其余工具经生成的 SDK 调用；`native` 保持组装出的原生清单。0.2.x cohort 上 wire 由**组合挂了哪个执行器**决定，因此这个取值决定本预设的 `@deepseek-ai/dsh-tool-executor-ptc` 行是否挂载（`tool-catalog` 行保留该取值，用于目录自身的描述与 0.2.0 之前的 `agent.ctx.tools.presentAs` 路径——当前 SDK 已不再暴露它）。若写着 `ptc` 而请求里没有 `run_code`，插件告警一次并点名该行，不再静默跑原生面。已删除的 `both` 取值不被接受：旧 profile 写明它会在注册时被拒绝，请迁移为 `ptc` 或 `native`。 |
+| `presentation` | `ptc` | 整个会话的 wire 呈现方式。`ptc`（出厂默认）把 wire 收拢为 `run_code`，其余工具经生成的 SDK 调用；`native` 保持组装出的原生清单。插件在 agent scope 一出现时就通过 `agent.ctx.tools.presentAs` 声明该取值，组合同时挂载官方 `@deepseek-ai/dsh-tool-executor-ptc` 行执行 PTC 程序。切换到 `native` 会停用该执行器行，使呈现声明与实际执行保持同一模式。部署没有 PTC runtime、宿主拒绝声明、或 scope 拿不到该 API 时保持原生面并告警一次。已删除的 `both` 取值不被接受：旧 profile 写明它会在注册时被拒绝，请迁移为 `ptc` 或 `native`。 |
 | `pagedToolPatterns` | `['mcp__*']` | 出厂开启温和分页：命中的 MCP 工具被扣留在 wire 与生成的 SDK 之外，直到模型通过 `tool_activate({ namespace })` 激活其命名空间。被扣留的命名空间在目录中以一行摘要出现。最多同时保持三个已激活的分页命名空间，激活状态从持久事件流重建。 |
 | `maxResidentTokens` | `8000` | 常驻 wire 面的估算 token 上限（按序列化 schema 约四字符一 token），按 V4.1 的 KV 压缩重新校准后仍高于出厂清单，用于发现真实增长而非出厂配置本身。超过时告警一次、列出最重的工具并指向 `pagedToolPatterns`；不会截断工具清单。 |
 | `ptcPresentation` | （已退役） | 旧别名：`true` 映射为 `presentation: 'ptc'`，`false` 映射为 `'native'`，两者都伴随弃用告警。 |
@@ -117,8 +117,8 @@ dsh plugin --profile web remove @linxin666/dsh-liangshen
 | --- | --- | --- |
 | `enabled` | `true` | 总开关：关闭后不声明预设、也不发公告。 |
 | `announceToAgent` | `false` | 按需开启：开启后向 agent 系统提示注入本插件公告。默认关闭，保持系统提示词干净。 |
-| `presentation` | `ptc` | 本插件所声明 preset 的 wire 呈现。它写两处：取值写进 `tool-catalog`（用于目录描述与旧声明路径），`tool-executor-ptc` 行的挂载状态则由它决定——`ptc` 挂载、`native` 不挂载——因为 0.2.x 的 SDK 是按执行器插件而非运行时调用选择 wire。Host 提交改动后立即重新声明 preset，此后新建的会话即采用新值；已开始的会话保持其已声明的组合。已删除的 `both` 取值在注册时被拒绝——旧 profile 请迁移为 `ptc` 或 `native`。 |
-| `dispatcher` | `true` | 身份开关：开启时（出厂默认）所声明的 preset 在 persona 之后追加调度者规则段——复杂度分诊（L0/L1 直接执行，L2 走完整流程）、拒绝 Agent Teams 的 R0.5 兼容性闸门、L2 任务先澄清访谈再规划、派发子代理并逐层审查与验收，以及落在 `todo_write` 的任务跟踪——其后是本地英文补充：访谈类新增内容，加上让任务看板停在做跟踪的表面、而不是派发路径的那一条，以及让登记的事实保持为锚点、而不是当前状态的那一条。这个块在本仓维护：2026-10-18 从它来源包发布的谱系重新抽取（二十条反模式、R2 的 allowlist 三态、R8 被撤回的空 allowlist 兜底、R6 记录化的重派次数、R7 每轮扫描即将升级或过期的项、R5 的 [Limits] 规则——每个上限都写明它约束什么、单位、上限值、以及是否累计）；更正就地应用，而不是作为一条自相矛盾的第二份副本追加；`DISPATCHER_RULES_PROVENANCE` 逐条记录它们，`node tools/check-dispatcher-rules.mjs` 对已安装的来源包报告漂移。关闭后回到仅含工作纪律的极简 persona。它与 `presentation` 正交：`presentation` 决定工具面，`dispatcher` 决定身份与流程纪律。 |
+| `presentation` | `ptc` | 本插件所声明 preset 的 wire 呈现。取值写进 `tool-catalog` 行，而该行通过 `agent.ctx.tools.presentAs` 的声明**就是** wire：`ptc` 收拢为 `run_code`，`native` 保持组装出的原生清单，目录文本描述的就是该声明产生的面。Host 提交改动后立即重新声明 preset，此后新建的会话即采用新值；已开始的会话保持其已声明的组合。已删除的 `both` 取值在注册时被拒绝——旧 profile 请迁移为 `ptc` 或 `native`。 |
+| `dispatcher` | `true` | 身份开关：开启时（出厂默认）所声明的 preset 在 persona 之后追加调度者规则段——复杂度分诊（L0/L1 直接执行，L2 走完整流程）、区分两代 Agent Teams 的 R0.5 兼容性闸门（legacy 运行期带 spawn_teammate 并顶替协调工具，现行运行期只是在原生子代理之上加一块共享任务板）、L2 任务先澄清访谈再规划、Lead & Dispatch 身份与按「耦合度 × 并行收益」三选一的执行拓扑（Lead-Core / Hybrid / Fan-out）、R9 计划模式管线（计划模式是用户的开关：已经在该模式里就只读探索、写计划、经 `exit_plan_mode` 提交；不在就照常规划后执行，不向用户索要这个模式）、派发子代理并逐层审查与验收，以及落在 `todo_write` 的任务跟踪——其后是本地英文补充：访谈类新增内容，加上让任务看板停在做跟踪的表面、而不是派发路径的那一条，以及让登记的事实保持为锚点、而不是当前状态的那一条。这个块在本仓维护：2026-10-18 重新抽取，2026-11-02 按 0.55.0 同步，2026-11-03 再按 0.56.0 及该包尚未发布的 Agent Teams 改动同步一次（二十五条反模式；R1 的三套执行拓扑；Lead & Dispatch 身份；R2 补上 Harness 0.2.2 起显式路由可能仍受父路由限制；R8 改为相对 R1 授权的计划内直执来定义；R6 补上 Lead-Core / Hybrid 主干上「先修后交付」；R0.5 按现行内置 team 重写——它对原生子代理只多加一块共享任务板，且该任务板始终是 R5 任务书之下的记账面；R2 的 allowlist 三态；R8 被撤回的空 allowlist 兜底；R6 记录化的重派次数、不罚 hand_back、以及界面的 Before/After 证据门；R7 每轮扫描即将升级或过期的项，以及删除测试；R5 的 [Limits] 规则——每个上限都写明它约束什么、单位、上限值、以及是否累计，外加 [Compact Delta Brief] 的精简任务书默认形态；R0 的「按影响而非按工作量停手」；常设子代理契约、报告协议与主控专用工具清单；以及 R9——按「计划模式是用户的开关」做了适配：本部署没有 enter_plan_mode 行，调度者也不主动向用户索要它）；行文按上游那套精简写法处理——每条规则一句判定，正文从约 35,000 字符压到 24,600 字符，而每一条更正与新增都保留；更正就地应用，而不是作为一条自相矛盾的第二份副本追加；`DISPATCHER_RULES_PROVENANCE` 逐条记录每一次更正与每一处新增，并带上它来自的上游提交；`DISPATCHER_RULES_PROVENANCE.omissions` 记录本预设有意不带的两条上游内容，它们各自指向本预设没挂的工具（`dispatch_ledger` 工具，以及 `enter_plan_mode` / `leave_plan_mode` 两行）；`node tools/check-dispatcher-rules.mjs` 对已安装的来源包报告漂移。关闭后回到仅含工作纪律的极简 persona。它与 `presentation` 正交：`presentation` 决定工具面，`dispatcher` 决定身份与流程纪律。 |
 
 各字段都可在 Web 设置界面（插件配置）或 profile patch（`dsh plugin` / `cordis.patch.yml`）中编辑。0.1.7 的设置契约下，插件自身的 Config 就是它的设置页：Host 为每个 profile entry 生成一张表单（entry id 为 `liangshen`，聚合安装下为生成的 `web-ui-liangshen` 行），每个字段都声明为 `volatile()`，因此写入被提交进运行中的插件实例，而不是重挂该行。塑造 preset 的 presentation 字段再经声明抵达会话：插件把已提交的取值应用到 `presets/liangshen/agent.cordis.yml` 的对应行并重新声明 preset，因此真正被会话运行的是设置界面的取值，而不是包内文件。组合里没有的行或键绝不会被凭空写入——覆写只会收窄出厂配置。改动对之后新建的会话生效；已开始的会话保持其已声明的组合，因为 registry 拒绝重组已开始的会话。
 
@@ -134,17 +134,18 @@ dsh plugin --profile web remove @linxin666/dsh-liangshen
 - 被分页扣留的工具（出厂模式 `mcp__*`）在模型经 `tool_activate` 激活其命名空间之前不进 wire、也不进生成的 SDK；同时最多三个分页命名空间保持激活，激活第四个会把最近最少使用的逐回摘要状态，激活状态在压缩与恢复后从持久事件流重建。`ptc` 下分页同时作用于作用域的工具注册表，未激活的命名空间在 `run_code` 程序内同样不可达；
 - working-context 行只在其来源（plan-mode 状态、已激活的分页命名空间、进行中的 todo）可读时注入，否则省略；
 - 工具结果超过 4096 字符即被修剪，保留 2048 字符头部与 1024 字符尾部（守护稀疏索引槽位的同时保住错误尾部与退出码），避免超大输出挤占上下文；
-- `run_code` 需要挂载的 code runtime（随包发布的 web 与 headless 组合都挂载 `dsh-code-runtime-worker-thread`）；没有时 `ptc` 不做声明，会话运行原生工具面；
+- `run_code` 需要挂载的 PTC runtime（随包发布的 web 与 headless 组合以 `ptc-runtime` 行挂载 `@deepseek-ai/dsh-ptc-runtime-node`）；没有时 `ptc` 不做声明，会话运行原生工具面；
 - spawn 委派行已开启子 agent 模型选择（`modelSelection: true` 与 `modelDiscovery: true`），因此设置界面的子智能体模型选择开关在本预设下生效：模型在 `subagent` 上看到 `provider` / `model` / `reasoning_effort` 参数与 `list_subagent_models` 发现工具，显式路由会按会话的允许清单校验（没有已记录的策略时退回父会话当前路由）；该行同时保留拆分前的写法 `modelSelectionSettings: true`：`devDependencies` 里钉的 SDK 只认这一个键，而本仓库运行所对的 harness checkout 已不再声明它，两代各读自己认识的键，另一个保持惰性；
 - 同一组合 scope 内只允许一行委派工具开启发现：上游 `modelDiscovery` 以固定工具名在该行所合入的 scope 中注册 `list_subagent_models`，而注册表拒绝同一 scope 内同名工具的第二次注册，因此第二个开启行会让整个会话创建失败而不是多出一份能力。fork 行因此不带它（官方 Standard、PTC、Cordis 预设同样如此，且它们连路由字段也不开），组合测试按结构统计发现工具的所有者；
-- `subagent-routes` 行是子路由守卫。一旦会话记录了允许路由清单，本行所管辖的每次委派都必须落到已授权路由上：`subagent` 上显式的 `provider`/`model` 对，或 `subagent_fork`（以及任何创建 teammate 的工具）上调用方自己的路由——后者的继承路由正是因为工具无法自选才需要校验。拒绝时会列出可用路由；在只继承的工具上点名路由会作为越权重路由被拒；没挂路由字段的工具不索要它给不出的参数，而是按子代理将要继承的路由校验。注册表探针同时读取 JSON Schema 的 `properties` 和旧式参数映射。守卫对任何读不到的事实一律放行（未记录策略、无会话注册表、无注册表探针），因此答不出来的宿主保持 harness 原本的委派行为；行上的 `enabled: false` 可整体关闭；
+- `subagent-routes` 行是子路由守卫。一旦会话记录了允许路由清单，本行所管辖的每次委派都必须落到已授权路由上：`subagent` 上显式的 `provider`/`model` 对，或 `subagent_fork`（以及任何创建 teammate 的工具）上调用方自己的路由——后者的继承路由正是因为工具无法自选才需要校验。拒绝时会列出可用路由；在只继承的工具上点名路由会作为越权重路由被拒；没挂路由字段的工具不索要它给不出的参数，而是按子代理将要继承的路由校验。守卫对任何读不到的事实一律放行（未记录策略、无会话注册表、无注册表探针），因此答不出来的宿主保持 harness 原本的委派行为；行上的 `enabled: false` 可整体关闭；
+- `dispatch-guard` 行是调度者规则的执行期对应物。被委派的调用方调用 `ask_user_question`、`create_goal`、`update_goal`、`exit_plan_mode` 会被 `DELEGATED_CALLER` 拒绝（冻结清单上另外三个工具本部署没有挂载，保留在名单里是为了让规则在工具面变动后依然成立）；它还有在跑的子代理时，纯等待的 `bash` / `pwsh` / `win_bash` 会被 `ACTIVE_CHILD_SLEEP_FORBIDDEN` 拒绝——结束那一轮的是完成通知，不是计时器。带真实工作的复合命令与任何 `run_in_background` 调用都不拦。本行只走 `ctx.tools.guard()` 一条接缝，工具声明面不动，按前缀计费的线路不会因为它重建缓存；任何读不到的事实一律放行（无守卫接缝、无会话血缘、无存活根集合、无子代清单），因此答不出来的宿主保持 harness 原本的行为；行上的 `enabled: false` 可整体关闭；
 - 清单不发布 `workflow` 工具，而 workflow 引擎仍为 `ralph` 保留挂载；
 - shell 挂载上游标准 Stdio 栈，POSIX 注册 `bash`，win32 注册 `pwsh`——每个宿主恰好挂一个 shell 工具，带简短功能描述标题卡片与确定性退出码；
 - 文件工具继承宿主文件沙箱（不挂载裸 `dsh-fs-local`）；
 - preset 与 shell 访问具有相同信任等级，安装前可自行审阅 `presets/liangshen/`；
 - 插件不发起网络请求，也不增加遥测；
 - 不要在已经产生内容的会话中途切换 preset；
-- 需要 DSH 0.2.2-alpha.2+（preset 机制、`system-prompt/assemble` 瀑布、persona 的 `prefix` schema，以及 PTC 呈现 API）。
+- 需要 DSH 0.2.2-rc.1+（preset 机制、`system-prompt/assemble` 瀑布、persona 的 `prefix` schema，以及 PTC 呈现 API）。
 
 ## 许可
 

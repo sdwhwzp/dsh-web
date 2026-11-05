@@ -1,0 +1,5 @@
+# Bilingual-pair consistency record (docs/i18n.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with git hash-object.
+2026-11-01-subscription-tier-relay-routing.md: 6ee41d0b3b3504ba8801d6809a02340cc97d867f
+2026-11-01-subscription-tier-relay-routing.zh.md: d773a69fee691525833ce4ca3b9ef8bc01a5ffac

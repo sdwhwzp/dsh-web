@@ -55,7 +55,9 @@
   background: transparent;
   color: var(--dsw-alias-label-secondary);
   cursor: pointer;
-  /* Ahead of the update/remote stack in the shared footer-action seat. */
+  /* Rail stack: the trigger leads the seat, which is where a centered 36px
+     column reads best. The wide seat places it on the trailing edge instead —
+     see the wide rule below. */
   order: -1;
   transition: background-color var(--ds-transition-duration) ease, color var(--ds-transition-duration) ease;
 }
@@ -86,6 +88,19 @@
 .trigger:focus-visible {
   outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
   outline-offset: var(--pair-focus-offset);
+}
+
+/* Wide seat: the shell lays `sidebar.footer.action` out as a left-aligned row, so
+   a position in flow alone leaves this trigger at the row's leading edge. Ordering
+   it last and handing it the free space in front puts it on the trailing edge,
+   beside the seat's other occupants rather than ahead of them. Both halves are
+   needed: order alone would only place it next to the previous occupant. The
+   margin is scoped to the wide layout because the rail stacks the seat into a
+   centered column, where an auto inline margin would pull the icon off that
+   column's axis. */
+.trigger[data-wide='wide'] {
+  order: 1;
+  margin-inline-start: auto;
 }
 
 /* ── Rail seat geometry (official-shell compatibility) ──
@@ -319,6 +334,38 @@
   color: var(--dsw-alias-label-tertiary);
   font-size: var(--pair-text-size);
   line-height: var(--pair-text-line);
+}
+
+/* ── Beta community invite ──
+
+   The body's closing line in every state, and the card's only outbound
+   destination while the app is in testing. It sits in the supporting tier the
+   subtitle already uses and borrows its type from the same token, so the view
+   keeps three sizes; the hue is the secondary label slot rather than the
+   tertiary hint slot above it, because this line is the one interactive string
+   on the card and the tertiary slot does not clear the text contrast floor on
+   the light surface. Underlining it is deliberate: the affordance must not be
+   carried by colour alone, and the whole sentence is the target, so the
+   element is sized to its text instead of filling the row (A6 keeps no empty
+   stretch of card clickable). Hover and focus return the two slots the seat
+   trigger already uses, so one family of states reads the same everywhere. */
+.invite {
+  align-self: flex-start;
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: var(--pair-text-size);
+  line-height: var(--pair-text-line);
+  text-decoration: underline;
+  transition: color var(--ds-transition-duration) ease;
+}
+
+.invite:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
+.invite:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: var(--pair-focus-offset);
 }
 
 /* ── Refusals ── */

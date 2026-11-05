@@ -9,7 +9,24 @@
  * read-only against D1 (one lookup per request) and forwards bytes verbatim —
  * the paired-device cookie and every application-level check stay on the
  * instance; this worker never terminates the pairing.
+ *
+ * A failure of this hop answers the frozen contract instead of prose: one JSON
+ * body per failure in the shape `{ok:false,code,message}` (see
+ * `relay-failure.js`), so the App branches on a code. Only a browser navigation
+ * still gets the offline page.
  */
+
+import { relayFailure } from './relay-failure.js'
+import {
+  RATE_LIMIT_RETENTION_MS,
+  REGISTER_MAX_PER_ID,
+  REGISTER_MAX_PER_IP,
+  REGISTER_WINDOW_MS,
+  REGISTRATION_TTL_MS,
+} from './relay-limits.js'
+
+/** The frozen failure contract lives in one module both relay halves share. */
+export { RELAY_FAILURE_STATUS, relayFailure } from './relay-failure.js'
 
 /** The id/secret shape both relay paths authenticate (see relay-control.js). */
 export const ID_RE = /^[a-z0-9]{16}$/
@@ -29,12 +46,15 @@ export const RELAY_FALLBACK_HEADER = 'x-relay-fallback'
 /** The marker the Worker's bridge door alone sets on a connector attach; the
  * proxy path strips it, so a phone cannot present itself as a connector. */
 export const RELAY_BRIDGE_ATTACH_HEADER = 'x-relay-bridge-attach'
-/** Rate limits: registration refreshes are infrequent (per tunnel start). */
-export const REGISTER_WINDOW_MS = 60 * 1000
-export const REGISTER_MAX_PER_IP = 30
-export const REGISTER_MAX_PER_ID = 6
-/** Rows not seen for this long are dropped by the cron GC. */
-const REGISTRATION_TTL_MS = 90 * 24 * 60 * 60 * 1000
+/** The registry's rate limits, its row TTL and the retention window live in
+ * `relay-limits.js`; they stay part of this module's surface because
+ * `relay-control.js` reads the buckets from here. */
+export {
+  RATE_LIMIT_RETENTION_MS,
+  REGISTER_MAX_PER_ID,
+  REGISTER_MAX_PER_IP,
+  REGISTER_WINDOW_MS,
+}
 
 export function json(data, status = 200, extra = {}) {
   return new Response(JSON.stringify(data), {
@@ -105,6 +125,11 @@ function rateLimitStatements(env, bucket, max) {
   }
 }
 
+/** The milliseconds left in the window one rate-limit refusal was counted in. */
+export function retryAfterMsOf(windowStart) {
+  return Math.max(0, windowStart + REGISTER_WINDOW_MS - Date.now())
+}
+
 /** Registration: PUT replaces the target for an existing id, POST mints one. */
 export async function handleRelayRegister(request, env) {
   if (request.method !== 'PUT') return json({ ok: false, error: 'method-not-allowed' }, 405)
@@ -123,7 +148,15 @@ export async function handleRelayRegister(request, env) {
   const ip = request.headers.get('cf-connecting-ip') || 'unknown'
   const now = Date.now()
   const secretHash = await sha256Hex(secret)
-  const existing = await env.DB.prepare('SELECT secret_hash FROM relay_registrations WHERE id = ?1').bind(id).first()
+  let existing
+  try {
+    existing = await env.DB.prepare('SELECT secret_hash FROM relay_registrations WHERE id = ?1').bind(id).first()
+  } catch {
+    // A D1 blip here used to escape the handler as a bare 500. It is the storage
+    // failure the batch below reports, so it answers the same way -- including
+    // the `error` spelling the plugin compares against.
+    return relayFailure('relay-storage-unavailable', { legacy: 'storage-unavailable' })
+  }
 
   if (existing) {
     if (!timingSafeEqualStr(existing.secret_hash, secretHash)) return json({ ok: false, error: 'auth-failed' }, 403)
@@ -142,7 +175,7 @@ export async function handleRelayRegister(request, env) {
   try {
     await env.DB.batch([perIp.statements[0], perIp.statements[1], perId.statements[1], upsert])
   } catch {
-    return json({ ok: false, error: 'storage-unavailable' }, 503)
+    return relayFailure('relay-storage-unavailable', { legacy: 'storage-unavailable' })
   }
   // The batch cannot conditionally reject, so enforce the budgets after the
   // commit: over-budget writes are harmless overwrites of the same row.
@@ -154,8 +187,12 @@ export async function handleRelayRegister(request, env) {
   ]).catch(() => [])
   const ipCount = Number(counts[0] && counts[0].results && counts[0].results[0] && counts[0].results[0].count) || 0
   const idCount = Number(counts[1] && counts[1].results && counts[1].results[0] && counts[1].results[0].count) || 0
+  // The two storage refusals above answer a frozen code too; this one is the
+  // budget's, which the table also names, so it answers a code rather than a
+  // bare `error`. The rest keep their pre-contract `error` shape (the table has
+  // no code for them). `legacy` keeps `error` for the plugin's registration client.
   if (ipCount > REGISTER_MAX_PER_IP || idCount > REGISTER_MAX_PER_ID) {
-    return json({ ok: false, error: 'rate-limited' }, 429)
+    return relayFailure('rate-limited', { legacy: true })
   }
   return json({ ok: true })
 }
@@ -180,12 +217,19 @@ export async function handleRelayUnregister(request, env) {
   return json({ ok: true })
 }
 
-/** Cron GC: drop stale registrations and old rate-limit windows. */
+/**
+ * Cron GC: drop stale registrations and rate-limit rows whose window has turned
+ * over. The rate-limit retention is three windows (RATE_LIMIT_RETENTION_MS)
+ * rather than the day it used to be: a row is read only while its own window is
+ * current, so a longer history is pure size — at the storm's rate a day of rows
+ * was what pushed this table past a gigabyte. One batched delete keeps the tick
+ * to a single statement pair.
+ */
 export async function pruneRelay(env) {
   try {
     await env.DB.batch([
       env.DB.prepare('DELETE FROM relay_registrations WHERE last_seen_at < ?1').bind(Date.now() - REGISTRATION_TTL_MS),
-      env.DB.prepare('DELETE FROM relay_rate_limit WHERE window_start < ?1').bind(Date.now() - 24 * 60 * 60 * 1000),
+      env.DB.prepare('DELETE FROM relay_rate_limit WHERE window_start < ?1').bind(Date.now() - RATE_LIMIT_RETENTION_MS),
     ])
   } catch { /* best-effort; retries on the next tick */ }
 }
@@ -204,6 +248,30 @@ const OFFLINE_HTML = [
   '<p>The tunnel of this DSH instance is not running right now. Refresh in a moment — this page\u2019s address never changes, so no re-pairing is needed.</p>',
   '</body></html>',
 ].join('')
+
+/**
+ * The page a browser gets for a dead id. A device asking for data must not
+ * receive HTML: it gets the frozen JSON so it can read a code.
+ */
+function offlinePage() {
+  return new Response(OFFLINE_HTML, {
+    status: 503,
+    headers: {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': 'no-store',
+      'x-robots-tag': 'noindex',
+      'referrer-policy': 'no-referrer',
+    },
+  })
+}
+
+/** Whether this request is a browser navigation, the one case that still gets
+ * the offline page (a GET whose Accept names HTML). */
+function acceptsOfflinePage(request) {
+  if (request.method !== 'GET') return false
+  const accept = request.headers.get('accept')
+  return accept !== null && accept.toLowerCase().includes('text/html')
+}
 
 /**
  * Build assets under `/assets/` carry a content hash in the file name
@@ -247,7 +315,8 @@ function withImmutableAssetCache(response, pathname, method) {
  * The mode lives on the lease row, so it is read apart from the registry row
  * the quick path needs -- and a failure here is `quick`, never an error. That
  * direction matters at deploy time: a Worker shipped before the mode migration
- * must keep serving the whole fleet on quick instead of answering 503.
+ * must keep serving the whole fleet on quick instead of answering 503, which is
+ * why the registry read owns `relay-storage-unavailable` and this probe does not.
  * @returns `bridge` or `quick`.
  */
 export async function bridgeModeOf(env, id) {
@@ -262,10 +331,11 @@ export async function bridgeModeOf(env, id) {
 
 /**
  * Hand one request to the instance's object.
+ * @param pathname - the relay pathname, for the immutable-asset stamp.
  * @returns the object's response, or undefined when it holds no connector and
  * the caller must fall back to quick inside this same request.
  */
-async function fetchThroughBridge(request, env, id) {
+async function fetchThroughBridge(request, env, id, pathname) {
   // A downstream request must never look like a connector attach: only the
   // bridge door may set that marker, so a forged one is dropped here.
   const forwarded = request.headers.has(RELAY_BRIDGE_ATTACH_HEADER)
@@ -282,7 +352,11 @@ async function fetchThroughBridge(request, env, id) {
     console.warn(JSON.stringify({ relay: 'bridge-fallback', id, reason: RELAY_BRIDGE_NO_CONNECTOR }))
     return undefined
   }
-  return response
+  // The same immutable stamp the quick path applies, for the same reason: the
+  // object hands the connector's own headers through, and the tunneled instance
+  // sends no Cache-Control on its content-hashed build assets, so without this
+  // a phone re-fetches the whole shell on every load through the bridge too.
+  return withImmutableAssetCache(response, pathname, request.method)
 }
 
 /** The same headers without the bridge attach marker. */
@@ -306,32 +380,32 @@ function withFallbackMark(response) {
  * The pairing cookie and every application check stay on the tunneled
  * instance; this hop rewrites only the Host header so the origin sees the
  * relay hostname (cookies and harness auth are Host-bound there).
+ *
+ * The transport is decided before the registry is consulted, because a bridged
+ * instance has no registration row to find: its connector serves the hostname
+ * out of its Durable Object, and the plugin stops announcing a quick target the
+ * moment its mode is bridge. Requiring a row first would answer `instance-offline`
+ * for exactly the instances the bridge default is meant to serve.
  */
 export async function handleRelayProxy(request, env, id) {
+  // A deployment without the namespace answers `quick` here without a read, and
+  // an unreadable mode answers `quick` too: this probe never turns a working
+  // quick instance into a failure.
+  const transport = await bridgeModeOf(env, id)
+  if (transport === 'bridge') {
+    const bridged = await fetchThroughBridge(request, env, id, new URL(request.url).pathname)
+    if (bridged !== undefined) return bridged
+    // The object holds no connector, so this instance has no bridge to serve
+    // from; the registry below is what a still-running quick tunnel answers on.
+  }
+
   let row
   try {
     row = await env.DB.prepare('SELECT target FROM relay_registrations WHERE id = ?1').bind(id).first()
   } catch {
-    return new Response('relay storage unavailable', { status: 503, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } })
+    return relayFailure('relay-storage-unavailable')
   }
-  if (!row) {
-    return new Response(OFFLINE_HTML, {
-      status: 503,
-      headers: {
-        'content-type': 'text/html; charset=utf-8',
-        'cache-control': 'no-store',
-        'x-robots-tag': 'noindex',
-        'referrer-policy': 'no-referrer',
-      },
-    })
-  }
-  // Data-plane split. Quick instances never reach the object, and a bridge
-  // instance with no connector reaches the code below instead -- unchanged.
-  const transport = await bridgeModeOf(env, id)
-  if (transport === 'bridge') {
-    const bridged = await fetchThroughBridge(request, env, id)
-    if (bridged !== undefined) return bridged
-  }
+  if (!row) return acceptsOfflinePage(request) ? offlinePage() : relayFailure('instance-offline')
 
   let target
   try {
@@ -340,7 +414,7 @@ export async function handleRelayProxy(request, env, id) {
     target.hostname = new URL(row.target).hostname
     target.port = ''
   } catch {
-    return json({ ok: false, error: 'invalid-registration' }, 502)
+    return relayFailure('invalid-registration')
   }
   const headers = new Headers(request.headers)
   headers.set('host', target.host)
@@ -351,16 +425,24 @@ export async function handleRelayProxy(request, env, id) {
   headers.delete('x-forwarded-for')
   headers.delete('x-forwarded-proto')
   headers.delete('x-real-ip')
-  const forwarded = new Request(target.href, {
-    method: request.method,
-    headers,
-    body: request.body,
-    redirect: 'manual',
-    // WebSocket upgrades ride this path in Workers (fetch upgrades when the
-    // client sends an Upgrade request and the body is null).
-    ...(request.headers.get('upgrade') === 'websocket' ? {} : { duplex: 'half' }),
-  })
-  const response = await fetch(forwarded)
+  let response
+  try {
+    const forwarded = new Request(target.href, {
+      method: request.method,
+      headers,
+      body: request.body,
+      redirect: 'manual',
+      // WebSocket upgrades ride this path in Workers (fetch upgrades when the
+      // client sends an Upgrade request and the body is null).
+      ...(request.headers.get('upgrade') === 'websocket' ? {} : { duplex: 'half' }),
+    })
+    response = await fetch(forwarded)
+  } catch (error) {
+    // Every throw here means the registered tunnel gave this hop no answer at
+    // all, the one condition the frozen table calls `instance-offline`.
+    console.warn(JSON.stringify({ relay: 'proxy-upstream-error', id, message: error instanceof Error ? error.message : String(error) }))
+    return relayFailure('instance-offline', { message: 'the instance tunnel did not answer' })
+  }
   const shaped = withImmutableAssetCache(response, target.pathname, request.method)
   return transport === 'bridge' ? withFallbackMark(shaped) : shaped
 }

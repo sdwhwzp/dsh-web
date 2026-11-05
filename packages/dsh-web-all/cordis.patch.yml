@@ -20,6 +20,10 @@
     - id: web-ui-plugin-manager
       name: '@linxin666/dsh-client-ui-plugin-manager'
 
+# from ../dsh-plugin-manager (patch row ui-settings-plugins)
+- id: ui-settings-plugins
+  disabled: true
+
 # from ../dsh-market
 - insert:
     - id: web-ui-market
@@ -44,21 +48,6 @@
 - insert:
     - id: web-ui-agents
       name: '@linxin666/dsh-agents'
-
-# from ../dsh-git-graph
-- insert:
-    - id: web-ui-git-graph
-      name: '@linxin666/dsh-client-ui-git-graph'
-
-# from ../dsh-remote-web-ui
-- insert:
-    - id: web-ui-remote-web-ui
-      name: '@linxin666/dsh-remote-web-ui'
-
-# from ../dsh-update
-- insert:
-    - id: web-ui-update
-      name: '@linxin666/dsh-update'
 
 # from ../dsh-remote-bridge
 - insert:
@@ -111,6 +100,11 @@
     - id: web-ui-i18n
       name: '@linxin666/dsh-i18n'
 
+# from ../dsh-diagrams
+- insert:
+    - id: web-ui-diagrams
+      name: '@linxin666/dsh-client-ui-diagrams'
+
 # from ../dsh-browser-view
 - insert:
     - id: web-ui-browser-view
@@ -121,8 +115,6 @@
 - id: web-ui-agents
   disabled: true
 - id: web-ui-remote-bridge
-  disabled: true
-- id: web-ui-update
   disabled: true
 - id: web-ui-ssh
   disabled: true

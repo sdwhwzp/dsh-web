@@ -1,0 +1,19 @@
+{
+  "version": "0.4.15-dsh.20261104.1",
+  "hostCohort": "0.2.2-rc.1",
+  "status": "candidate",
+  "patch": "candidate-20261104.patch",
+  "patchPathPrefix": "satellite repository directory name",
+  "sources": {
+    "dsh-community-plugins": "04ce116569aaa00c876175fb66d14ea90e7a0328",
+    "dsh-pet": "d19284a539618e5eadb6c263d842008a2b600bb0",
+    "dsh-presets": "8f15e62b03dabf68d147fb92a911652dd0fd1bca",
+    "dsh-skins": "5415a7e01b9244e02ca6808928451f00cbf3b2ae"
+  },
+  "accountContract": {
+    "pet": "Preserves production source/id hash, pet-accounts persistence, trusted requestPrincipal authentication, account-local settings and gameplay; rejects unresolved identity and suppresses Host-global data/actions in account views.",
+    "skinsAndPresets": "Host-shared state; preserve gateway administrator-only access policy.",
+    "communityPlugins": "Inert catalog only."
+  },
+  "productionManifest": "manifest.json remains the historical accepted deployment pin; this candidate does not authorize or describe a server cutover."
+}

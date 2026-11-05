@@ -11,7 +11,6 @@ import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { TeamService } from '../src/team/index.ts'
-import type { TeamProjectionHandle } from '../src/team/registration.ts'
 
 /** One fake live session's durable log. */
 interface FakeSession {
@@ -71,14 +70,9 @@ function emptyState(id: string): FakeTeamState {
 
 /**
  * Build the fake Host.
- * @param registerProjection - optional ready-reader registration supplied by a newer Host.
- * @param onAgentScan - observe the fake Host roster being scanned.
  * @returns the context, the observation log, and helpers to create live Agents.
  */
-export function createTeamHarness(
-  registerProjection?: () => PromiseLike<TeamProjectionHandle>,
-  onAgentScan: () => void = () => undefined,
-): TeamHarness {
+export function createTeamHarness(registerProjection?: () => unknown, onAgentScan?: () => void): TeamHarness {
   const ctx = new Context()
   const agents = new Map<string, FakeAgent>()
   const sessions = new Map<string, FakeSession>()
@@ -168,7 +162,7 @@ export function createTeamHarness(
   ctx.provide('agents', {
     get: (id: string) => agents.get(id) as unknown as Agent | undefined,
     list: () => {
-      onAgentScan()
+      onAgentScan?.()
       return [...agents.values()] as unknown as Agent[]
     },
   })
@@ -192,13 +186,9 @@ export function createTeamHarness(
     },
   })
   ctx.provide('sessionProjections', {
-    register: (definition: { key: string; stateVersion: number }) => {
+    register: async (definition: { key: string; stateVersion: number }) => {
       projections.push({ key: definition.key, stateVersion: definition.stateVersion })
-      return registerProjection?.() ?? (() => undefined)
-    },
-    stateOf: (session: FakeSession, key: string) => {
-      if (registerProjection !== undefined) throw new Error('deprecated projection reader used')
-      return key === 'agentTeam' ? stateFor(session.header.id) : undefined
+      return registerProjection?.() ?? { stateOf: (session: FakeSession) => stateFor(session.header.id) }
     },
   })
   ctx.provide('subagents', {

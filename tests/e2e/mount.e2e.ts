@@ -1,7 +1,7 @@
 /**
  * Aggregate-bundle mount lane: prove the packed `@linxin666/dsh-web-all`
  * tarball mounts into a real `dsh web` instance and boots cleanly on the
- * 0.2.2-alpha.2 cohort:
+ * 0.2.2-rc.1 cohort:
  *
  *  1. the DSH host frame mounts (`[data-dsh-frame]` is the official host
  *     frame the shell always renders, with its `data-pane` / `data-slot`
@@ -43,7 +43,7 @@ test('family bundle boots without a bundled right panel or crash markers', async
   page.on('console', (message) => {
     if (message.type() !== 'error') return
     const text = message.text()
-    if (/dsh-better-sidebar/.test(text)) pluginConsoleErrors.push(text)
+    if (/dsh-better-sidebar|archive-manager/.test(text)) pluginConsoleErrors.push(text)
   })
 
   await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' })

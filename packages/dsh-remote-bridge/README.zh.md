@@ -5,14 +5,14 @@
 <p align="center">
   <img src="https://img.shields.io/npm/v/@linxin666/dsh-remote-bridge?style=flat-square" alt="Version">
   &nbsp;
-  <img src="https://img.shields.io/badge/DSH-%3E%3D0.2.1--rc.3-4c6ef5?style=flat-square&amp;labelColor=454a54" alt="DSH">
+  <img src="https://img.shields.io/badge/DSH-%3E%3D0.2.2--rc.1-4c6ef5?style=flat-square&amp;labelColor=454a54" alt="DSH">
   &nbsp;
   <img src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" alt="License">
 </p>
 
-把 DeepSeek Harness（DSH）本体发布成协议 v1 的宿主侧适配包：一个 `/ios/v1` 的 WebSocket 面，原生客户端（手机 App、平板、终端脚本）无需浏览器、无需 Web GUI 包体、也无需改动中继即可驱动它。
+本仓库唯一的远程访问路径：手机 App 通过协议 v1 连上宿主。本包把 DeepSeek Harness（DSH）本体发布成协议 v1，在 `/ios/v1` 提供单个 WebSocket 面，原生手机 App 无需浏览器即可直连并驱动宿主。浏览器远程控制已退役，公网与局域网接入栈能力已迁入本包。
 
-协议 v1 是有意独立于浏览器路径的第二条面：配对设备 cookie 与受门禁的 `/remote` 通道属于 `dsh-remote-web-ui`，本包不回放那份凭据。它在同一进程内消费宿主——会话工作走 Typert gateway，权限请求走审批瀑布——并自行签发一次性 bootstrap token，不改动 `dsh-remote-web-ui` 的配对服务面。
+本包在同一进程内消费宿主——会话工作走 Typert gateway，权限请求走审批瀑布——并在仅回环路由上自行签发一次性 bootstrap token，拥有独立的公网中继、Cloudflare 隧道与局域网接入栈。
 
 ## 功能
 
@@ -30,7 +30,7 @@
 - **订阅而非轮询。** `session.snapshot` 打开宿主的 follow 流并保持它，基线与其后的每一条增量都走同一条 socket。
 - **审批直达客户端，重连的手机还能拿回仍悬着的那些。** 需要授权的工具以 `approval.request` 事件到达，客户端用 `approval.resolve` 作答；无人应答的请求按拒绝处理，而声明了 `approvals.v1` 的连接会在握手之后再次收到所有未结算的审批。
 - **配对。** 一次性 bootstrap token 加 P-256 挑战应答产出可吊销的设备令牌；未配对连接只能触达三个方法。
-- **一个配对面板。** 同一插件行声明 `dsh.client` 浏览器半区：侧栏底部一个座位，点开官方弹窗，里面只有一张二维码、一条状态行、一条地址说明与一行动作，摆着当前那个一次性配对码。
+- **一个配对面板。** 同一插件行声明 `dsh.client` 浏览器半区：侧栏底部一个二维码图标（aria-label 为「配对 iPhone」），点开弹窗展示 30 秒有效的一次性配对二维码与「重新取码」动作。
 - **中继无需改动。** 协议搭在实例本来就发布的那个 origin 上，中继这一跳照原样转发它，与其他所有请求无异。
 
 返回 Host 的答案使用独立的可变数组；桥接端保持所持问题快照不可变。
@@ -180,14 +180,16 @@ fork 的方法同样什么都不解释。`session.fork` 把 `sessionId` 与客�
 
 ### Bootstrap token
 
-`GET /remote-bridge/pair/token` 是宿主上的精确路由，门禁同时看两个条件：来源地址必须是 `127.0.0.1`、`::1` 或 `::ffff:127.0.0.1`，且 `Host` header 必须写本机（`127.0.0.1`、`localhost` 或 `[::1]`，端口忽略）。经隧道进来的请求即使其隧道客户端就从本机连出，也会在第二个条件上被拒，因此该端点在公网 origin 上够不到；其余情况一律 403。token 只存内存，30 秒后过期，被第一次 `pair.begin` 用掉即焚；同一条链接会打到宿主日志，配对码本身则渲染在配对面板里，桌面端两条路都能取。
+配对入口位于侧栏底部的二维码图标，按钮的 aria-label 为「配对 iPhone」。点击后打开配对面板。该面板只在本机可用：令牌路由 `GET /remote-bridge/pair/token` 受回环门控保护，来源地址与 `Host` header 必须均为本机（非本机或经隧道访问一律返回 403）。
+
+配对码一次性有效且具备 30 秒时效（`BOOTSTRAP_TOKEN_TTL_MS = 30_000`），被首次 `pair.begin` 用掉即失效；在面板中点击「重新取码」会使上一张配对码作废并生成新码。面板中没有「停止」按钮，也没有「吊销所有已连接设备」的操作。本机链接会以 `pair a device with <ws 链接>` 打印到宿主日志，而这一行后面只跟手机侧地址的种类：宿主把这个 origin 叫作局域网地址、或者该字面量本身就只在当前网络内可达时是 `(phone: lan)`，其余情形是 `(phone: public)`，一个地址都没有时不带后缀。配对码本身则渲染在配对面板中供扫码。
 
 ```sh
 curl -s http://127.0.0.1:3080/remote-bridge/pair/token
 # {"token":"...","expiresAt":1760000030000,"url":"ws://127.0.0.1:3080/ios/v1?token=..."}
 ```
 
-当这台机器能说出自己的公网地址时——先看 `DSH_REMOTE_PUBLIC_BASE_URL`，其次看 `dsh-remote-web-ui` 维护的中继注册表 `$DSH_HOME/remote-web-ui-registry/<profile>.json`——同一个响应里会多出地址那一半：
+当这台机器能解析出公网或局域网地址时——无论来自实时的中继租约/隧道状态、`DSH_REMOTE_PUBLIC_BASE_URL` 还是正在监听的局域网转发器——同一个响应里会多出地址那一半：
 
 ```json
 {
@@ -195,12 +197,12 @@ curl -s http://127.0.0.1:3080/remote-bridge/pair/token
   "expiresAt": 1760000030000,
   "url": "ws://127.0.0.1:3080/ios/v1?token=...",
   "origin": "wss://<id>.dsh-market.com",
-  "originSource": "registry",
+  "originSource": "realtime",
   "pairingUrl": "wss://<id>.dsh-market.com/ios/v1?token=..."
 }
 ```
 
-`pairingUrl` 就是二维码该装的东西：iOS 客户端会解析 `{token, url}` 并从 `url` 取 origin，所以扫一次就同时设好地址与一次性 token，手机上什么都不用输。查不到公网地址时这两个字段**缺省而非瞎猜**，面板退回只装裸配对码，手机保持它已有的地址不变。
+二维码编码一个 `{token, url}` 文档，其中 `url` 形如 `wss://<origin>/ios/v1?token=...`（由 `pairingDialUrlOf` 将 https 转为 wss、http 转为 ws）。手机 App 扫码即同时得到地址与令牌，无需手动输入。查不到可用地址时字段缺省而非盲目猜测，面板退回裸配对码，手机保持已有地址不变。
 
 ### 设备令牌
 
@@ -234,22 +236,61 @@ curl -s http://127.0.0.1:3080/remote-bridge/pair/token
 
 这一跳带来两条后果。它看得见请求 URL，所以用 `?token=` 连接等于把设备令牌交给中继、Cloudflare 边缘与 origin 访问日志——优先用 header。而 `GET /remote-bridge/pair/token` 会像其他路径一样被转发，但它的 loopback 门禁会拒掉这条转发请求，因此配对只能从本机发起。
 
+## 接入栈与安全模型
+
+`@linxin666/dsh-remote-bridge` 拥有完整的公网与局域网接入栈：
+- **中继身份与租约**：`relay-registry` 在 `$DSH_HOME/remote-web-ui-registry/<profile>.json` 下持久化中继身份（id 与 secret）；改 relay 配置会重挂载插件行。在未配置隧道（`tunnel.mode === 'off'`）且尚无已配对设备时，插件启动保持静默，不铸造身份也不申领租约；仅当名册读出已配对设备、本机打开配对面板取码、新设备完成配对或开启隧道时才按需触发申领（同时过滤 `idle`/`claiming`/`dialing` 过渡态日志并对连续相同的失败日志去重）。当以 `relay=false` 挂载且盘上存在身份时，挂载时撤销上一次留下的注册行并 `pair.release()` 释放租约各一次（失败各记一行；卸载时不释放也不撤行，保留手机收藏地址由服务端 GC 回收；`relay=false` 挂载绝不铸造新身份，盘上无身份时零副作用、不写盘）。
+- **中继连接器**：`relay-connector` 并行维护快速隧道与命名隧道连接器；`relay-bridge-connector` 经 WSS 连接 Cloudflare Durable Object 会合点，并将连接状态记录在 `$DSH_HOME/remote-web-ui-relay-bridge.json`（状态文件写入经行为级验证，缺省落到 `$DSH_HOME`，非源码文本断言）。
+- **隧道生命周期**：`tunnel`、`tunnel-plan` 与 `tunnel-orphan` 管理平台原生 `cloudflared` 子进程，具备指数退避重启机制并自动清理崩溃遗留的孤儿进程。
+- **命名隧道端口同步**：`ingress-sync` 在宿主监听端口变化时，把 Cloudflare 命名隧道的 ingress 规则原子收敛到本机闸门端口。
+- **局域网转发与防火墙**：`lan`、`lan-bind`、`lan-bind-plan`、`lan-forward`、`host-bind-capability` 与 `firewall` 管理局域网边缘转发器与操作系统防火墙规则（Windows Defender 与 Linux firewalld/ufw/iptables），宿主 webserver 本身始终严格保持回环绑定。
+
+本包的安全模型对所有外部接入入口实施严格的白名单隔离：
+- **入站网关（`src/host/ingress-gate.ts`）**：仅绑定 `127.0.0.1`，且仅将 `/ios/v1` 的 WebSocket 升级转发到本机协议端口，同时将 `Host` 头改写为回环权威。其余任何普通 HTTP 请求与非白名单升级一律直接返回 `404 {"error":"not-found"}` 并关闭连接，绝不建立上游连接。
+- **隧道的目标是入站网关而非 webServer 端口**：cloudflared 快速隧道与命名隧道的目标均指向 `ingress-gate` 的动态回环端口，绝不直连 `webServer` 端口。外界经隧道传入的请求无法触达 webServer 路由、内部 API 或其他插件。
+- **中继注册行与公网暴露面**：中继注册行只写入快速隧道的 URL，也就是入站闸门，公网因此只看得见 /ios/v1。计划为 quick 且隧道 running 时把闸门 URL 注册给中继 Worker（代理稳定子域名到本机，端点与后缀由配置决定、缺省为 `<id>.dsh-market.com`）；卸载时只清本地引用不撤行。二维码公网地址由 `livePublicOriginOf` 裁定：bridge 或 named 租约优先稳定子域名；quick 租约在注册未成功时退回隧道 running URL；无租约用隧道 URL；皆无则无地址。其后退回 `DSH_REMOTE_PUBLIC_BASE_URL`，局域网兜底仅当局域网转发器真的在监听时才按实际绑定的 address 与 port 给出（不猜地址列表首项，转发器停止即无兜底；已彻底移除磁盘 registry 行作为兜底地址，消除了对老插件数据文件的最后一处依赖）。
+- **局域网转发器的目标同样是入站网关**：局域网转发器监听本机局域网 IPv4 地址，并将请求严格转发至 `ingress-gate` 端口，因此局域网入口的暴露面同样仅有 `/ios/v1`。
+- **中继桥会合点白名单**：`relay-bridge-connector.ts` 对 Durable Object 汇聚的入站流执行完全相同的白名单检查，非 `/ios/v1` 的 HTTP 流直接应答 `404 {"error":"not-found"}`，非白名单 WebSocket 升级直接回复 `ws-fail 404 {"error":"not-found"}`，两条路都不建立上游连接。
+- **身份目录沿用历史拼写与并存禁忌**：中继身份目录 `$DSH_HOME/remote-web-ui-registry/` 与状态文件 `remote-web-ui-relay-bridge.json` 有意沿用历史拼写，确保既有 profile 保持身份连续性，已配对设备升级后无需重新配对。**已知风险与并存禁忌**：同一 profile 切勿同时启用本插件与已弃用的 `dsh-remote-web-ui` 的中继——两者按 profile 共用同一份身份文件；若新桥以 `relay=false` 挂载，会撤销该身份下的注册行并释放租约，从而打断老插件正在使用的公网中继；若两侧 relay 同时开启，bridge 传输下两个连接器会拿同一凭据竞争同一个 Durable Object 连接互相顶掉，quick 传输下后注册者覆盖前者。该收尾行为是有意设计的。
+- **本插件不含浏览器配对面**：本包不包含配对 cookie 门控、`/api/pair` 路由族、`/remote` 代理通道以及手机浏览器竖屏触控适配层。
+
+## 配置
+
+本插件通过 profile YAML（如 `cordis.patch.yml` 或 profile 配置）进行配置，不提供设置界面。未配置的字段回退到内置默认值：
+
+| 配置项 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `relay` | boolean | `true` | 是否申领 relay 租约。默认开启；无隧道时在已有配对设备或发起配对时按需 claim 租约。 |
+| `relayControlUrl` | string | `'https://dsh-market.com/api/relay'` | 中继控制面基址，claim/release/register/unregister 都从它派生。 |
+| `relayPublicSuffix` | string | `'.dsh-market.com'` | 稳定主机名后缀。 |
+| `autoTunnel` | boolean | `false` | 是否启动指向入站网关的 Cloudflare 快速隧道。 |
+| `lanBind` | boolean | `undefined`（关） | 是否启动监听本机局域网 IPv4 地址的局域网转发器。 |
+| `tunnelToken` | string | `undefined` | 运行 Cloudflare 命名隧道所需的隧道令牌。 |
+| `publicBaseUrl` | string | `undefined` | 命名隧道的固定公网 HTTPS 基地址。 |
+| `ingressSync` | boolean | `false` | 是否自动将命名隧道 ingress 服务端口同步至 Cloudflare。 |
+| `cfApiToken` | string | `undefined` | 用于 ingress-sync 的 Cloudflare 账户级 API 令牌。 |
+| `cfAccountId` | string | `undefined` | 用于 ingress-sync 的 Cloudflare 账户 ID。 |
+| `cfTunnelId` | string | `undefined` | 用于 ingress-sync 的 Cloudflare 命名隧道 ID。 |
+| `profile` | string | `'desktop'` | 受管 profile 名称（缺省读取 `$DSH_PROFILE` 或 `'desktop'`）。 |
+
 ## Web GUI 配对面板
 
-浏览器半区存在的理由，是让从不开终端的操作者也有一条发起配对的路径。它沿用家族在侧栏底部的惯例：触发器注册进官方 `sidebar.footer.action` 列表槽位（由 ui-sidebar 声明——`dsh-remote-web-ui` 的手机触发器与 `dsh-update` 的更新器已经共用的那个座位），点开后是官方 `Modal`，这张无头卡片由本包填充。它渲染的每个控件都是库里已有的 primitive——弹窗、三个动作与它们的字形——因此遮罩、卡片、焦点圈定、Esc、焦点归还，以及每个 hover/focus/disabled 状态都是官方壳自己的行为，而不是本包的一份复制品。它由同一插件行承载：产物是 `exports["./client"]`，`dsh.client` 声明必须先就位的 client 模块。
+浏览器半区存在的理由，是让从不开终端的操作者也有一条发起配对的路径。它沿用家族在侧栏底部的惯例：触发器注册进官方 `sidebar.footer.action` 列表槽位（由 ui-sidebar 声明，与 `dsh-update` 的更新器共用该列表槽位），点开后是官方 `Modal`，这张无头卡片由本包填充。它渲染的每个控件都是库里已有的 primitive——弹窗、三个动作与它们的字形——因此遮罩、卡片、焦点圈定、Esc、焦点归还，以及每个 hover/focus/disabled 状态都是官方壳自己的行为，而不是本包的一份复制品。它由同一插件行承载：产物是 `exports["./client"]`，`dsh.client` 声明必须先就位的 client 模块。
 
 面板只做一件事——把活着的那个一次性配对码摆到操作者面前，且只有这一个阅读顺序：
 
-- **二维码本身就是那个码。** 它要么装 43 个 base64url 字符的裸 token，要么在宿主说得出自己公网地址时装 `{token,url}` 文档，扫一次就把手机配好。若放一个宿主没背书过的 URL，手机端的解析器会顺手把 origin 改写成这台机器的 loopback 地址，而那恰恰是手机够不到的地址。编码串只在二维码部件的 `data-dsh-qr-value` 属性里留一份镜像，供 UI 检查不必解码就比对；它从不以文字形式渲染。
+- **卡头与副标题说明目标。** 标题为「iOS App 配对」，副标题「用 iOS App（内测）扫描二维码，把 iPhone 连到这台电脑上。配对码只在本机显示。」，说明操作对象与安全边界。
+- **二维码本身就是那个码。** 它要么装 43 个 base64url 字符的裸 token，要么在宿主说得出自己公网地址时装 `{token,url}` 文档，扫一次就把 iPhone 配好。若放一个宿主没背书过的 URL，App 端的解析器会顺手把 origin 改写成这台机器的 loopback 地址，而那恰恰是 iPhone 够不到的地址。编码串只在二维码部件的 `data-dsh-qr-value` 属性里留一份镜像，供 UI 检查不必解码就比对；它从不以文字形式渲染。
 - **二维码下方只有一条状态行。** 活着的码在进度条旁倒数那 30 秒；过期的码在同一个固定高度里直说过期，变的只有那句话。
-- **一条地址说明。** 宿主定位到中继地址时，这一行就写明手机将要连到哪儿；定位不到时，它直说没找到公网地址、手机里的连接地址得手填公网中继，并点明本页所在的 `127.0.0.1:<端口>` 只有本机能连。
-- **一条一次性说明。** 手机一开始配对，这个码就作废；重新取码同样会作废上一张。
+- **一条地址说明。** 定位到的公网地址只交代种类，不写成文字：「二维码已包含公网地址，扫码后 iPhone 自动连上这台电脑」。一次性配对码 30 秒即焚，而持久公网主机名一旦以文字渲染，会比它出现的每张截图活得久；二维码本身已带手机需要的地址，「复制配对码」交出的仍是同一个 `{token,url}` 串。局域网字面量不属于这一类事实：当宿主把这个 origin 叫作局域网地址，或者该字面量本身就只在当前网络内可达时，这一行都点名它——「二维码指向局域网地址 {origin}，iPhone 需与本机在同一网络」。定位不到地址时，它直说「没有找到公网地址：先在 App 里把连接地址填成你的公网中继，再扫码。本页的 {host} 只有本机能连。」。
+- **一条一次性说明。** 配对码一次性有效：iPhone 一开始配对就作废，重新取码也会作废上一张。
 - **一行动作。** 复制把二维码里那个字符串原样放进剪贴板，「重新取码」签发新 token 并作废上一张；两者都是同一个库控件、同一个尺寸，交互态不会各走一套。码一旦过期，回到可扫状态的唯一路径就是重新取码：复制被禁用，二维码原地降级变暗，而不是缩小或被移除。
+- **一行内测入口。** 提供「[iOS App 还在内测，欢迎来 Discord 交流](https://discord.gg/nBy28kjun)」，整行可点击打开。
 - **失败不静默。** 取码走的就是操作者本可以用 curl 打的那条仅 loopback 路由：`403` 渲染成「这个页面不是从本机打开的」且不给出可点的动作；请求没到达则渲染成它自己的不可达状态并给出重试；宿主回了别的状态就把那个状态码说出来。
 
 开与关是同一段动效的两条腿：卡片保持挂载，把弹窗自己的进场淡入反向播完才卸载；reduced-motion 下这条生命周期换成一段短淡出，而不是干脆没有出场。几何在每种状态里都钉住——二维码的盒子、状态行、地址说明与复制标签都不改高度和宽度——所以倒计时、过期与复制确认都不会挪动它们旁边的元素。
 
-面板对原生路径而言只是显示层。它从不消耗配对码（`pair.begin` 始终是手机那一侧的动作），从不碰名册，也不新增任何 wire 面——信封、方法名、主题名与事件一律不动。`dsh-remote-web-ui` 的配对服务、名册与浏览器凭据同样不参与其中，因此两条远程面各自保留自己的访问控制。
+面板对原生路径而言只是显示层。它从不消耗配对码（`pair.begin` 始终是手机那一侧的动作），从不碰名册，也不新增任何 wire 面——信封、方法名、主题名与事件一律不动。本插件不提供任何浏览器配对面或 cookie 门控。
 
 ## 会话里的整页卡
 
@@ -304,13 +345,14 @@ dsh plugin --profile web add link:$(pwd)/packages/dsh-remote-bridge
 
 - **配对即完全控制凭据。** 已配对设备在同一进程内触达宿主：会话、发言、审批。只配对你掌控的设备，吊销方式是移除名册那一行并重启宿主。
 - **进程内调用以 owner 身份发言，且只在桥自己的门禁之后。** 自 DSH 0.2.1 起，宿主网关要求每次调用都指明代表谁发言，桥的回答是自己在挂载时铸造的一个进程内 owner peer（`{kind:'owner'}`），挂到每一次网关调用上。这个声明之所以安全，是因为它只在桥自己的配对检查之后才会被用到——未配对连接在任何网关调用存在之前即被拒——且协议帧的任何字段都不能设定 principal：客户端在载荷里自报的身份会被忽略。该 peer 不接收转发事件交互，因此它也永远收不到宿主转发事件。
-- **token 端点仅 loopback 可达，且看两个条件。** 来源地址必须是 loopback，且 `Host` header 必须写本机。经隧道的请求由本机的隧道客户端终结，所以对一条全互联网可达的请求，来源地址也读作 `127.0.0.1`；而中继与普通隧道都会把 `Host` 改写成公网名。任一条件不成立即 403。token 只存内存、30 秒过期、被一次 `pair.begin` 用掉即焚，同一条链接还会写进宿主日志——把那一行日志当作活着的密钥。
+- **token 端点仅 loopback 可达，且看两个条件。** 来源地址必须是 loopback，且 `Host` header 必须写本机。经隧道的请求由本机的隧道客户端终结，所以对一条全互联网可达的请求，来源地址也读作 `127.0.0.1`；而中继与普通隧道都会把 `Host` 改写成公网名。任一条件不成立即 403。token 只存内存、30 秒过期、被一次 `pair.begin` 用掉即焚，本机链接还会写进宿主日志——把那一行日志当作活着的密钥。那一行里手机侧只有地址种类（`(phone: public)` 或 `(phone: lan)`，没有地址时不带后缀）：这一行配对日志正是操作者会粘贴到别处的那一行，公网主机名或局域网字面量写在里面，就会比它对应的配对码活得更久。
 - **配对面板渲染的是一份活密钥，也仅止于此。** 它用同源请求读同一条仅 loopback 门禁的路由，所以在 `curl` 够得到的地方它才够得到，别处都不行。它不能签发设备令牌、不能消耗配对码、不能列名册、不能吊销设备：`pair.begin` 始终是手机那一侧的动作，吊销始终是改名册加重启宿主。二维码里装的是裸 token 或宿主自己那份 `{token,url}` 应答，因此本页的 `127.0.0.1` origin 永远不会被交给手机。
 - **未配对连接只有三个方法的白名单。** `hello`、`pair.begin`、`pair.finish`；其余方法在分发前即回 `unpaired`，因此没有设备令牌就够不到会话面、审批面与名册面。
 - **设备令牌只存哈希。** 名册保留公钥及其 SHA-256 指纹，从不存令牌本身，所以该文件不是凭据库。令牌丢失、轮换或被拒的处置就是重新配对——这是常规流程而非异常路径（重新签发一条 bootstrap 链接，或在桌面配对流程里重扫），且从不需要手工改名册。
 - **令牌比对不泄漏长度。** 用的是定长比较而非提前返回的比较，因此错误令牌无法被逐字节逼近。
 - **审批在客户端在线时 fail closed。** 只要还有一个已配对客户端在线，桥才认领工具的权限请求；一个都没有时，请求交给下一个应答者而不是卡住。已认领而无人应答的审批会被归一为 `unavailable`，宿主按拒绝处理：手机沉默永远不等于同意。
 - **header 是更安全的载体。** `Authorization: Bearer <deviceToken>` 让凭据不进入 URL；`?token=` 是给无法设置握手 header 的客户端的，此时中继、边缘与访问日志都会看到一条以该设备身份鉴权的 URL。
+- **中继档位分流与授权凭据边界。** 名册（`devices.json`）schema 3 → 4，每台设备行新增可选的 `relay: {grant, receivedAt}`。那枚 `grant` 是账号服务签发的 30 天 HS256 凭据，经**已配对的加密连接**由手机交给宿主，宿主只把它原样放进 claim 请求体。宿主因此仍然不知道账号是谁、也不知道档位：它只知道「我有没有一份被中继承认的租约」。档位判定发生在自建中继与账号服务之间的一次回环请求里，中继只把额度写进租约行，不落任何用户标识。`hello.relay`、能力名 `relay.tier.v1`、`relay.grant` 这一帧**只在配置了第二个会合点时才存在**；不配置时握手逐字节等于今天，那一帧回 `unknown-method`。两个配置项名：`relaySecondaryControlUrl` 与 `relaySecondaryPublicSuffix`，缺省都不配置。
 
 ## 已知限制
 

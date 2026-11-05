@@ -5,7 +5,7 @@ English | [中文](README.zh.md)
 <p align="center">
   <img src="https://img.shields.io/npm/v/@linxin666/dsh-task-board-github?style=flat-square" alt="Version">
   &nbsp;
-  <img src="https://img.shields.io/badge/DSH-%3E%3D0.2.1--rc.3-4c6ef5?style=flat-square&amp;labelColor=454a54" alt="DSH">
+  <img src="https://img.shields.io/badge/DSH-%3E%3D0.2.2--rc.1-4c6ef5?style=flat-square&amp;labelColor=454a54" alt="DSH">
   &nbsp;
   <img src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" alt="License">
 </p>
@@ -20,6 +20,7 @@ An official external provider extension for the DeepSeek Harness (DSH) Web GUI a
 ## Features
 
 - **GitHub Issues as an external board source**: every configured repository contributes the issues it selects; the board keeps owning the columns, execution and scheduling.
+- **Bounded remote-close synchronization**: a closed issue materializes in Done and moves an existing non-running, unarchived card there without creating an execution record. A running card is never interrupted: the close waits for its execution to settle and applies on a later sync only if the column was not changed again. Reopening returns only an automatically completed card to To Do; a local move out of Done overrides the current close cycle until the issue reopens and closes again. Archived cards stay untouched, and this inbound rule never closes or reopens the remote issue.
 - **Per-repository configuration**: owner, repository, inclusion label, an optional inclusion assignee, whether unassigned issues are included, managed label prefix, the GitHub label behind each board column, the pull-request phase label, the poll interval, pull-request creation, the draft policy, close-on-merge and the pull-request base branch.
 - **Three ways onto the board**: an issue is included when it carries the inclusion label, when it is assigned to the repository's configured login (`@me` for the account the host is authenticated as), or when it belongs to a repository that takes unassigned issues and nobody is assigned to it at all. An issue that loses every channel is deactivated without losing its history.
 - **The unassigned channel**: `includeUnassigned: true` matches only issues with no assignee whatsoever and never takes an issue assigned to somebody else. It suits repositories that manage their issues by label alone and assign nothing.

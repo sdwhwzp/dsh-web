@@ -319,7 +319,7 @@ html[data-platform="darwin"] body > :is(
     transform: translateX(0);
     transition: transform 160ms ease;
   }
-  [data-dsh-frame]:not([data-sidebar-collapsed])::after {
+  [data-dsh-frame]:not([data-sidebar-drawer]):not([data-sidebar-collapsed])::after {
     content: "";
     position: fixed;
     inset: 0;
@@ -357,6 +357,7 @@ html[data-platform="darwin"] body > :is(
     margin-inline-start: 52px;
   }
   [data-dsh-frame] [data-pane="conversation"] {
+    grid-area: 1 / 1;
     min-width: 0;
     width: 100%;
     min-height: 0;

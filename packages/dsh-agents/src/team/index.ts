@@ -1,11 +1,11 @@
 /*
- * Forked from deepseek-harness dsh-v0.2.1-rc.2 (commit 687f282e) packages/experimental/agent-team/src/index.ts
+ * Forked from deepseek-harness dsh-v0.2.2-rc.1 (commit 66491b05) packages/experimental/agent-team/src/index.ts
  * MIT licensed; every change this package made is listed in
  * packages/dsh-agents/docs/fork-provenance.md.
  */
 /** Agent Teams service façade over roster, messaging, task, and runtime lifecycle owners. */
 
-import { Context, CordisError, Service } from '@deepseek-ai/cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-session-persistence'
@@ -16,7 +16,7 @@ import { errorMessage, TeamError } from './error.ts'
 import { TeamJournal } from './journal.ts'
 import { TeamRuntimeLifecycle } from './lifecycle.ts'
 import type { TeammatePins } from './pins.ts'
-import { registerTeamProjection } from './registration.ts'
+import { teamProjectionDefinition } from './projection.ts'
 import { resolveActiveMember, TeamRoster } from './roster.ts'
 import type { TeamMembership } from './roster.ts'
 import { TeamTaskBoard } from './task-board.ts'
@@ -99,10 +99,14 @@ export class TeamService extends Service {
   private journal!: TeamJournal
   private roster!: TeamRoster
   private tasks!: TeamTaskBoard
-  private initialized = false
+  private readonly pins?: TeammatePins
 
-  /** Resolves true after activation, or false when unloading preempts registration. */
-  readonly ready: Promise<boolean>
+  /** Construct and initialize one manually mounted Team service. */
+  static async create(ctx: Context, config: Config = {}, options: TeamServiceOptions = {}): Promise<TeamService> {
+    const service = new TeamService(ctx, config, options)
+    await service[Service.init]()
+    return service
+  }
 
   constructor(ctx: Context, config: Config = {}, options: TeamServiceOptions = {}) {
     super(ctx, 'agentTeams')
@@ -121,47 +125,31 @@ export class TeamService extends Service {
       throw new Error('Agent Teams requires the agents, sessions, sessionPersistence, sessionProjections and subagents services')
     }
     this.faces = faces
+    this.pins = options.pins
 
     this.activity = new TeamActivity()
     this.lifecycle = new TeamRuntimeLifecycle(this.config.disposalTimeoutMs)
-    const activation = ctx.effect(async () => {
-      const projection = await registerTeamProjection(faces)
-      try {
-        this.journal = new TeamJournal(faces, projection, (root) => { this.activity.notify(TeamId(root.id)) })
-        this.roster = new TeamRoster(ctx, faces, this.journal, this.lifecycle, this.config.maxMembers, options.pins)
-        this.tasks = new TeamTaskBoard(this.journal, this.config.maxTasks)
-
-        ctx.on('agent/created', ({ agent }) => {
-          this.scheduleRecovery(agent)
-          return undefined
-        })
-        ctx.on('agent/status', ({ agent }) => {
-          const membership = this.roster.tryMembership(agent)
-          if (membership !== undefined) this.activity.notify(membership.id)
-          return undefined
-        })
-        for (const agent of faces.agents.list()) this.scheduleRecovery(agent)
-        this.initialized = true
-      } catch (error) {
-        await projection.dispose()
-        if (error instanceof CordisError && error.code === 'INACTIVE_EFFECT') return () => undefined
-        throw error
-      }
-      return async () => {
-        this.initialized = false
-        try {
-          await this.disposeRuntime()
-        } finally {
-          await projection.dispose()
-        }
-      }
-    }, 'agentTeams.runtimeLifecycle()')
-    this.ready = Promise.resolve(activation).then(() => this.initialized)
   }
 
-  /** Publish the service only after its projection reader is ready. */
-  protected [Service.check](): boolean {
-    return this.initialized
+  protected async [Service.init](): Promise<void> {
+    const ctx = this.ctx
+    const faces = this.faces
+    const teamProjectionHandle = await faces.sessionProjections.register(teamProjectionDefinition)
+    this.journal = new TeamJournal(faces, teamProjectionHandle, (root) => { this.activity.notify(TeamId(root.id)) })
+    this.roster = new TeamRoster(ctx, faces, this.journal, this.lifecycle, this.config.maxMembers, this.pins)
+    this.tasks = new TeamTaskBoard(this.journal, this.config.maxTasks)
+    ctx.effect(() => () => this.disposeRuntime(), 'agentTeams.runtimeLifecycle()')
+
+    ctx.on('agent/created', ({ agent }) => {
+      this.scheduleRecovery(agent)
+      return undefined
+    })
+    ctx.on('agent/status', ({ agent }) => {
+      const membership = this.roster.tryMembership(agent)
+      if (membership !== undefined) this.activity.notify(membership.id)
+      return undefined
+    })
+    for (const agent of faces.agents.list()) this.scheduleRecovery(agent)
   }
 
   /**

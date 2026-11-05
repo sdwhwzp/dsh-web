@@ -12,9 +12,15 @@
  * `403` is a fact, not an error: the loopback gate in `core/loopback.ts`
  * refuses any page whose socket or `Host` is not this machine, which is exactly
  * the case the panel must name out loud.
+ *
+ * The origin's own source crosses too, and it is not decoration: it is what lets
+ * the panel say which kind of address the code carries without printing a
+ * public hostname, while still naming a LAN literal that answers only inside the
+ * network the page is already on.
  * @module dsh-remote-bridge/client/pair-token
  */
 
+import type { PairOriginSource } from '../core/pair-address.ts'
 import { PAIR_TOKEN_PATH } from '../core/protocol.ts'
 
 /** Document-relative form of the Host route, for a page served under any base. */
@@ -28,7 +34,14 @@ export type PairTokenOutcome =
    * is the code a QR should carry: a `{token, url}` document the phone parses
    * into both halves of its configuration.
    */
-  | { kind: 'ok'; token: string; expiresAt: number; origin: string | null; pairingUrl: string | null }
+  | {
+    kind: 'ok'
+    token: string
+    expiresAt: number
+    origin: string | null
+    originSource: PairOriginSource | null
+    pairingUrl: string | null
+  }
   /** 403: the page is not open on the machine itself, so the loopback gate refused it. */
   | { kind: 'forbidden' }
   /** The route answered with a status the panel does not know, or with a body that is not a token. */
@@ -100,5 +113,7 @@ export async function readPairToken(options: ReadPairTokenOptions = {}): Promise
   const origin = stringOrNull((body as { origin?: unknown }).origin)
   const candidate = stringOrNull((body as { pairingUrl?: unknown }).pairingUrl)
   const pairingUrl = candidate !== null && /^wss?:\/\/\S+$/.test(candidate) ? candidate : null
-  return { kind: 'ok', token, expiresAt, origin, pairingUrl }
+  const source = (body as { originSource?: unknown }).originSource
+  const originSource = source === 'realtime' || source === 'env' || source === 'lan' ? source : null
+  return { kind: 'ok', token, expiresAt, origin, originSource, pairingUrl }
 }

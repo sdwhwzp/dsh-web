@@ -1030,7 +1030,7 @@ describe('liangshen-tool-catalog', () => {
     expect(text).not.toContain('the full parameter schema travels with its own tool definition')
   })
 
-  test('prefers public schemas API over private methods', async () => {
+  test('operator sees public schemas rendered in the native tool catalog', async () => {
     let publicSchemasCalled = false
     const harness = register({ presentation: 'native' })
     const customAgent: any = {
@@ -1050,6 +1050,6 @@ describe('liangshen-tool-catalog', () => {
     await assemble(harness, customAgent, [{ name: 'public_tool', description: 'From public API' }])
     const text = catalogText((await preStep(harness, customAgent)).messages)
     expect(publicSchemasCalled).toBe(true)
-    expect(text).toContain('public_tool')
+    expect(text, 'Given a public schema on the native wire, when the catalog is assembled, then its tool remains visible').toContain('public_tool')
   })
 })

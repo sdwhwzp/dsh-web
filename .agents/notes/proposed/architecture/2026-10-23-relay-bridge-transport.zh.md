@@ -6,6 +6,8 @@ Status: proposed
 
 本文的落地记录见[汇合桥的附加式实现](2026-10-23-relay-bridge-additive-implementation.zh.md)：按实例 `mode`、长活凭据与对象侧换 socket 已落成可合并的代码，尚未部署。
 
+会合点归属在[自建中继会合点](2026-11-01-selfhosted-relay-meeting-point.zh.md)中改到自建 relay.chatwithai.icu，帧契约与容量模型由新笔记承接，本文其余结论仍作数。
+
 ## 问题
 
 已配对的手机通过 `https://<id>.dsh-market.com` 访问自己的 DSH 实例，而这个源上的每个字节都由 market Worker 送出（`market/worker/src/relay.js`）：Worker 读一行 D1 拿到该实例当前的 `*.trycloudflare.com` quick tunnel 主机名，再把请求转发过去。回源传输因此是 quick tunnel，而官方文档把 quick tunnel 定性为测试用途：没有可用性保证，每条隧道最多 200 个在途请求（超出回 `429`），不支持 Server-Sent Events，主机名每次重建都变（[Quick Tunnels](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/)）。
@@ -80,7 +82,7 @@ Status: proposed
 
 ### 观察面
 
-每个经桥的请求带 `x-relay-transport: bridge` 与转发的 `cf-ray`，回退时带 `x-relay-fallback: no-connector`；插件侧把状态、实例、端点、本地上游与最近一次拨号错误写进 `$DSH_HOME/remote-web-ui-relay-bridge.json`，因为桌面宿主把插件跑在一个没人读得到 stdout 的进程里（2026-10-23：一个从未认领的宿主整条命期都答 `no-connector`，没有任何可读痕迹）；对象每 60 秒用 `getWebSockets().length` 采样一次在线连接数；断开原因（`deploy`、`network`、`evicted`）写进结构化日志，沿用 `wrangler.jsonc` 已开的 observability。Workers 每次发布都会在宽限期后断开存量 WebSocket（[Workers limits](https://developers.cloudflare.com/workers/platform/limits/) 的运行时更新宽限一节），所以桥必须假定「发布等于全网 socket 滚动重连」，重连退避沿用插件已有的 `RelayRegistrar` 策略。
+每个经桥的请求带 `x-relay-transport: bridge` 与转发的 `cf-ray`，回退时带 `x-relay-fallback: no-connector`；插件侧把状态、实例、端点、本地上游与最近一次拨号错误写进 `$DSH_HOME/remote-web-ui-relay-bridge.json`，因为桌面宿主把插件跑在一个没人读得到 stdout 的进程里（2026-10-23：一个从未认领的宿主整条命期都答 `no-connector`，没有任何可读痕迹）；对象每 60 秒用 `getWebSockets().length` 采样一次在线连接数；断开原因（`deploy`、`network`、`evicted`）写进结构化日志，沿用 `cloudflare.config.ts` 已开的 observability。Workers 每次发布都会在宽限期后断开存量 WebSocket（[Workers limits](https://developers.cloudflare.com/workers/platform/limits/) 的运行时更新宽限一节），所以桥必须假定「发布等于全网 socket 滚动重连」，重连退避沿用插件已有的 `RelayRegistrar` 策略。
 
 ## 容量与成本算术
 

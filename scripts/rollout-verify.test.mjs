@@ -1,7 +1,9 @@
 /**
  * Cohort rollout contract tests: the floor literal stays a plain `>=` semver,
  * the host comparison honors prerelease ordering, and the root lockfile must
- * resolve every dsh-family key at exactly the floor's cohort version.
+ * resolve every dsh-family key at the floor's cohort version or at the exact
+ * version the workspace overrides pin it to, so only declared exceptions may
+ * sit off the floor.
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -12,6 +14,7 @@ import {
   floorVersion,
   lockfileCohortViolations,
   readDshFloor,
+  readWorkspaceOverrides,
   satisfiesFloor,
 } from './lib/rollout-verify.mjs'
 
@@ -23,7 +26,7 @@ test('the plugin scaffold declares a >= floor and the current cohort matches it'
   assert.match(floor, /^>=\s*\d+\.\d+\.\d+/)
   // The scaffold floor names the cohort the repository installs; when the
   // cohort moves, this assertion and the manifest move together.
-  assert.equal(floor, '>=0.2.2-alpha.2')
+  assert.equal(floor, '>=0.2.2-rc.1')
 })
 
 test('satisfiesFloor follows semver prerelease ordering', () => {
@@ -82,9 +85,9 @@ test('lockfile purity accepts the aligned cohort with peer suffixes and support 
   assert.deepEqual(drifted, [['@deepseek-ai/dsh-older', '0.1.2-rc.1']])
 })
 
-function driftLock(from, to) {
-  assert.ok(LOCK.includes(from), 'fixture must contain the drifted fragment')
-  return LOCK.replace(from, to)
+function driftLock(from, to, base = LOCK) {
+  assert.ok(base.includes(from), 'fixture must contain the drifted fragment')
+  return base.replace(from, to)
 }
 
 test('lockfile purity rejects family keys off the cohort version', () => {
@@ -114,7 +117,63 @@ test('lockfile purity rejects family keys off the cohort version', () => {
   )
 })
 
+// The workspace override ledger is the only way a family key may sit off the
+// floor, so these cases fix what an override excuses and what it cannot.
+const OVERRIDE_LOCK = [
+  "lockfileVersion: '9.0'",
+  'importers:',
+  '  .:',
+  '    devDependencies:',
+  "      '@deepseek-ai/dsh-client-store':",
+  '        specifier: ^0.2.2-rc.1',
+  '        version: 0.2.1-rc.5(@deepseek-ai/cordis@4.0.5)',
+  "      '@deepseek-ai/dsh-session':",
+  '        specifier: ^0.2.2-rc.1',
+  '        version: 0.2.2-rc.1',
+].join(NL)
+
+const CLIENT_STORE_OVERRIDE = { '@deepseek-ai/dsh-client-store': '0.2.1-rc.5' }
+
+test('lockfile purity accepts a family key at its declared override version', () => {
+  assert.deepEqual(lockfileCohortViolations(OVERRIDE_LOCK, '>=0.2.2-rc.1', CLIENT_STORE_OVERRIDE), [])
+})
+
+test('lockfile purity rejects that same key once the workspace declares no override', () => {
+  assert.deepEqual(lockfileCohortViolations(OVERRIDE_LOCK, '>=0.2.2-rc.1'), [
+    ['@deepseek-ai/dsh-client-store', '0.2.1-rc.5'],
+  ])
+})
+
+test('lockfile purity rejects a declared override the lockfile does not honor', () => {
+  assert.deepEqual(
+    lockfileCohortViolations(OVERRIDE_LOCK, '>=0.2.2-rc.1', {
+      '@deepseek-ai/dsh-client-store': '0.2.1-rc.6',
+    }),
+    [['@deepseek-ai/dsh-client-store', '0.2.1-rc.5']],
+  )
+})
+
+test('lockfile purity keeps guarding the keys the overrides do not name', () => {
+  const drifted = driftLock('version: 0.2.2-rc.1', 'version: 0.2.2-rc.2', OVERRIDE_LOCK)
+  assert.deepEqual(lockfileCohortViolations(drifted, '>=0.2.2-rc.1', CLIENT_STORE_OVERRIDE), [
+    ['@deepseek-ai/dsh-session', '0.2.2-rc.2'],
+  ])
+})
+
+test('lockfile purity lets a range override excuse its key without pinning it', () => {
+  assert.deepEqual(
+    lockfileCohortViolations(OVERRIDE_LOCK, '>=0.2.2-rc.1', {
+      '@deepseek-ai/dsh-client-store': '^0.2.2-rc.1',
+    }),
+    [],
+  )
+})
+
 test('the real root lockfile resolves the family at the scaffold floor', () => {
   const floor = readDshFloor(join(ROOT, 'scripts/plugin-template/package.json'))
-  assert.deepEqual(lockfileCohortViolations(readFileSync(join(ROOT, 'pnpm-lock.yaml'), 'utf8'), floor), [])
+  const overrides = readWorkspaceOverrides(join(ROOT, 'pnpm-workspace.yaml'))
+  assert.deepEqual(
+    lockfileCohortViolations(readFileSync(join(ROOT, 'pnpm-lock.yaml'), 'utf8'), floor, overrides),
+    [],
+  )
 })

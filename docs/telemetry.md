@@ -19,7 +19,7 @@ UV（独立实例数）= 当日去重访客 ID 数，即当天首次出现该组
 
 站点 pageview 另有一层爬虫过滤：worker 丢弃 UA 命中已知 bot 特征（搜索引擎爬虫、扫描器、curl 等）的 pageview，客户端在 `navigator.webdriver` 为真时不上报；只滤诚实的批量噪声，UA 可伪造的部分不追求（插件心跳本身要求真实 DSH GUI，天然少噪声）。
 
-发送是 fire-and-forget：网络不可达时静默失败，下次挂载或次日自动补报一次；标记位只在服务端接受后才写入，离线浏览器不会因此漏计整天。服务端 D1 过载时上报返回 503（客户端视为未接受，下次挂载补报），不会以 Worker 异常页响应。隐私模式等存储不可用的环境下不发任何请求。事件保留 400 天，过期由 worker 的 cron 触发器定期清理。
+发送是 fire-and-forget：网络不可达时静默失败，下次挂载或次日自动补报一次；标记位只在服务端接受后才写入，离线浏览器不会因此漏计整天。服务端 D1 过载时上报返回 503（客户端视为未接受，下次挂载补报），不会以 Worker 异常页响应。隐私模式等存储不可用的环境下不发任何请求。事件保留分层：原始心跳只留 7 天（`HEARTBEAT_RAW_RETENTION_DAYS`），原始 pageview 与按日滚存表保留 400 天，过期由 worker 的 cron 触发器在一次批量删除里清理。心跳的短窗口有前提：某日的原始心跳只在该日已带滚存标记后才可删除，因为某日滚存是「先删该日再从未删的原始事件重建」，标记缺失而原始行已删的日会滚成零；7 天相对每 tick 只重写今天与昨天留了余量，停机超过该窗口的部署会保留其回填仍欠的那些日的原始行。
 
 ## 关闭遥测
 
@@ -50,7 +50,7 @@ GitHub README 展示用两个无需密钥的 shields 端点徽章（只返回聚
 
 ### 私有实时视图
 
-`market/telemetry-view`（部署为 worker `dsh-market-telemetry-view`，地址 `tv.dsh-market.com`）是只读仪表盘：读取汇总接口的滚存缓存并渲染 KPI 卡片、日活跃实例趋势图（心跳 UV）与站点日 PV/UV 趋势图、分页的热门路径与各包/皮肤安装量（期间活跃按日去重求和、当日活跃、渠道分布与版本分布），自身不存任何数据。页面同时显示滚存的生成时间与滞后时长，并在滚存滞后或辅助分布被降级跳过时给出醒目提示——滞后的缓存是「聚合暂时受限」，不是数据丢失。仪表盘页内切换时间范围与翻页经由同源 `/data` JSON 代理（同样校验 Access JWT）调用汇总接口的分页参数，不刷新整页。访问保护双层：路由应挂 Cloudflare Access 自托管应用（邮箱验证），worker 内部同时校验 Access JWT 签名（`ACCESS_TEAM` + `ACCESS_AUD` secret，未配置前默认拒绝服务）。路由上 `tv.dsh-market.com` 落在主 worker 的 `*.dsh-market.com` 通配 zone 路由内，由主 worker 在 fetch 入口把整个主机名经 `TELEMETRY_VIEW` 服务绑定转发给本 worker（Access JWT 头随请求透传；`/app.js` 与 `/data` 相应列入主 worker 的 `run_worker_first`，主站自己的 `/app.js` 资源由 worker 显式回退到 ASSETS 提供）。看板取数相应经反向的 `MARKET` 服务绑定直调主 worker：本 worker 运行在主 worker 的调用链内，公开 fetch 回 `dsh-market.com` 会在同一请求上下文里二次进入主 worker，触发 Cloudflare 环路保护并回落占位源站（522）。
+`market/telemetry-view`（部署为 worker `dsh-market-telemetry-view`，地址 `tv.dsh-market.com`）是只读仪表盘：读取汇总接口的滚存缓存并渲染 KPI 卡片、日活跃实例趋势图（心跳 UV）与站点日 PV/UV 趋势图、分页的热门路径与各包/皮肤安装量（期间活跃按日去重求和、当日活跃、渠道分布与版本分布），自身不存任何数据。页面同时显示滚存的生成时间与滞后时长，并在滚存滞后或辅助分布被降级跳过时给出醒目提示——滞后的缓存是「聚合暂时受限」，不是数据丢失。仪表盘页内切换时间范围与翻页经由同源 `/data` JSON 代理（同样校验 Access JWT）调用汇总接口的分页参数，不刷新整页。访问保护双层：路由应挂 Cloudflare Access 自托管应用（邮箱验证），worker 内部同时校验 Access JWT 签名（`ACCESS_TEAM` + `ACCESS_AUD` secret，未配置前默认拒绝服务）。路由上 `tv.dsh-market.com` 落在主 worker 的 `*.dsh-market.com` 通配 zone 路由内，由主 worker 在 fetch 入口把整个主机名经 `TELEMETRY_VIEW` 服务绑定转发给本 worker（Access JWT 头随请求透传；`/app.js` 列入主 worker 的 `runWorkerFirst`，主站自己的 `/app.js` 资源由 worker 显式回退到 ASSETS 提供；`/data` 没有对应静态资源，经 ASSETS 回退进入同一条转发分支——绑定与 worker-first 列表见 [market/worker/cloudflare.config.ts](../market/worker/cloudflare.config.ts)）。看板取数相应经反向的 `MARKET` 服务绑定直调主 worker：本 worker 运行在主 worker 的调用链内，公开 fetch 回 `dsh-market.com` 会在同一请求上下文里二次进入主 worker，触发 Cloudflare 环路保护并回落占位源站（522）。
 
 ## 接入新包
 

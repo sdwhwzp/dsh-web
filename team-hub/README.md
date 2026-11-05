@@ -1,105 +1,127 @@
 # team-hub
 
-Cloudflare Worker that implements the team collaboration hub described by
-[PROTOCOL.md](PROTOCOL.md) (protocol version 1.0.0). It owns the collaboration
-domain - issues, assignees, collaboration status including in_review, comments,
-the activity stream, decision questions and push notifications - while each DSH
-Host keeps authority over execution.
+The team collaboration hub described by [PROTOCOL.md](PROTOCOL.md) (protocol
+version 1.0.0). It owns the collaboration domain - issues, assignees,
+collaboration status including in_review, comments, the activity stream,
+decision questions and push notifications - while each DSH Host keeps authority
+over execution.
 
-Nothing in this directory has been deployed. The deployment inputs below are the
-only things needed to turn it into a running hub, and every one of them is
-supplied by the operator.
+It runs as one static Go binary with one SQLite file. [go/README.md](go/README.md)
+owns the implementation: the package layout, the configuration table, the HTTP
+surface, the lease state machine, the WebSocket behaviour and the build.
 
 ## Layout
 
 | Path | Contents |
 | --- | --- |
-| `src/index.ts` | Worker entry: request boundary, error envelope, cron sweep |
-| `src/router.ts` | Route table, protocol version gate, role matrix, quotas |
-| `src/auth/` | GitHub OAuth (Web code flow and iOS PKCE), session and Host tokens |
-| `src/domain/` | Issues, leases, questions, comments, inbox, hosts, members, sweep |
-| `src/durable/team-channel.ts` | One Durable Object per team: sequence, replay buffer, sockets |
-| `src/push/apns.ts` | APNs provider JWT (ES256, cached 50 minutes) and delivery |
-| `src/constants.ts` | Every numeric value of PROTOCOL.md section 13 and the section 11 caps |
-| `migrations/` | D1 schema: section 3 verbatim, plus the additive objects listed below |
-| `test/` | Behaviour tests on the Workers local runtime (workerd, real D1, real Durable Objects) |
+| `go/` | the service: `cmd/team-hub` plus `internal/hub` |
+| `migrations/` | the schema of PROTOCOL.md section 3 and its additive objects, applied verbatim at startup |
+| `contract/` | Host-facing request and response samples, shared with the plugin test suite |
+| `PROTOCOL.md` | the frozen protocol contract, version 1.0.0 |
 
-## Local development
-
-`team-hub` is its own pnpm project and is deliberately not a member of the
-repository's pnpm workspace, so installing here never touches the root lockfile
-or the plugin packages.
+## Build, run, test
 
 ```sh
-cd team-hub
-pnpm install
-pnpm test        # vitest on @cloudflare/vitest-pool-workers (workerd, real D1/DO)
-pnpm typecheck   # tsc --noEmit
-pnpm types       # regenerate worker-configuration.d.ts from wrangler.jsonc
+cd team-hub/go
+go vet ./...
+go test ./...
+CGO_ENABLED=0 go build -trimpath -o team-hub ./cmd/team-hub
 ```
 
-Outbound HTTP to GitHub and APNs is injected through the environment in tests
-(`TEAM_HUB_OUTBOUND`), so the suite never reaches the network.
+The database path, the listener, every credential and every optional feature is
+an environment variable; [go/README.md#configuration](go/README.md#configuration)
+lists them with the route each one closes when it is missing. A required setting
+that is absent stops the process before anything listens.
 
-## Deployment prerequisites
+## Deployment
 
-Everything below must be provided before the first deploy. No value is stored
-in this repository.
+One binary, one SQLite file, one environment file, one systemd unit. The process
+speaks plain HTTP and listens on the loopback address; TLS terminates at the
+reverse proxy in front of it. The unit, the proxy configuration, the data and
+backup directories and the first-start sequence are in the
+[self-host services handoff](../docs/archive/2026-10-30-selfhost-services-deployment-handoff.md).
 
-### 1. D1 database
+Migrations are applied by the process itself, one transaction each, recorded in
+the same `d1_migrations` ledger D1 used, so an existing database keeps its
+migration position.
+
+## First team and first admin
+
+A hub with no team cannot be entered: sign-in only resolves members that already
+exist, and inviting one needs an admin. `POST /api/v1/bootstrap` is the one call
+that creates both, authorised by the `BOOTSTRAP_TOKEN` setting. Call it once
+against the deployed hub with the email address of the person who will own it:
 
 ```sh
-cf d1 create dsh-team-hub          # or: wrangler d1 create dsh-team-hub
+export BOOTSTRAP_TOKEN=<the value from the environment file>
+
+curl -sS -X POST https://<hub-origin>/api/v1/bootstrap \
+  -H 'Content-Type: application/json' \
+  -H 'X-Team-Hub-Protocol-Version: 1.0.0' \
+  -H "X-Bootstrap-Token: $BOOTSTRAP_TOKEN" \
+  -d '{"team_name": "DSH Team", "team_slug": "team-dsh", "email": "admin@example.com"}'
 ```
 
-Put the returned id into `wrangler.jsonc` at
-`d1_databases[0].database_id`, replacing `REPLACE_WITH_D1_DATABASE_ID`.
-Apply the schema to the created database:
+The hub resolves the email address to the account user id the schema needs and writes
+the team and one active admin in a single transaction, answering `201`:
 
-```sh
-wrangler d1 migrations apply dsh-team-hub --remote
+```json
+{
+  "team": { "id": "team_01j7b5w8m4f9q2e3r6t1y8u4i7", "name": "DSH Team", "slug": "team-dsh" },
+  "member": { "id": "mem_01j7b5w8m4f9q2e3r6t1y8u4i8", "github_username": "account:acct_01j7b5w8m4f9q2e3r6t1y8u4id", "mention_handle": "admin", "account_user_id": "acct_01j7b5w8m4f9q2e3r6t1y8u4id", "role": "admin" }
+}
 ```
 
-### 2. GitHub OAuth App
+That admin can sign in immediately and reach every admin endpoint: invite the
+rest of the team through `POST /api/v1/teams/:teamId/members/invite`.
 
-Create an OAuth App and supply:
+The call is a one-shot by construction, so there is no switch to turn off: the
+endpoint only accepts a request while the teams table is empty, and every later
+call answers `409 CONFLICT` with the id of the team that already exists.
+Clearing the setting afterwards is optional; it turns the answer into
+`503 NOT_CONFIGURED`.
 
-| Setting | Value |
+| Answer | Meaning |
 | --- | --- |
-| Client ID | the app's client id, stored as `GITHUB_CLIENT_ID` |
-| Client secret | stored as `GITHUB_CLIENT_SECRET` |
-| Authorization callback URL | `https://<hub-domain>/auth/github/callback` |
+| `503 NOT_CONFIGURED` | `BOOTSTRAP_TOKEN`, `ACCOUNT_SERVICE_BASE` or `ACCOUNT_ADMIN_TOKEN` is not set on this process |
+| `401 UNAUTHORIZED` | the `X-Bootstrap-Token` header is missing or does not match |
+| `404 USER_NOT_FOUND` | the account service has no user with that email (sign in to the Whale app with Apple once first) |
+| `409 CONFLICT` | the hub already has a team; bootstrap has already run |
+| `502 ACCOUNT_UNAVAILABLE` | the account service is unreachable or returned an unexpected response |
+| `201` | the team and its first admin were created |
 
-### 3. APNs provider key
+## Sign-in
 
-Apple Developer account inputs:
+Two paths reach a member, and only one of them survives the transition.
 
-| Input | Worker secret |
-| --- | --- |
-| `.p8` private key (Key ID shown next to it) | `APNS_PRIVATE_KEY_P8` |
-| 10-character Key ID | `APNS_KEY_ID` |
-| 10-character Team ID | `APNS_TEAM_ID` |
-| App bundle identifier | `APNS_BUNDLE_ID` |
+**Account service (the destination).** `POST /auth/account { assertion }` is
+the credential itself. The JWT is signed with ES256 by the account service, its
+header names a `kid` that the JWKS at `ACCOUNT_JWKS_URL` publishes, and its
+claims must name `ACCOUNT_ISSUER` as `iss`, `ACCOUNT_AUDIENCE` as `aud`, an
+`exp` still ahead of the hub clock, and the account user id as `sub`. A verified
+assertion opens the existing session pair (`access_token` / `refresh_token` /
+`expires_in`) for the member whose `account_user_id` equals `sub`, and touches
+that row's `updated_at`, which is the only last-seen timestamp the section 3
+schema gives a member. It never creates a member: an account no member has bound
+answers `409 NOT_LINKED`, every failed check answers `401 UNAUTHORIZED`, and a
+JWKS document that cannot be fetched answers `502 ACCOUNT_UNAVAILABLE` (an
+upstream fault, not a bad assertion).
 
-The key is only ever read from the environment secret; no copy belongs in this
-repository or in `wrangler.jsonc`.
+**GitHub (the transition entry point).** `GET /auth/github/authorize`,
+`GET /auth/github/callback` and `POST /auth/token` are unchanged, and a member
+that signs in that way calls `POST /auth/account/link { assertion }` with their
+hub session to bind `account_user_id`. An account another member already holds
+is `409 IDENTITY_TAKEN`, repeating the same binding is a no-op, and a member
+that already carries another account is `409 CONFLICT` - rebinding would
+silently move an identity between people.
 
-### 4. Hub signing key
-
-`TEAM_HUB_SIGNING_SECRET` is an HMAC key the hub uses to sign OAuth state and
-session access tokens. Generate one, for example `openssl rand -hex 32`.
-
-### 5. Secrets
-
-```sh
-wrangler secret put GITHUB_CLIENT_ID
-wrangler secret put GITHUB_CLIENT_SECRET
-wrangler secret put TEAM_HUB_SIGNING_SECRET
-wrangler secret put APNS_KEY_ID
-wrangler secret put APNS_TEAM_ID
-wrangler secret put APNS_BUNDLE_ID
-wrangler secret put APNS_PRIVATE_KEY_P8
-```
+Retirement: once every member has bound an account, GitHub login leaves by
+deleting those three routes, `POST /auth/account/link` and
+[`go/internal/hub/github.go`](go/internal/hub/github.go). `/auth/refresh` and
+`/auth/revoke` stay: they rotate and revoke a session, they do not mint an
+identity. `members.github_user_id` and `members.github_username` outlive the
+routes for now, because section 3 makes both `NOT NULL`; relaxing them is a
+schema change of its own.
 
 ## Deviations from PROTOCOL.md
 
@@ -108,7 +130,7 @@ needed something the document does not state, each kept additive and small.
 
 1. **Storage the specification mandates without declaring.** `refresh_tokens`
    (section 2 rotation and revocation), `rate_limits` (section 11 quotas, which
-   must survive Worker isolates), `oauth_states` (supplement A1.6: GitHub only
+   must survive a process restart), `oauth_states` (supplement A1.6: GitHub only
    echoes `state`, so the pending redirect target and PKCE challenge are held
    until the callback), and `comment_mentions` (supplement A1.5). Two additive
    `issues` columns store what sections 8.2 and 5 require but section 3 has no
@@ -136,7 +158,9 @@ needed something the document does not state, each kept additive and small.
 6. **Member administration has no activity row.** Section 11 asks for an
    immutable audit record of every state change, but `activity.issue_id` is
    `NOT NULL REFERENCES issues(id)`, so invites and removals have no legal row
-   in that table. Issue-scoped actions are all recorded.
+   in that table. Issue-scoped actions are all recorded; an invite writes one
+   masked `[audit] member.joined` line to the process log instead, which is not
+   durable (`team-hub/go/README.md` owns that gap).
 7. **WebSocket violations close the socket.** Section 11 caps frames per
    connection and frame size, and the section 9 frame table has no error frame,
    so a violation closes the socket: `1008 RATE_LIMITED` or
@@ -189,14 +213,34 @@ needed something the document does not state, each kept additive and small.
       admin.
     - Host execution routes allow 120 requests per minute per host
       (supplement A4.6), not the 30 the section 11 table still shows.
-11. **One contradiction left in the specification text.** The endpoint table's
-    invite row still lists `400` among its status codes while its error codes are
+11. **The invite row no longer contradicts the error-code table.** It used to
+    list `400` among its status codes while its error codes were
     `USER_NOT_FOUND` and `ALREADY_MEMBER`, which the error-code table defines as
-    `404` and `409`. The hub follows the error-code table, which is also what
-    supplement A4.7 fixes. PROTOCOL.md is maintained by the protocol owner and is
-    not edited here.
-10. **APNs environment routing.** Delivery picks the Apple host from the
+    `404` and `409`; the hub followed the error-code table, which is also what
+    supplement A4.7 fixes. The email invite replaces that row, so `400` now
+    belongs to it through `VALIDATION_FAILED`, and PROTOCOL.md carries the shape
+    and the backward-incompatible note.
+12. **The first team and its first admin have an endpoint of their own.**
+    `POST /api/v1/bootstrap` is not in the section 9 table because a team that
+    already exists never needs it: it exists so a deployment that has no team can
+    be entered at all, since the callback only resolves members that already
+    exist and the invite route needs an admin. It is gated by the
+    `BOOTSTRAP_TOKEN` setting instead of a session, refuses with `409 CONFLICT`
+    as soon as one team exists, and answers `503 NOT_CONFIGURED` while the
+    setting is unset.
+13. **APNs environment routing.** Delivery picks the Apple host from the
     registered token's `environment` column rather than the `APNS_BUNDLE_ID`
-    secret, and the `apns-topic` header always carries the registered
+    setting, and the `apns-topic` header always carries the registered
     `bundle_id`, so a device registered for a different bundle is still
     addressed correctly.
+14. **Account-service identity.** PROTOCOL.md defines session tokens the hub
+    mints itself and no identity provider at all. `POST /auth/account` accepts a
+    short-lived ES256 assertion signed by the account service
+    (`ACCOUNT_JWKS_URL`, `ACCOUNT_ISSUER`, `ACCOUNT_AUDIENCE`), resolves the
+    member whose `members.account_user_id` equals its `sub`, and issues the
+    existing session pair; it refuses with `409 NOT_LINKED` rather than creating
+    a member. `POST /auth/account/link` performs that binding from a session that
+    entered through GitHub, which stays as the transition entry point. The only
+    storage this adds is `members.account_user_id` with a partial unique index
+    (`migrations/0004_account_identity.sql`), and a member's last-seen time is
+    that row's `updated_at`.

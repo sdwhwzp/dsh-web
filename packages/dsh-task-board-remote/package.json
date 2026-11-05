@@ -1,10 +1,11 @@
 {
   "name": "@linxin666/dsh-task-board-remote",
   "description": "Puts the dsh Web GUI task board on the remote surface: the host half binds the board's capability face to the dsh-remote-bridge extension seam, so a paired phone reads the same ledger (snapshot, acceptance options, idempotent actions, revision events) through the host's own gates.",
-  "version": "0.4.12-dsh.20261029.1",
+  "version": "0.4.15-dsh.20261104.1",
+  "icon": "icon.svg",
   "type": "module",
   "engines": {
-    "node": "^22.19.0 || >=24.0.0"
+    "node": ">=24.9.0"
   },
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
@@ -14,11 +15,13 @@
       "default": "./lib/index.js"
     },
     "./src/*": "./src/*",
+    "./locale/en.json": "./locale/en.json",
+    "./locale/zh.json": "./locale/zh.json",
     "./package.json": "./package.json"
   },
   "dsh": {
     "engines": {
-      "dsh": ">=0.2.2-alpha.2"
+      "dsh": ">=0.2.2-rc.1"
     },
     "bundle": {
       "patch": "./cordis.patch.yml"
@@ -31,10 +34,10 @@
     "typecheck": "tsgo --noEmit"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh": ">=0.2.2-alpha.2"
+    "@deepseek-ai/dsh": ">=0.2.2-rc.1"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "^4.0.6-alpha.1",
+    "@deepseek-ai/cordis": "^4.1.0",
     "@types/node": "^22.20.0",
     "tsdown": "0.22.2",
     "typescript": "~5.7.2",
@@ -47,7 +50,9 @@
     "cordis.patch.yml",
     "README.md",
     "README.zh.md",
-    "README.i18n.yaml"
+    "README.i18n.yaml",
+    "icon.svg",
+    "locale"
   ],
   "license": "Apache-2.0",
   "repository": {

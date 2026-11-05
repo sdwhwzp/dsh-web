@@ -95,31 +95,48 @@ test('no aggregate deps entry resolves to a private workspace package', () => {
 
 test('web-ui-all leaves the unbundled dsh-better-sidebar out of the patch', () => {
   const patch = readFileSync(join(ROOT, 'packages/dsh-web-all/cordis.patch.yml'), 'utf8')
-  // Right-panel plugins are installed independently by the profile.
-  assert.doesNotMatch(patch, /^ {4}- id: web-ui-better-sidebar$/m, 'dsh-better-sidebar must not be a bundled row in this fork')
+  // Alpha-branch decision (2026-09-17): the plugin's 0.19.1 peers declare
+  // ^0.1.5-rc.1, which does not cover this branch's 0.2.2-rc.1 cohort, so the
+  // aggregate neither mounts nor depends on it. Re-add the row in aggregate.yml
+  // together with this assertion when the branch bundles it again.
+  assert.doesNotMatch(patch, /^ {4}- id: web-ui-better-sidebar$/m, 'dsh-better-sidebar must not be a bundled row on the alpha branch')
   assert.doesNotMatch(patch, /^ {6}name: 'dsh-better-sidebar'$/m)
 })
 
-test('web-ui-all leaves archive management to its built-in plugin', () => {
+test('web-ui-all does not mount the dsh-client-runtime-dependent @mlgbnb/dsh-archive-manager', () => {
   const patch = readFileSync(join(ROOT, 'packages/dsh-web-all/cordis.patch.yml'), 'utf8')
-  const manifest = JSON.parse(readFileSync(join(ROOT, 'packages/dsh-web-all/package.json'), 'utf8'))
-  assert.doesNotMatch(patch, /web-ui-archive-manager|@mlgbnb\/dsh-archive-manager/)
-  assert.equal(Object.hasOwn(manifest.dependencies ?? {}, '@mlgbnb/dsh-archive-manager'), false)
+  // @mlgbnb/dsh-archive-manager imports the removed @deepseek-ai/dsh-client-runtime
+  // face, so on the alpha.2 cohort the host loader cannot resolve its entry and
+  // the whole boot fails. Its latest upstream build is still 1.0.7, so it stays
+  // excluded; re-add the row and this assertion together with package.json deps
+  // when upstream ships an alpha.2-compatible build.
+  assert.doesNotMatch(patch, /^ {4}- id: web-ui-archive-manager$/m, '@mlgbnb/dsh-archive-manager must not be mounted on the alpha.2 cohort')
 })
 
-test('web-ui-all keeps the removed doctor/describe-image plugins out but their tombstone exports alive', () => {
+test('web-ui-all leaves the removed describe-image/desktop-launcher/doctor/dsh-perf/model-capabilities families on no surface at all', () => {
   // 2026-09-23 product decision: dsh-doctor and dsh-tool-describe-image were
-  // removed from the family. No patch row or workspace dependency may name
-  // them again without an explicit re-adoption decision; their shell subpath
-  // exports stay as tombstones so a stale profile row fails soft instead of
-  // aborting the boot with ERR_PACKAGE_PATH_NOT_EXPORTED.
+  // removed from the family. They later lost their shells too: no tombstone
+  // subpath, no retirement-registry entry, no shell-metadata display resources
+  // and no exports key (subpath, icon, locale) is kept for them. The accepted
+  // cost is a stale profile row naming one of these specifiers failing at
+  // import time instead of soft-failing through the shell, so any of these
+  // surfaces coming back has to be a re-adoption decision, not an accident.
+  const yml = 'packages/dsh-web-all/aggregate.yml'
   const patch = readFileSync(join(ROOT, 'packages/dsh-web-all/cordis.patch.yml'), 'utf8')
-  assert.doesNotMatch(patch, /web-ui-(doctor|describe-image)/, 'removed plugins must not reappear as patch rows')
   const pkg = JSON.parse(readFileSync(join(ROOT, 'packages/dsh-web-all/package.json'), 'utf8'))
+  const tombstones = scalarEntriesOf(yml, 'tombstones')
+  const retired = flowEntriesOf(yml, 'retiredPlugins')
+  const notes = shellNotesOf(yml)
+  for (const family of ['describe-image', 'desktop-launcher', 'doctor', 'dsh-perf', 'model-capabilities']) {
+    assert.doesNotMatch(patch, new RegExp('web-ui-' + family), 'removed plugin must not reappear as a patch row: ' + family)
+    assert.ok(!tombstones.includes(family), 'removed family must not keep a tombstone subpath: ' + family)
+    assert.ok(!retired.some((entry) => entry.family === family), 'removed family must not be registered as retired: ' + family)
+    assert.ok(!notes.has(family), 'removed family must not keep shell display metadata: ' + family)
+    const keys = ['./' + family, './' + family + '/icon', ...SHELL_METADATA_LOCALES.map((locale) => './' + family + '/locale/' + locale + '.json')]
+    for (const key of keys) assert.ok(!(key in pkg.exports), 'removed family must not keep an exports key: ' + key)
+  }
   assert.ok(!('@linxin666/dsh-doctor' in pkg.dependencies), 'dsh-doctor must not be a workspace dependency')
   assert.ok(!('@linxin666/dsh-tool-describe-image' in pkg.dependencies), 'dsh-tool-describe-image must not be a workspace dependency')
-  assert.equal(pkg.exports['./doctor'], './lib/shells/shell.js', 'doctor tombstone export must survive')
-  assert.equal(pkg.exports['./describe-image'], './lib/shells/shell.js', 'describe-image tombstone export must survive')
 })
 
 const SHELL_METADATA_LOCALES = ['en', 'ru', 'zh']
@@ -166,13 +183,22 @@ test('web-ui-all shell metadata covers exactly the exported family subpaths', ()
     .sort()
   assert.deepEqual(dirs, shellSubs, 'stale or missing shell metadata directories')
   const pkg = JSON.parse(readFileSync(join(ROOT, 'packages/dsh-web-all/package.json'), 'utf8'))
+  const notes = shellNotesOf('packages/dsh-web-all/aggregate.yml')
   for (const sub of shellSubs) {
     assert.equal(pkg.exports['./' + sub + '/icon'], './icon.svg', sub + ' must export the family icon')
+    const title = notes.get(sub)?.title
+    assert.ok(title, sub + ' shellNotes entry must carry a title object')
+    assert.notEqual(title.zh, title.en, sub + ' zh and en titles must not be the same text')
     for (const locale of SHELL_METADATA_LOCALES) {
       const exportKey = './' + sub + '/locale/' + locale + '.json'
       const target = './shell-metadata/' + sub + '/locale/' + locale + '.json'
       assert.equal(pkg.exports[exportKey], target, sub + ' must export its ' + locale + ' metadata')
-      assert.equal(shellMetadataOf(sub, locale).meta?.title, 'web-all/' + sub)
+      // The row label is the family's own localized title from shellNotes; ru
+      // has no title of its own and reuses en. `web-all/<family>` is the
+      // specifier shape, never display copy.
+      const rendered = shellMetadataOf(sub, locale).meta?.title
+      assert.equal(rendered, locale === 'ru' ? title.en : title[locale], sub + ' ' + locale + ' title must come from shellNotes')
+      assert.doesNotMatch(String(rendered), /^web-all\//, sub + ' ' + locale + ' title must not be the web-all/<family> placeholder')
     }
   }
 })
@@ -217,6 +243,8 @@ test('web-ui-all ships the opt-in family rows disabled by default', () => {
     if (section === 'inactive' && line.startsWith('- ')) inactive.push(line.slice(2).trim())
   }
   assert.ok(inactive.length > 0, 'aggregate.yml should declare inactive opt-in rows')
+  assert.ok(inactive.includes('web-ui-agents'), 'the shared squad ledger requires administrator opt-in')
+  assert.ok(inactive.includes('web-ui-remote-bridge'), 'Host-owner remote pairing requires explicit opt-in')
   const patch = readFileSync(join(ROOT, 'packages/dsh-web-all/cordis.patch.yml'), 'utf8')
   for (const id of inactive) {
     assert.match(patch, new RegExp('^- id: ' + id + '\\n  disabled: true$', 'm'), 'inactive row missing its disabled override: ' + id)
@@ -340,6 +368,31 @@ test('a host-only child row keeps its platform guard in the aggregate patch', ()
   assert.match(child, /disabled: !!js process\.platform !== 'win32'/u, 'the child keeps its own guard')
 })
 
+test('a child bare patch row keeps its scalar overrides and spells no empty name', () => {
+  // packages/dsh-plugin-manager retires the official `ui-settings-plugins`
+  // settings entry from a top-level bare row (`- id: …` + `disabled: true`, no
+  // `name:`) — the shape parsePatchBlocks documents for patching a row this
+  // repository does not own. Patch rows used to render through the insert path
+  // only half-way: `row.extraLines` was never written (so `disabled: true`
+  // vanished and the override did nothing) and the absent name became
+  // `name: ''`, an empty specifier inside the loader entry.
+  const child = readFileSync(join(ROOT, 'packages/dsh-plugin-manager/cordis.patch.yml'), 'utf8')
+  assert.match(
+    child,
+    /^- id: ui-settings-plugins\n {2}disabled: true$/mu,
+    'the child declares the bare patch row this case is about',
+  )
+
+  const patch = readFileSync(join(ROOT, 'packages/dsh-web-all/cordis.patch.yml'), 'utf8')
+  assert.match(
+    patch,
+    /^- id: ui-settings-plugins\n {2}disabled: true$/mu,
+    'the aggregate carries the bare patch row verbatim, override included',
+  )
+  assert.doesNotMatch(patch, /^- id: ui-settings-plugins\n {2}name:/mu, 'a bare patch row names no package')
+  assert.doesNotMatch(patch, /^ {2}name: ''$/mu, 'no row in the aggregate may carry an empty package name')
+})
+
 test('the win-bash family row and subpath use the short family name', () => {
   // The child id names its package (\`dsh-win-bash\`, pinned by that package's
   // AGENTS.md), so deriving the aggregate id would produce
@@ -408,17 +461,16 @@ function scalarEntriesOf(ymlPath, wantedSection) {
   return entries
 }
 
-test('web-ui-all retired plugins are tombstones, not dependencies, and match the generated registry', () => {
-  // The shell skips an import for every package listed in the generated
-  // retirement registry. Two facts make that skip safe and one keeps it
-  // honest, so the manifest section behind all three is gated here: the family
-  // must be a tombstone (its subpath export has to stay alive for older
-  // profiles), the plugin must not also be a dependency (a mounted package must
-  // never be swallowed by the no-op branch), and the generated module must be
-  // exactly what the manifest says.
+test('web-ui-all registers each retired plugin as a tombstone, not a dependency, and matches the generated registry pair for pair', () => {
+  // shell 会跳过生成登记表里每个包的 import，所以这条用例同时钉住三件事：退役家族
+  // 的子路径要留在 tombstones 里（旧 profile 仍按子路径 import 这个家族），退役包
+  // 名不能同时是依赖（已挂载的包不能被空操作分支吞掉），生成模块要与 manifest 逐
+  // 条一致。remote-web-ui 迁出为独立仓库后由聚合包静默退役，是这张登记表的第一次
+  // 真实登记，因此断言钉的是「登记了哪些」，而不是「必须为空」。
   const yml = 'packages/dsh-web-all/aggregate.yml'
   const retired = flowEntriesOf(yml, 'retiredPlugins')
-  assert.ok(retired.length > 0, 'aggregate.yml should declare the retired plugin registry')
+  // 段标题本身也要留着：登记机制在，未来的退役继续往这一段加条目。
+  assert.match(readFileSync(join(ROOT, yml), 'utf8'), /^retiredPlugins:$/m, 'aggregate.yml must keep the retiredPlugins section header')
   const tombstones = new Set(scalarEntriesOf(yml, 'tombstones'))
   const pkg = JSON.parse(readFileSync(join(ROOT, 'packages/dsh-web-all/package.json'), 'utf8'))
   const families = new Set()
@@ -436,10 +488,14 @@ test('web-ui-all retired plugins are tombstones, not dependencies, and match the
   for (const entry of retired) {
     assert.ok(generated.includes("'" + entry.family + "': '" + entry.plugin + "'"), 'generated registry is missing ' + entry.family + ' -> ' + entry.plugin)
   }
-  const generatedPluginCount = [...generated.matchAll(/^  '[^']+': '[^']+',$/gm)].length
-  assert.equal(generatedPluginCount, retired.length, 'generated registry must carry exactly the manifest entries')
-  // Issue #1889 regression: the 2026-09-23 removal never reached the shell's
-  // hand-written list, so both package names are pinned by name here.
-  assert.ok(plugins.has('@linxin666/dsh-tool-describe-image'), 'dsh-tool-describe-image must be registered as retired')
-  assert.ok(plugins.has('@linxin666/dsh-doctor'), 'dsh-doctor must be registered as retired')
+  // 生成模块从 manifest 派生，所以两个方向都要对得上：manifest 的每条都要出现在
+  // RETIRED_FAMILIES 里，RETIRED_FAMILIES 的每条也要回到 manifest。只比条数会放过
+  // 同条数的错配，这里比的是成对的 family -> plugin。
+  const generatedPairs = [...generated.matchAll(/^  '([^']+)': '([^']+)',$/gm)]
+    .map((match) => match[1] + ' -> ' + match[2])
+    .sort()
+  const declaredPairs = retired.map((entry) => entry.family + ' -> ' + entry.plugin).sort()
+  assert.deepEqual(generatedPairs, declaredPairs, 'the generated RETIRED_FAMILIES must carry exactly the manifest entries, pair for pair')
+  // RETIRED_PLUGINS 是 RETIRED_FAMILIES 的派生值，派生关系本身也是被钉住的事实。
+  assert.match(generated, /Object\.values\(RETIRED_FAMILIES\)\.sort\(\)/u, 'RETIRED_PLUGINS must stay derived from RETIRED_FAMILIES')
 })

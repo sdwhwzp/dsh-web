@@ -104,6 +104,7 @@ import {
   METHOD_SESSION_SNAPSHOT,
   METHOD_SESSION_TITLES,
   METHOD_SESSION_UNARCHIVE,
+  METHOD_RELAY_GRANT,
   METHOD_UI_EVENT,
   METHOD_UI_LIST,
   METHOD_SESSION_UNPIN,
@@ -116,6 +117,7 @@ import {
   METHOD_USAGE_SESSION,
   METHOD_USAGE_STATS,
   METHOD_WORKSPACE_LIST,
+  CAP_RELAY_TIER,
   MINOR,
   PROTO,
   SERVED_CAPABILITIES,
@@ -183,6 +185,34 @@ export interface BridgeTransport {
    * recording double, for one — omits the member and keeps writing text.
    */
   frameDeflate?(declared: boolean): void
+}
+
+/**
+ * 第二会合点在协议面上的那一半：一条公告与一次收帧。
+ *
+ * 只有配了第二会合点的宿主才提供这个面，而它存在与否就是 `relay.tier.v1` 这个
+ * 能力名与 `relay.grant` 这个方法存在与否——没有它，握手与应答与今天逐字相同。
+ * 宿主侧的动作（写名册、去第二会合点申领）全在插件半区，core 里只留这两处接线，
+ * 所以一个不认识的宿主不会因为这里多了一层而改变任何一帧。
+ */
+export interface RelayTierFace {
+  /**
+   * 这次握手要在 `hello.r.relay` 里公告的会合点，或 undefined（此刻没有可公告的）。
+   *
+   * 公告的含义是「这台宿主此刻确实持有一份中继承认的、按 6 小时周期刷新的租约」，
+   * 而不是「它曾经申到过一次」：公告出去的是「拨这个地址」，而一个没有有效租约的
+   * 地址背后没有人服务。还没申到、降级被拒、grant 过期、主动释放，四种情况都回
+   * undefined，于是一条连接的下一个世代自己退回市场边缘，不需要服务端推送任何东西。
+   * @returns `wss://<id><suffix>`，或 undefined。
+   */
+  origin(): string | undefined
+  /**
+   * 一条新授权已经落进名册行：第二会合点要立刻重新申领一次。
+   *
+   * 调用发生在名册写完之后，所以插件半区读到的就是这条授权。它是**触发**而不是
+   * 等待：`relay.grant` 的应答不等那一次网络往返，申领失败由半区自己的退避收着。
+   */
+  grantLanded(): void
 }
 
 export interface BridgeConnectionOptions {
@@ -273,6 +303,11 @@ export interface BridgeConnectionOptions {
    */
   readonly turnEndQuiet?: TurnEndQuietGate
   /**
+   * 第二会合点（`relay.tier.v1`）。缺省就是没有第二会合点：`hello` 不带
+   * `relay` 键、能力表里没有那个名字、`relay.grant` 仍是 `unknown-method`。
+   */
+  readonly relay?: RelayTierFace
+  /**
    * Called after a registration changed the device table.
    *
    * A session's first live-activity token is what asks this bridge to keep a
@@ -282,6 +317,15 @@ export interface BridgeConnectionOptions {
    * `push.register` into a failure.
    */
   readonly onPushRegistered?: () => void
+  /**
+   * Called after `pair.finish` admits a device into the roster.
+   *
+   * A machine that started with no paired devices defers claiming its relay
+   * lease until a remote device is actually paired (or a pairing code is
+   * requested); guarded at the call site so background relay work never fails
+   * the pairing response.
+   */
+  readonly onDeviceEnrolled?: () => void
 }
 
 /** A device the connection proved itself to be, resolved from the upgrade request. */
@@ -1026,6 +1070,11 @@ export class BridgeConnection {
     if (frame.m === METHOD_UI_LIST && !this.declares(CAP_UI_LIST)) {
       return refusal(CODE_UNKNOWN_METHOD, `unknown method ${frame.m}`)
     }
+    // 第二会合点只在配了它的宿主上存在：没有这个面时这一帧与它出现之前逐字一样是
+    // `unknown-method`，名册上也不会为它多出一块授权。
+    if (frame.m === METHOD_RELAY_GRANT && this.#options.relay === undefined) {
+      return refusal(CODE_UNKNOWN_METHOD, `unknown method ${frame.m}`)
+    }
     // Unconditional: a loopback Host buys nothing here. Without a device token
     // only the handshake and the two pairing steps run.
     if (!this.paired && !UNPAIRED_METHODS.has(frame.m)) return refusal(CODE_UNPAIRED, 'this connection is not paired')
@@ -1056,6 +1105,7 @@ export class BridgeConnection {
       case METHOD_QUESTION_LIST: return this.#questionList(frame.p)
       case METHOD_UI_EVENT: return this.#uiEvent(frame.p)
       case METHOD_UI_LIST: return this.#uiList(frame.p)
+      case METHOD_RELAY_GRANT: return await this.#relayGrant(frame.p)
       case METHOD_PUSH_REGISTER: return await this.#pushRegister(frame.p)
       case METHOD_USAGE_SESSION: return await this.#usageSession(frame.p)
       case METHOD_USAGE_BALANCE: return await this.#usageBalance(frame.p)
@@ -1126,6 +1176,10 @@ export class BridgeConnection {
    */
   #servedCapabilities(): string[] {
     const capabilities = [...SERVED_CAPABILITIES]
+    // 第二会合点是条件能力：配了它才公告，所以它不在 {@link SERVED_CAPABILITIES}
+    // 里（那张表是每条连接逐字相同的开头），而是紧跟其后追加——没配它的宿主因此
+    // 仍然答出那张表本身。
+    if (this.#options.relay !== undefined) capabilities.push(CAP_RELAY_TIER)
     for (const capability of this.#options.extensions?.capabilities() ?? []) {
       if (!capabilities.includes(capability)) capabilities.push(capability)
     }
@@ -1142,6 +1196,9 @@ export class BridgeConnection {
     // The hub replays anything this client can now receive but missed: a phone
     // that connected after a question was raised has no other way to learn of it.
     this.#options.onDeclare?.(this)
+    // 第二会合点的公告。钩子缺省存在与否就是「这台宿主有没有第二个会合点」，因此
+    // 没有它、或它此刻答不出地址时，这个键整个不出现——应答与今天逐字相同。
+    const relayOrigin = this.#options.relay?.origin()
     return {
       ok: true,
       r: {
@@ -1151,6 +1208,7 @@ export class BridgeConnection {
         capabilities: this.#servedCapabilities(),
         resume: 'snapshot',
         auth: this.paired ? 'paired' : 'unpaired',
+        ...(relayOrigin === undefined ? {} : { relay: { origin: relayOrigin } }),
       },
     }
   }
@@ -1191,6 +1249,11 @@ export class BridgeConnection {
     const enrollment = await this.#options.roster.enroll(devicePubKey)
     if (enrollment === undefined) return refusal(CODE_INVALID_ARGS, 'devicePubKey is not a P-256 SPKI public key')
     this.#deviceId = enrollment.deviceId
+    try {
+      this.#options.onDeviceEnrolled?.()
+    } catch {
+      // Relay lease activation is background work and must never fail pairing.
+    }
     return { ok: true, r: { deviceToken: enrollment.deviceToken, deviceId: enrollment.deviceId } }
   }
 
@@ -1856,7 +1919,8 @@ export class BridgeConnection {
    * remembers for that model: a phone that picked "high" for a model once means
    * it on the next switch too, and sending nothing would silently reset the
    * model to the harness's own default. A model this table has nothing for is
-   * sent exactly as before — no `reasoningEffort` key at all.
+   * sent exactly as before — no `reasoningEffort` key at all. The remembered
+   * level is proven against the catalog first; see {@link #rememberedEffort}.
    * @param payload - `{sessionId, provider, model, effort?}`.
    */
   async #sessionSetModel(payload: Readonly<Record<string, unknown>>): Promise<DispatchOutcome> {
@@ -1867,7 +1931,8 @@ export class BridgeConnection {
       return refusal(CODE_INVALID_ARGS, 'session.setModel requires sessionId, provider and model')
     }
     await this.#options.modelEfforts.load()
-    const effort = optionalText(payload.effort) ?? this.#options.modelEfforts.effortOf(provider, model)
+    const named = optionalText(payload.effort)
+    const effort = named ?? await this.#rememberedEffort(provider, model)
     const call = await this.#unary('session', 'selectModel', {
       sessionId,
       provider,
@@ -1878,6 +1943,43 @@ export class BridgeConnection {
     const selected = isRecord(call.value) ? selectionOf(call.value.selected) : undefined
     if (selected === undefined) return refusal(CODE_INTERNAL, 'session/selectModel returned no selected model')
     return { ok: true, r: { ok: true, current: selected } }
+  }
+
+  /**
+   * The level this host remembers for one model, proven against the catalog.
+   *
+   * A remembered level is a fact about the past: the harness can change a model's
+   * offered ladder under it, and sending a level the model no longer publishes
+   * makes `selectModel` refuse — which leaves that model unswitchable, with the
+   * slider (which only writes the session's current model) unable to heal it. So
+   * the backfill asks the catalog first and withholds a level the model does not
+   * offer, dropping the stale row on the way: one catalog read for the stale
+   * switch, then the row is gone and the next switch costs nothing.
+   * @param provider - provider id.
+   * @param model - model id.
+   * @returns the level to send, or undefined when there is none this host can prove.
+   */
+  async #rememberedEffort(provider: string, model: string): Promise<string | undefined> {
+    const remembered = this.#options.modelEfforts.effortOf(provider, model)
+    if (remembered === undefined) return undefined
+    const catalog = await this.#unary('session', 'modelCatalog')
+    // A catalog this call cannot read is not evidence the level went stale: the
+    // stored value crosses exactly as it did before this check existed.
+    if (!catalog.ok || !isRecord(catalog.value)) return remembered
+    const offered = effortIdsOf(catalog.value.groups, provider, model)
+    // A model this answer leaves out is NOT evidence its level went stale: a
+    // provider that failed to enumerate this time is reported under the catalog's
+    // own `failures`, and one transient absence must never erase a level the user
+    // set. The level is withheld for this switch and the row is kept. Only a model
+    // that IS published, with a ladder that does not contain this level, is a
+    // level no selection can ever accept.
+    if (offered === undefined) return undefined
+    if (offered.includes(remembered)) return remembered
+    await this.#options.modelEfforts.forget(provider, model, remembered, `the catalog no longer offers it: ${offered.join(', ') || 'no levels'}`)
+      .catch((error: unknown) => {
+        this.#options.log(`could not drop the stale remembered effort for ${provider}/${model}: ${failureText(error)}`)
+      })
+    return undefined
   }
 
   /**
@@ -2390,7 +2492,7 @@ export class BridgeConnection {
    * accept the token, and a field claiming it did would be a lie a client might
    * render. A bridge with no signing key answers identically — a client has no
    * second code path for that difference.
-   * @param payload - `{deviceToken, environment, bundle, liveActivityTokens?, locale?}`.
+   * @param payload - `{deviceToken, environment, bundle, liveActivityTokens?, locale?, relayToken?}`.
    */
   async #pushRegister(payload: Readonly<Record<string, unknown>>): Promise<DispatchOutcome> {
     const deviceToken = payload.deviceToken
@@ -2404,6 +2506,13 @@ export class BridgeConnection {
     }
     if (typeof bundle !== 'string' || bundle === '') return refusal(CODE_INVALID_ARGS, 'bundle must be a non-empty string')
     const locale = optionalText(payload.locale)
+    // The relay credential (§28 over the hosted service). Optional and opaque: the
+    // bridge never mints, parses or reissues it — it is the App's, scoped to this
+    // pairing's fingerprint, and this row is the only place it is kept.
+    const relayToken = payload.relayToken
+    if (relayToken !== undefined && (typeof relayToken !== 'string' || relayToken === '')) {
+      return refusal(CODE_INVALID_ARGS, 'relayToken must be the non-empty string the account service issued')
+    }
     let liveActivityTokens: readonly PushLiveActivityToken[] | undefined
     if (payload.liveActivityTokens !== undefined) {
       const raw = payload.liveActivityTokens
@@ -2436,6 +2545,7 @@ export class BridgeConnection {
       bundle,
       ...(locale === undefined ? {} : { locale }),
       ...(liveActivityTokens === undefined ? {} : { liveActivityTokens }),
+      ...(relayToken === undefined ? {} : { relayToken }),
       registeredAt: this.#options.now(),
     }
     try {
@@ -2453,6 +2563,53 @@ export class BridgeConnection {
       // Registration failing has to reach the client: it decides whether to
       // retry, and a token that never reached the disk is a device that will
       // never be notified.
+      return refusal(CODE_INTERNAL, `could not write the device roster: ${failureText(error)}`)
+    }
+    return { ok: true, r: { ok: true } }
+  }
+
+  /**
+   * The body of `relay.grant`: one device hands its relay tier grant over.
+   *
+   * A write, and the only one this channel has. The grant lands in the sending
+   * device's own roster row (schema 4), beside the identity it already proved, so
+   * revoking the device withdraws the admission with it and no second table exists.
+   * The host then asks the second meeting point to refresh its lease, and that ask
+   * is fired rather than awaited: a phone hands a fresh grant over precisely when a
+   * claim was just refused, and this frame must not hang on a meeting point that
+   * stopped answering. The roster row is what the next claim reads, so the ask
+   * never depends on this answer reaching the client first.
+   *
+   * The answer is `{ok:true}` and nothing else. There is deliberately no echo, no
+   * tier and no "admitted" flag: the tier is decided out of band by the meeting
+   * point, this bridge never learns it, and a field claiming one would be a lie the
+   * client might render.
+   * @param payload - `{grant}`.
+   */
+  async #relayGrant(payload: Readonly<Record<string, unknown>>): Promise<DispatchOutcome> {
+    const relay = this.#options.relay
+    // Unreachable through the dispatcher (the gate above refuses first), and kept
+    // because this handler reads its own precondition rather than trusting it.
+    if (relay === undefined) return refusal(CODE_UNKNOWN_METHOD, `unknown method ${METHOD_RELAY_GRANT}`)
+    const grant = payload.grant
+    if (typeof grant !== 'string' || grant === '') {
+      return refusal(CODE_INVALID_ARGS, 'grant must be the string the account service issued')
+    }
+    const deviceId = this.#deviceId
+    if (deviceId === undefined) return refusal(CODE_UNPAIRED, 'this connection is not paired')
+    try {
+      const stored = await this.#options.roster.setRelayGrant(deviceId, grant)
+      if (!stored) return refusal(CODE_INTERNAL, 'this connection names no paired device')
+      try {
+        relay.grantLanded()
+      } catch (error) {
+        // The re-claim is this bridge's own background work and may never turn a
+        // grant the roster already holds into a failure of this frame.
+        this.#options.log(`the second meeting point could not re-claim: ${failureText(error)}`)
+      }
+    } catch (error) {
+      // A grant that never reached the disk is an admission the host does not
+      // have, so the client has to be told instead of assuming it landed.
       return refusal(CODE_INTERNAL, `could not write the device roster: ${failureText(error)}`)
     }
     return { ok: true, r: { ok: true } }

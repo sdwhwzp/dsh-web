@@ -1,0 +1,315 @@
+/**
+ * Relay control-plane client: the lease claim that turns one relay identity
+ * into a lease row (the tunnel transports get a tunnel, its ingress, a CNAME
+ * and the per-instance connector token; the bridge transport gets neither
+ * block, because its data plane owns no Cloudflare object) plus the release
+ * bookkeeping.
+ *
+ * Claiming is best-effort and additive. Every failure is graded into a retry
+ * decision instead of breaking the quick tunnel that already serves the phone:
+ * the control plane answers `mode`, so an instance whose claim cannot land
+ * keeps the origin the registry gave it.
+ */
+
+import type { RelayIdentity } from './relay-registry.ts'
+
+/**
+ * The control-plane base every lease and registry endpoint hangs off: the
+ * market apex, never a relay hostname.
+ *
+ * This constant is the one home of the shipped default. A self-hosted meeting
+ * point sets the `relayControlUrl` config field, and its `claim`, `release`,
+ * `register` and `unregister` paths all move with that one base.
+ */
+export const RELAY_CONTROL_URL = 'https://dsh-market.com/api/relay'
+
+/** The paths one control-plane base serves. */
+export type RelayControlEndpoint = 'claim' | 'release' | 'register' | 'unregister'
+
+/**
+ * One endpoint of a control-plane base.
+ *
+ * The base arrives from a hand-written profile YAML, so its trailing slashes
+ * are trimmed instead of doubling the separator this adds.
+ * @param endpoint - the path below the base.
+ * @param controlUrl - the base; undefined means the shipped market apex.
+ * @returns the absolute endpoint URL.
+ */
+export function relayControlEndpointOf(endpoint: RelayControlEndpoint, controlUrl?: string): string {
+  return (controlUrl ?? RELAY_CONTROL_URL).replace(/\/+$/, '') + '/' + endpoint
+}
+
+/** The default lease endpoints (market apex, never a relay hostname). */
+export const RELAY_CLAIM_URL = relayControlEndpointOf('claim')
+export const RELAY_RELEASE_URL = relayControlEndpointOf('release')
+
+/** Which connector serves the relay hostname. `bridge` is the Durable Object
+ * meeting point (`relay-bridge-connector.ts`), `named` the instance's own cloud
+ * tunnel, `quick` today's Worker proxy path. */
+export type RelayConnectorMode = 'named' | 'quick' | 'bridge'
+
+/** What a bridge connector needs to dial: an endpoint and a credential to
+ * present. The credential is the lease's own long-lived id and secret -- the
+ * reply names it rather than repeating a secret in a body. */
+export interface RelayBridgeGrant {
+  endpoint: string
+  instance: string
+  credential: 'lease-secret'
+}
+
+/** One accepted lease, as the control plane answers it. */
+export interface RelayClaim {
+  mode: RelayConnectorMode
+  /** The instance's own tunnel. Absent for a bridged lease: there is nothing
+   * to run and no token to run it with. */
+  tunnel?: { id: string; token: string }
+  hostname: string
+  /** The CNAME target behind the hostname; absent for a bridged lease too. */
+  dns?: { target: string }
+  /** Present when the control plane can route this instance over the bridge. */
+  bridge?: RelayBridgeGrant
+}
+
+/** What one claim attempt resolved to. */
+export type RelayClaimOutcome =
+  | { ok: true; claim: RelayClaim }
+  | { ok: false; status: number; error: string; retryAfterMs?: number }
+
+/** One claim request (the lease the caller wants refreshed). */
+export interface RelayClaimRequest {
+  id: string
+  secret: string
+  /** Carried only by a fresh identity: the first claim creates the row. */
+  newSecret?: string
+  /** Local origin port the lease ingress points at (`ctx.webServer.port`). */
+  port: number
+  /** The plugin version, for the adoption readout of the migration. */
+  pluginVersion?: string
+  /**
+   * The account service's relay grant, when this bridge holds one.
+   *
+   * Absent is the claim a host makes when no phone has handed a grant over yet,
+   * and the key is then left out of the body entirely: the second meeting point
+   * grades "no grant" as `tier-required`, which is a different answer from "this
+   * grant does not verify" (`grant-invalid`), and `null` would be read as the
+   * latter.
+   */
+  grant?: string
+}
+
+/**
+ * The capped backoff a failed claim retries on. The cap is the whole Cloudflare
+ * rate-limit window: a spent account request budget answers `retryAfterMs:
+ * 300000` because that budget is counted over 300 seconds, so a shorter cap
+ * only brings the instance back inside the same spent window.
+ */
+export const CLAIM_RETRY_BASE_MS = 5_000
+export const CLAIM_RETRY_MAX_MS = 300_000
+
+/**
+ * The control plane's refusal code for a claim whose grant does not reach the
+ * tier this meeting point admits. It is not an authentication answer — the id
+ * and secret verified — so it is graded apart from `auth-failed`.
+ */
+export const RELAY_TIER_REQUIRED = 'tier-required'
+
+/**
+ * The control plane's refusal code for a grant it will not vouch for: a bad
+ * signature, the wrong scope, or — the case that is not an error at all — a grant
+ * that has simply reached the end of its 30 days.
+ *
+ * It shares {@link RELAY_TIER_REQUIRED}'s branch because it is the same kind of
+ * fact: the id and the secret are fine, the admission this host was given is not,
+ * and the repair is a fresh grant (which the phone hands over) or another
+ * evaluation after the plan or the clock moved. `auth-failed` stays the one
+ * terminal 403.
+ */
+export const RELAY_GRANT_INVALID = 'grant-invalid'
+
+/**
+ * How long a claim refused for its admission (`tier-required` or
+ * `grant-invalid`) waits before the next attempt: six hours.
+ *
+ * Deliberately outside {@link CLAIM_RETRY_MAX_MS}. That cap exists because a
+ * spent rate-limit budget is counted over one 300-second window, so retrying
+ * faster lands inside the same spent window. An admission refusal is not a
+ * window: it is a fact about the plan or about the grant's own 30-day lifetime.
+ * Six hours is the interval the lease refresh itself runs on, so a downgrade is
+ * noticed at the next refresh, while an upgrade needs no wait at all: the phone
+ * hands the new grant over (`relay.tier.v1`) and that re-claims immediately.
+ */
+export const CLAIM_TIER_REQUIRED_DELAY_MS = 21_600_000
+
+/** Build the claim body (an absent value is omitted, never sent as null). */
+export function relayClaimBody(request: RelayClaimRequest): string {
+  const grant = request.grant
+  return JSON.stringify({
+    id: request.id,
+    secret: request.secret,
+    new_secret: request.newSecret,
+    origin: { port: request.port },
+    plugin: request.pluginVersion === undefined ? undefined : { version: request.pluginVersion },
+    // 没有授权就不带这个键，也不写 null：第二会合点把「没有授权」与「授权验不过」
+    // 分成两个答案，而 null 只会掉进后者。
+    ...(typeof grant === 'string' && grant !== '' ? { grant } : {}),
+  })
+}
+
+/** The tunnel of one accepted claim, or undefined when it carries none. */
+function relayTunnelOf(value: unknown): { id: string; token: string } | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const tunnel = value as { id?: unknown; token?: unknown }
+  if (typeof tunnel.id !== 'string' || tunnel.id === '') return undefined
+  if (typeof tunnel.token !== 'string' || tunnel.token === '') return undefined
+  return { id: tunnel.id, token: tunnel.token }
+}
+
+/** The CNAME target of one accepted claim, or undefined when it carries none. */
+function relayDnsTargetOf(value: unknown): string | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const target = (value as { target?: unknown }).target
+  return typeof target === 'string' && target !== '' ? target : undefined
+}
+
+/** One lease read back from an accepted claim, or undefined for a bad shape. */
+export function relayClaimOf(value: unknown): RelayClaim | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const body = value as { mode?: unknown; tunnel?: unknown; hostname?: unknown; dns?: unknown; bridge?: unknown }
+  const mode = body.mode
+  if (mode !== 'named' && mode !== 'quick' && mode !== 'bridge') return undefined
+  if (typeof body.hostname !== 'string' || body.hostname === '') return undefined
+  const tunnel = relayTunnelOf(body.tunnel)
+  const target = relayDnsTargetOf(body.dns)
+  // The tunnel transports are served by that tunnel, so a reply without both
+  // halves is a protocol error. The bridge is the one transport whose lease
+  // owns no Cloudflare object, and its claim carries neither half.
+  if (mode !== 'bridge' && (tunnel === undefined || target === undefined)) return undefined
+  const bridge = relayBridgeGrantOf(body.bridge)
+  return {
+    mode,
+    ...(tunnel === undefined ? {} : { tunnel }),
+    hostname: body.hostname,
+    ...(target === undefined ? {} : { dns: { target } }),
+    ...(bridge === undefined ? {} : { bridge }),
+  }
+}
+
+/** The bridge grant of one accepted lease, or undefined when it carries none. */
+export function relayBridgeGrantOf(value: unknown): RelayBridgeGrant | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const grant = value as { endpoint?: unknown; instance?: unknown; credential?: unknown }
+  if (typeof grant.endpoint !== 'string' || grant.endpoint === '') return undefined
+  if (typeof grant.instance !== 'string' || grant.instance === '') return undefined
+  if (grant.credential !== 'lease-secret') return undefined
+  return { endpoint: grant.endpoint, instance: grant.instance, credential: 'lease-secret' }
+}
+
+/** The error code and retry hint of a refused claim. */
+function refusalOf(status: number, detail: unknown): Extract<RelayClaimOutcome, { ok: false }> {
+  const body = typeof detail === 'object' && detail !== null
+    ? detail as { error?: unknown; retryAfterMs?: unknown }
+    : {}
+  const error = typeof body.error === 'string' ? body.error : 'http-' + String(status)
+  const retryAfterMs = typeof body.retryAfterMs === 'number' && Number.isFinite(body.retryAfterMs)
+    ? body.retryAfterMs
+    : undefined
+  return retryAfterMs === undefined ? { ok: false, status, error } : { ok: false, status, error, retryAfterMs }
+}
+
+/**
+ * Claim one lease. A transport failure is graded like `502 cf-api-unavailable`
+ * (status 0) so the caller retries on the same path as a refused upstream.
+ * @param request - the lease to refresh.
+ * @param options - endpoint and fetch seams (defaults are the real ones).
+ */
+export async function claimRelayLease(
+  request: RelayClaimRequest,
+  options: { url?: string; fetchFn?: typeof fetch } = {},
+): Promise<RelayClaimOutcome> {
+  const fetchFn = options.fetchFn ?? fetch
+  let response: Response
+  try {
+    response = await fetchFn(options.url ?? RELAY_CLAIM_URL, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: relayClaimBody(request),
+    })
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    return { ok: false, status: 0, error: detail === '' ? 'network-error' : detail }
+  }
+  const detail: unknown = await response.json().catch(() => undefined)
+  if (!response.ok) return refusalOf(response.status, detail)
+  const claim = relayClaimOf(detail)
+  return claim === undefined
+    ? { ok: false, status: response.status, error: 'invalid-response' }
+    : { ok: true, claim }
+}
+
+/**
+ * Release one lease (the plugin's offline action: toggle off, profile
+ * unmount). Best-effort — a release that never lands only leaves the row
+ * marked active, which the 90-day GC recovers.
+ */
+export async function releaseRelayLease(
+  identity: RelayIdentity,
+  options: { url?: string; fetchFn?: typeof fetch } = {},
+): Promise<void> {
+  const fetchFn = options.fetchFn ?? fetch
+  await fetchFn(options.url ?? RELAY_RELEASE_URL, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id: identity.id, secret: identity.secret }),
+  })
+}
+
+/** How one failed claim should be retried. */
+export interface RelayClaimRetry {
+  /** Whether another attempt is worth making at all. */
+  retry: boolean
+  /** How long to wait before that attempt. */
+  delayMs: number
+  /**
+   * Whether the identity must be re-claimed with `new_secret`: the control
+   * plane lost the row (a D1 restore or a manual wipe), which is the one
+   * condition a fresh claim fixes.
+   */
+  refreshIdentity: boolean
+}
+
+/**
+ * Grade one failed claim into a retry decision.
+ *
+ * `403 auth-failed` is terminal: the id belongs to another secret and no
+ * number of retries can take it back. The two admission 403s —
+ * `tier-required` and `grant-invalid` — are the ones that are not: the id and
+ * the secret verified and only the admission is missing, so both retry on the
+ * same fixed wait ({@link CLAIM_TIER_REQUIRED_DELAY_MS}) that the cap below
+ * deliberately does not clamp. Everything else retries on a capped
+ * exponential backoff, with the control plane's own `retryAfterMs` (a 502
+ * names it) raising the floor so a retry cannot land inside a known outage.
+ * @param outcome - the refused attempt.
+ * @param attempt - how many attempts already failed (0 for the first).
+ * @param options - backoff bounds (defaults are the shipped ones).
+ */
+export function relayClaimRetryOf(
+  outcome: Extract<RelayClaimOutcome, { ok: false }>,
+  attempt: number,
+  options: { baseDelayMs?: number; maxDelayMs?: number } = {},
+): RelayClaimRetry {
+  const base = options.baseDelayMs ?? CLAIM_RETRY_BASE_MS
+  const max = options.maxDelayMs ?? CLAIM_RETRY_MAX_MS
+  if (outcome.status === 403) {
+    // No identity refresh on any 403: the id and secret are not what the
+    // control plane refused, and re-claiming the id under a new secret would
+    // strand every phone paired to it.
+    if (outcome.error === RELAY_TIER_REQUIRED || outcome.error === RELAY_GRANT_INVALID) {
+      return { retry: true, delayMs: CLAIM_TIER_REQUIRED_DELAY_MS, refreshIdentity: false }
+    }
+    return { retry: false, delayMs: 0, refreshIdentity: false }
+  }
+  const backoff = Math.min(base * 2 ** attempt, max)
+  const delayMs = Math.min(Math.max(backoff, outcome.retryAfterMs ?? 0), max)
+  const refreshIdentity = outcome.error === 'invalid-params' || outcome.error === 'unknown-id'
+  return { retry: true, delayMs, refreshIdentity }
+}

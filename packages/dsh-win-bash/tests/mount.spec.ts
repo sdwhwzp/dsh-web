@@ -4,11 +4,14 @@
  * This is the package's platform AND availability contract, so it is asserted
  * against the shipped entry's own apply and mountWithGate, never a copy.
  */
-import { describe, expect, it } from 'vitest'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import { apply, inject, mountWithGate, name } from '../src/index.ts'
 import { CONFIG_DEFAULTS, resolveConfig } from '../src/config.ts'
-import { resolveRuntime } from '../src/runtime.ts'
+import { RUNTIME_ROOT_ENV, resolveRuntime } from '../src/runtime.ts'
 
 /** The plugin surface one host would see, recorded instead of asserted on a mock. */
 interface Recorded {
@@ -31,6 +34,29 @@ const FAST_GATE = {
   declarationWaitMs: 20,
   pollIntervalMs: 5,
 } as const
+
+/**
+ * The DSH home this suite publishes the payload into.
+ *
+ * apply() prepares the runtime before the tool is built, which on Windows x64
+ * publishes a payload copy under the DSH home. A real home would make this
+ * suite write into whoever runs it; an isolated one keeps that inside the test.
+ */
+const HOME = mkdtempSync(join(tmpdir(), 'dsh-win-bash-mount-spec-'))
+
+beforeAll(() => {
+  process.env.DSH_HOME = HOME
+  // prepareRuntime() can fall back to an isolated cache root when the DSH home
+  // tree is labelled Low. Keep that fallback inside this suite's temp home too,
+  // so a mount can never write into the cache of whoever runs the tests.
+  process.env[RUNTIME_ROOT_ENV] = join(HOME, 'isolated')
+})
+
+afterAll(() => {
+  delete process.env.DSH_HOME
+  delete process.env[RUNTIME_ROOT_ENV]
+  rmSync(HOME, { recursive: true, force: true })
+})
 
 /**
  * The payload resolution this host produces. A host that cannot serve the

@@ -70,6 +70,7 @@ describe('family rows and their subpath tombstones', () => {
     name: string
     exports: Record<string, string>
     files?: string[]
+    dependencies?: Record<string, string>
   }
   const rows = parsePatchRows(patch)
   const familyRows = rows.filter(row => row.id !== 'web-ui-compat')
@@ -104,6 +105,27 @@ describe('family rows and their subpath tombstones', () => {
     }
   })
 
+  it('operator finds a retired family both tombstoned and registered, with no row and no dependency', () => {
+    // Given the aggregate retired remote-web-ui while keeping its package
+    // installable on its own,
+    const yml = readFileSync(join(PACKAGE_DIR, 'aggregate.yml'), 'utf8')
+    const tombstoneSection = (yml.split(/^tombstones:$/m)[1] ?? '').split(/^retiredPlugins:$/m)[0] ?? ''
+    const registered = (yml.split(/^retiredPlugins:$/m)[1] ?? '')
+      .split(/\r?\n/)
+      .filter(line => line.trim().startsWith('- '))
+      .map(line => JSON.parse(line.trim().slice(2)) as { family: string; plugin: string })
+    // When each registered retirement is read against the generated manifest,
+    // Then it is a tombstone subpath whose export still resolves, and neither a
+    // mounted row nor a dependency survives for it.
+    expect(registered.length).toBeGreaterThan(0)
+    for (const entry of registered) {
+      expect(tombstoneSection.split(/\r?\n/).map(line => line.trim())).toContain(`- ${entry.family}`)
+      expect(manifest.exports[`./${entry.family}`]).toBe('./lib/shells/shell.js')
+      expect(rows.some(row => row.id === `web-ui-${entry.family}`), `${entry.family} must keep no mounted row`).toBe(false)
+      expect(manifest.dependencies?.[entry.plugin], `${entry.plugin} must not stay a dependency`).toBeUndefined()
+    }
+  })
+
   it('operator sees every family subpath export the metadata resources the host reads', () => {
     // Given the aggregate package manifest and its shell subpath exports
     expect(manifest.files).toContain('shell-metadata')
@@ -117,11 +139,17 @@ describe('family rows and their subpath tombstones', () => {
     for (const sub of shellSubs) {
       expect(manifest.exports[`./${sub}/icon`]).toBe('./icon.svg')
       const descriptions: Record<string, string> = {}
+      const titles: Record<string, string> = {}
       for (const locale of ['en', 'ru', 'zh']) {
         const target = `./shell-metadata/${sub}/locale/${locale}.json`
         expect(manifest.exports[`./${sub}/locale/${locale}.json`]).toBe(target)
         const metadata = JSON.parse(readFileSync(join(PACKAGE_DIR, 'shell-metadata', sub, 'locale', `${locale}.json`), 'utf8')) as { meta?: { title?: string; description?: string } }
-        expect(metadata.meta?.title).toBe(`web-all/${sub}`)
+        // The row label is the family's own localized title, never the
+        // `web-all/<family>` specifier shape.
+        const title = metadata.meta?.title ?? ''
+        expect(title, `${sub} ${locale} title must be a real label`).not.toBe('')
+        expect(title, `${sub} ${locale} title must not be the web-all/<family> placeholder`).not.toMatch(/^web-all\//)
+        titles[locale] = title
         const description = metadata.meta?.description ?? ''
         // Real copy, not a placeholder: present, already trimmed, and never a
         // restatement of the row title it sits under.
@@ -135,13 +163,26 @@ describe('family rows and their subpath tombstones', () => {
       expect(han).toBeGreaterThan(0)
       expect(han).toBeLessThanOrEqual(20)
       expect(descriptions.zh).not.toBe(descriptions.en)
+      // The label is translated rather than the English string again; ru has no
+      // title of its own and reuses en.
+      expect(titles.zh).not.toBe(titles.en)
+      expect(titles.ru).toBe(titles.en)
     }
   })
 
-  it('retired family subpaths (tombstones) resolve to the shell re-export for backwards compatibility', () => {
-    expect(manifest.exports['./desktop-launcher']).toBe('./lib/shells/shell.js')
-    expect(manifest.exports['./dsh-perf']).toBe('./lib/shells/shell.js')
-    expect(manifest.exports['./model-capabilities']).toBe('./lib/shells/shell.js')
+  it('removed family subpaths are gone from the exports map, so a stale profile row fails at import time', () => {
+    // The accepted cost of removing a family outright: no compatibility shell
+    // and no display resources are kept, so a profile row still naming one of
+    // these specifiers fails at import instead of soft-failing through the
+    // shell. Any of these keys coming back has to be a re-adoption decision.
+    for (const family of ['desktop-launcher', 'dsh-perf', 'describe-image', 'doctor', 'model-capabilities']) {
+      expect(manifest.exports['./' + family], family + ' must not keep a subpath export').toBeUndefined()
+      expect(manifest.exports['./' + family + '/icon'], family + ' must not keep an icon export').toBeUndefined()
+      for (const locale of ['en', 'ru', 'zh']) {
+        expect(manifest.exports['./' + family + '/locale/' + locale + '.json'], family + ' ' + locale + ' must not keep a locale export').toBeUndefined()
+      }
+      expect(existsSync(join(PACKAGE_DIR, 'shell-metadata', family)), family + ' must not keep a shell-metadata directory').toBe(false)
+    }
   })
 
   it('the built shells face re-exports the main face apply (one degraded ledger)', async () => {

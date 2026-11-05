@@ -7,8 +7,8 @@ packages/AGENTS.md 的全局/包级规则。
 
 - 本包向官方「插件」面板（`main` 面板 id `plugins`）声明的 `plugins.detail.section` 席位贡献
   一个「检查更新」区块（id `family-update-check`，order 30），只渲染在已安装组合包的页面上；
-  它不注册 `settings.plugins.tab`，也不拥有自己的设置分区——安装/卸载/启停由官方页面负责，
-  本包只补官方页面没有的 registry 更新检查与 DSH 运行时兼容门禁。
+  它不注册 `settings.plugins.tab`，也不拥有自己的设置分区——组合包的安装/卸载仍由官方页面负责，
+  本包补齐官方页面没有的 registry 更新检查、DSH 运行时兼容门禁、内置插件启停开关与 Agent 预设展示。
   该席位是官方 list 槽，类型由官方页面运行时声明；本包在 `PluginUpdatePatch.tsx` 内以同形
   `declare module` 重新声明（跨包禁止 value import，与家族卡片复用
   `plugins.bundle.config` 的做法一致）。宿主交付的 `PluginPageSubject`（`bundle` / `row` /
@@ -30,18 +30,37 @@ packages/AGENTS.md 的全局/包级规则。
   的标题元素，并用共享的 `body-mutations.ts`（sync-shared 副本，勿手改）自查位；
   容器自持 React root，不做 DOM 改写。页面重绘/切走时容器自动挪位或摘除，重复 apply 通过
   `TOOLBAR_MOUNT_SELECTOR` 去重。
+- **底部内置插件分组只能继续用 DOM 挂载**：官方「插件」页未提供列表底部扩展槽位（既有扩展点仅覆盖
+  `plugins.detail.*`、`plugins.item`、`plugins.bundle.config`、`plugins.row.config`、
+  `plugins.bundle.activation` 与 `plugins.tab`），因此「内置插件」分组与检查更新工具条一样，
+  只能直接插入官方页面 DOM（独立 React root），并在页面重绘与切换面板时自动复位或摘除。
+- **内置插件启停只走官方远端，不自建白名单**：内置插件行的启停开关必须调用官方 `pluginManager` 远端的
+  `setPluginEnabled`，写入 profile 补丁层并热应用（带 HMR 的 profile 无需重启）。只读状态严格沿用官方
+  manager 判定（`management-required` 与 `unaddressable` 锁）并显示锁原因，前端与 host 不得自建启停白名单；
+  操作被接受后界面重新读取 Loader 确认状态（不相信返回值），失败按官方返回的 `error.code` 展示文案。
+  下方「Agent 预设」区块因组合决定行状态而保持只读，不提供开关。
+- **设置页内置插件入口由顶层裸行下线**：`cordis.patch.yml` 中包含顶层裸行 `- id: ui-settings-plugins` +
+  `disabled: true`，聚合层在 `@deepseek-ai/dsh-web-app` 之后应用因此覆盖生效，下线原设置分区；
+  相关管理收拢至官方插件页，禁用本包即可恢复原设置分区。
 - **批量更新策略放 core，不放 host**：`src/core/updates.ts` 是唯一策略源——只更新第三方
   （非 `@deepseek-ai/`）且 `compatible !== false` 的行；官方包随 DSH 本体升级，绝不批量改写。
   单页区块（`plugins.detail.section`）仍可对官方包做单包更新，那是用户逐条确认的动作。
-- **重启三态，禁止臆造命令行**：`src/host/restart.ts` 判定并回传实际模式——`relaunch`
+- **重启四态，禁止臆造命令行**：`src/host/restart.ts` 判定并回传实际模式——`relaunch`
   （终端启动：detached helper 等旧进程退出后重放本进程自身的 execPath + argv，剔除
   `--inspect*`）、`shell`（打包桌面**且**外壳声明了重启保证：只退出，由外壳重新拉起）、
-  `manual`（无终端、无脚本，或桌面壳未声明保证：不退出，界面提示手动重启）。判定是纯函数
+  `systemd`（宿主从自身的 `/proc/self/cgroup` + `INVOCATION_ID` 认出所属 systemd 用户 unit，请
+  systemd 执行 `systemctl --user restart <unit>`，由 systemd 停旧起新）、`manual`
+  （无终端且非 systemd 用户服务，或桌面壳未声明保证：不退出，界面提示手动重启）。检测只认
+  「可证明」的 systemd 用户服务：`INVOCATION_ID` 存在、cgroup 末段是 `*.service`、路径在
+  `/user.slice/` 下、`$XDG_RUNTIME_DIR/systemd/private` 存在；system scope 与其它受监督启动一律维持
+  `manual`。顺序约束：systemd 模式下必须先应答 202 再发重启请求（systemd 的 stop job 在请求入队即开始），
+  失败只写 `$DSH_HOME/logs/plugin-manager-restart.log`，宿主继续服务。判定是纯函数
   `planRestart`，执行是 `performRestart`（helper 起不来时降级为 `manual` 而不是让进程白白
   退出）。新增重启路径前先确认宿主真的能重启，不要把「重启」做成静默失败。
-- **重启路由必须按方法区分**：`GET /api/plugin-manager/restart` 只读方案（无副作用），
-  `POST` 才执行，其他方法 405。缺了这道守卫时，一个普通 GET（浏览器预取、直接输入 URL、
-  误探测）就能停掉正在运行的宿主并弹出桌面外壳的崩溃恢复对话框（2026-09-30 实证）。
+- **重启路由必须按方法区分**：`GET /api/plugin-manager/restart` 只读方案（无副作用），wire
+  形状为 `{ restart: { mode, unit? } }`，确认面板对 systemd 会写明将要重启的 unit 名；`POST`
+  才执行，应答 `{ restart: { mode } }`，其他方法 405。缺了这道守卫时，一个普通 GET（浏览器预取、
+  直接输入 URL、误探测）就能停掉正在运行的宿主并弹出桌面外壳的崩溃恢复对话框（2026-09-30 实证）。
   界面必须先读方案再确认：确认面板写的后果必须与 `POST` 实际产生的后果一致。
 - **桌面壳未声明重启保证时不得退出**：打包桌面没有给 Web GUI 任何重启通道（preload 只暴露
   `dshDesktop.updates.status/open/subscribe`，IPC 里没有「请壳重启宿主」，`app.relaunch()`

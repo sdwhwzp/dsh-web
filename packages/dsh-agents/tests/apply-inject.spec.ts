@@ -19,7 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
-import { apply, inject, OFFICIAL_TEAMS_BUNDLE, servesTeamRuntime, teamRuntimeGate } from '../src/index.ts'
+import { apply, inject, OFFICIAL_TEAMS_BUNDLES, servesTeamRuntime, teamRuntimeGate } from '../src/index.ts'
 import { DSH_AGENTS_ROUTE_PATHS } from '../src/protocol.ts'
 import { TeamService, type TeamServiceContext } from '../src/team/index.ts'
 import { installTeamTools } from '../src/tools/index.ts'
@@ -59,11 +59,10 @@ function servedTeamServices(projections: Projection[]): Record<string, unknown> 
     sessions: { get: () => undefined, flush: async () => undefined },
     sessionPersistence: { open: async () => undefined },
     sessionProjections: {
-      register: (definition: Projection): (() => void) => {
+      register: async (definition: Projection) => {
         projections.push({ key: definition.key, stateVersion: definition.stateVersion })
-        return () => undefined
+        return { stateOf: () => ({}) }
       },
-      stateOf: () => undefined,
     },
     subagents: {
       startActivation: async () => undefined,
@@ -222,7 +221,7 @@ describe('row mount under an inject-enforcing context', () => {
     const projections: Projection[] = []
     const host = createFakeHost({
       ...servedTeamServices(projections),
-      profileContext: { startedBundles: ['@deepseek-ai/dsh-base', '@linxin666/dsh-web-all', OFFICIAL_TEAMS_BUNDLE] },
+      profileContext: { startedBundles: ['@deepseek-ai/dsh-base', '@linxin666/dsh-web-all', OFFICIAL_TEAMS_BUNDLES[0]] },
     })
 
     expect(teamRuntimeGate(host.ctx)).toBe('host-teams-declared')
@@ -234,8 +233,30 @@ describe('row mount under an inject-enforcing context', () => {
     expect(projections).toEqual([])
     expect(host.events.filter(name => name.startsWith('agent/'))).toEqual([])
     expect((host.ctx as unknown as { get(name: string): unknown }).get('agentTeams')).toBeUndefined()
-    expect(host.warnings.some(message => message.includes('mounts the official Agent Teams runtime bundle'))).toBe(true)
+    expect(host.warnings.some(message => message.includes('mounts an official Agent Teams runtime bundle'))).toBe(true)
     expect(host.warnings.some(message => message.includes('already serves the official Agent Teams runtime'))).toBe(false)
+    host.release()
+  })
+
+  it('operator yields to the current Agent Teams bundle name as well as the legacy one', () => {
+    // Given a profile that lists the CURRENT upstream team package (the runtime
+    // that moved to packages/team and publishes @deepseek-ai/dsh-agent-team),
+    // When the row applies, Then it yields exactly as it does for the legacy
+    // experimental bundle: one service name, one owner, whatever generation
+    // provides it, and the warning names both names it recognizes.
+    const projections: Projection[] = []
+    const host = createFakeHost({
+      ...servedTeamServices(projections),
+      profileContext: { startedBundles: ['@deepseek-ai/dsh-base', '@linxin666/dsh-web-all', '@deepseek-ai/dsh-agent-team'] },
+    })
+
+    expect(OFFICIAL_TEAMS_BUNDLES).toContain('@deepseek-ai/dsh-agent-team')
+    expect(teamRuntimeGate(host.ctx)).toBe('host-teams-declared')
+    expect(servesTeamRuntime(host.ctx)).toBe(false)
+
+    expect(() => apply(host.ctx, { enabled: true })).not.toThrow()
+    expect(projections).toEqual([])
+    expect(host.warnings.some(message => message.includes('@deepseek-ai/dsh-agent-team'))).toBe(true)
     host.release()
   })
 
@@ -312,11 +333,10 @@ describe('team runtime mount on a real cordis tree', () => {
         provider.provide('sessions', { get: () => undefined, flush: async () => undefined })
         provider.provide('sessionPersistence', { open: async () => undefined })
         provider.provide('sessionProjections', {
-          register: (definition: Projection) => {
+          register: async (definition: Projection) => {
             projections.push({ key: definition.key, stateVersion: definition.stateVersion })
-            return () => undefined
+            return { stateOf: () => ({}) }
           },
-          stateOf: () => undefined,
         })
         provider.provide('subagents', {
           startActivation: async () => undefined,
@@ -333,7 +353,7 @@ describe('team runtime mount on a real cordis tree', () => {
       inject: [...inject],
       apply(row: Context) {
         try {
-          team = new TeamService(row)
+          void TeamService.create(row).then((service) => { team = service }, (error: unknown) => { failure = error })
         } catch (error) {
           failure = error
         }
@@ -345,12 +365,12 @@ describe('team runtime mount on a real cordis tree', () => {
     // rather than on a fixed wall-clock delay.
     await vi.waitFor(() => {
       expect(projections).toHaveLength(1)
+      expect(team).toBeInstanceOf(TeamService)
     })
 
     expect(failure).toBeUndefined()
     const instance = team
     if (instance === undefined) throw new Error('the row fiber never constructed the Team service')
-    await instance.ready
     // The constructor's real output is asserted, not merely its existence.
     expect(instance).toBeInstanceOf(TeamService)
     expect(projections).toEqual([{ key: 'agentTeam', stateVersion: 4 }])
@@ -390,11 +410,10 @@ describe('team runtime mount on a real cordis tree', () => {
         provider.provide('sessions', { get: () => undefined, flush: async () => undefined })
         provider.provide('sessionPersistence', { open: async () => undefined })
         provider.provide('sessionProjections', {
-          register: (definition: Projection) => {
+          register: async (definition: Projection) => {
             projections.push({ key: definition.key, stateVersion: definition.stateVersion })
-            return () => undefined
+            return { stateOf: () => ({}) }
           },
-          stateOf: () => undefined,
         })
         provider.provide('subagents', {
           startActivation: async () => undefined,

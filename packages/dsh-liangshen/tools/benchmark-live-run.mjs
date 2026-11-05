@@ -326,10 +326,10 @@ export function materializePreset(root, variantId, variant) {
     // is which executor plugin is mounted, so the same variant has to move the
     // executor row's mount state. Anchored on the row so a run cannot quietly
     // evaluate the wrong arm.
-    const executor = /(- id: tool-executor-ptc\n\s*name: '@deepseek-ai\/dsh-tool-executor-ptc'\n\s*disabled: )(?:true|false)/
+    const executor = /^(- id: tool-executor-ptc\n([ \t]+)name: '@deepseek-ai\/dsh-tool-executor-ptc')(?:\n\2disabled: (?:true|false))?$/m
     if (!executor.test(replaced)) throw new Error('benchmark: the preset composition carries no tool-executor-ptc row to vary')
     const mounted = variant.presentation === 'ptc' ? 'false' : 'true'
-    replaced = replaced.replace(executor, `$1${mounted}`)
+    replaced = replaced.replace(executor, `$1\n$2disabled: ${mounted}`)
     writeFileSync(composition, replaced)
   }
   if (variant.persona === 'candidate') {
