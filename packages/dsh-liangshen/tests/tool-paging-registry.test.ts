@@ -27,15 +27,15 @@ import { describe, expect, it } from 'vitest'
 
 import { apply, name } from '../presets/liangshen/tool-catalog.mjs'
 import { apply as applyActivate } from '../presets/liangshen/tool-activate.mjs'
+import {
+  DEFAULT_MAX_ACTIVE_NAMESPACES,
+  DEFAULT_PAGED_TOOL_PATTERNS,
+  inactiveNamespaces,
+  replayActivations,
+  withheldToolNames,
+} from '../presets/liangshen/paging.mjs'
 
 type Listener = (first: any, second: any, third: any) => Promise<any>
-
-/** The run_code transport the registry reserves for a code presentation. */
-const RUN_CODE = {
-  name: 'run_code',
-  description: 'Execute a TypeScript program against the available tools.',
-  parameters: { type: 'object', properties: { code: { type: 'string' }, description: { type: 'string' } } },
-}
 
 const RESIDENT = [
   { name: 'bash', description: 'Run commands in a bash shell.' },
@@ -50,14 +50,39 @@ const PAGED = [
   { name: 'mcp__docker__ps', description: 'List containers.' },
 ]
 
+/**
+ * One family ONLY a custom pattern list claims. Under the shipped list this
+ * name belongs to no family at all, which is exactly the asymmetry a row
+ * carrying its own pattern list would reintroduce.
+ */
+const FOO_TOOL = { name: 'foo_exec', description: 'Run a foo command.' }
+
+/**
+ * The plugin tool families the shipped patterns page: each is named by a
+ * literal prefix of its own rather than by an `mcp__` bridge, and
+ * `squads_*` / `squad_member_*` share the one `squad*` pattern.
+ */
+const PLUGIN = [
+  { name: 'browser_navigate', description: 'Open a page.' },
+  { name: 'browser_snapshot', description: 'Read the page DOM.' },
+  { name: 'task_board_list', description: 'List task board cards.' },
+  { name: 'task_board_create', description: 'Create a task board card.' },
+  { name: 'team_comment', description: 'Comment on a team issue.' },
+  { name: 'squads_create', description: 'Create a squad.' },
+  { name: 'squad_member_add', description: 'Add a squad member.' },
+  { name: 'ui_present', description: 'Present a page to the client.' },
+  { name: 'ssh_exec', description: 'Run a command on a host.' },
+]
+
 interface RegistryOptions {
   restrictThrows?: boolean
-  presentThrows?: boolean
 }
 
 /**
- * The miniature registry: one global surface, per-scope restriction layers, and
- * the reserved transport appended for any scope presenting through code.
+ * The miniature registry: one global surface and per-scope restriction layers.
+ * The reserved transport is never part of it - the shipped ptc executor keeps
+ * `run_code` outside the registry and only its `describe()` names it - which is
+ * exactly why the catalog cannot read the transport from a schema list.
  */
 function registry(surface: unknown[], options: RegistryOptions = {}) {
   const layers = new Map<unknown, Array<{ allow?: Set<string>; deny?: Set<string> }>>()
@@ -82,13 +107,7 @@ function registry(surface: unknown[], options: RegistryOptions = {}) {
      * per-scope call); here the scope is captured in the closure instead.
      */
     scoped: (agent: any) => ({
-      presentAs(mode: string) {
-        // A host that declines the declaration: the scope keeps the native wire.
-        if (options.presentThrows === true) throw new Error('presentation declaration rejected by host policy')
-        agent.mode = mode
-        return () => { agent.mode = undefined }
-      },
-      schemas: () => (agent.mode === undefined || agent.mode === 'native' ? visible(agent) : [...visible(agent), RUN_CODE]),
+      schemas: () => visible(agent),
       sdkSchemas: () => visible(agent),
       restrict(filter: { allow?: string[]; deny?: string[] }) {
         if (options.restrictThrows === true) throw new Error('registry refused the filter')
@@ -122,21 +141,31 @@ interface Harness {
   emit(event: string, ...args: unknown[]): Promise<unknown>
   /** Assemble for one agent, the way the harness does before the waterfall. */
   assemble(agent: any): Promise<any>
+  /** The names the request's own wire carries for one scope. */
+  wireNames(agent: any): string[]
   /** The durable catalog message this session would publish next step. */
   catalog(agent: any): Promise<string>
 }
 
+/**
+ * The step admission the harness passes through the assemble context. The
+ * catalog never inspects it: it hands it back to `tools.schemas(agent, toolSet)`
+ * exactly as the shipped contract reads it, and the miniature registry applies
+ * the scope's restriction on the way out.
+ */
+const TOOL_SET = Object.freeze({ admitted: 'step' })
+
 interface HarnessOptions {
   restrictThrows?: boolean
   pageable?: boolean
+  /** The surface the registry projects; defaults to {@link RESIDENT} plus {@link PAGED}. */
+  surface?: unknown[]
   /** Omit the PTC runtime, as a deployment without one does. */
   ptcRuntime?: boolean
-  /** Refuse the presentation declaration, as host policy can. */
-  presentThrows?: boolean
 }
 
 function harness(config: Record<string, unknown> = {}, options: HarnessOptions = {}): Harness {
-  const surface = options.pageable === false ? RESIDENT : [...RESIDENT, ...PAGED]
+  const surface = options.surface ?? (options.pageable === false ? RESIDENT : [...RESIDENT, ...PAGED])
   const tools = registry(surface, options)
   const listeners = new Map<string, { listener: Listener; options: any }>()
   const warnings: string[] = []
@@ -156,16 +185,19 @@ function harness(config: Record<string, unknown> = {}, options: HarnessOptions =
       return listeners.get(event)!.listener(...(args as [any, any, any]))
     },
     async assemble(agent: any) {
-      // The harness collects the tool providers BEFORE the waterfall: the wire
-      // this assembly carries is decided by the presentation the scope had.
-      const wire = agent.mode === 'ptc'
-        ? [{ ...RUN_CODE }]
-        : tools.schemas(agent)
+      // The shipped harness collects the tool providers BEFORE the waterfall and
+      // merges the authoritative `tools` back AFTER it, so the presentation this
+      // listener transforms carries no tool array at all; the step's admission
+      // arrives in the assemble context instead.
       return listeners.get('system-prompt/assemble')!.listener(
         { sections: [] },
-        { agent },
-        async () => ({ sections: [], contexts: [], tools: wire, variables: {} }),
+        { agent, toolSet: TOOL_SET },
+        async () => ({ sections: [], contexts: [], variables: {} }),
       )
+    },
+    /** The names the request's own wire carries, as the executor renders them. */
+    wireNames(agent: any) {
+      return tools.schemas(agent).map((tool: any) => tool.name)
     },
     async catalog(agent: any) {
       const decision = await listeners.get('agent/pre-step')!.listener(
@@ -221,10 +253,9 @@ describe('gentle paging under the collapsed ptc wire', () => {
     expect(h.tools.get('mcp__github__create_issue', agent)).toBeUndefined()
     expect(h.tools.get('mcp__codegraph__explore', agent)).toBeUndefined()
 
-    const assembled = await h.assemble(agent)
-    // The wire itself is the collapsed transport, as always.
-    expect(assembled.tools.map((tool: any) => tool.name)).toEqual(['run_code'])
-    // The registry is where paging bites: a program cannot reach the paged
+    await h.assemble(agent)
+    // The registry is where paging bites, and since the waterfall cannot filter
+    // the wire it is the only place it can: a program cannot reach the paged
     // tools, and neither can the generated SDK the tools:sdk section renders.
     expect(h.tools.get('mcp__github__create_issue', agent)).toBeUndefined()
     expect(h.tools.get('bash', agent)).toBeDefined()
@@ -305,17 +336,19 @@ describe('gentle paging under the collapsed ptc wire', () => {
     expect(first.tools.sdkSchemas(agentA).map((tool: any) => tool.name)).toContain('mcp__github__create_issue')
   })
 
-  it('drops the page once the wire stops being the collapsed transport', async () => {
+  it('keeps the page installed across assemblies, in the ptc wording', async () => {
+    // Given a paged scope, When a second assembly runs, Then it re-derives the
+    // same page and the catalog still describes it as the collapsed transport:
+    // activation, not another assembly, is what lifts a namespace.
     const h = harness()
     const agent = await agentOf(h)
     expect(h.tools.get('mcp__github__create_issue', agent)).toBeUndefined()
-    // The declaration is reverted (or the presentation changed): the native
-    // roster comes back, so a filter left behind would keep hiding tool families
-    // that wire now hands back.
-    agent.mode = 'native'
     await h.assemble(agent)
-    expect(h.tools.get('mcp__github__create_issue', agent)).toBeDefined()
-    expect(h.tools.sdkSchemas(agent).map((tool: any) => tool.name)).toContain('mcp__codegraph__explore')
+    await h.assemble(agent)
+    expect(h.tools.get('mcp__github__create_issue', agent)).toBeUndefined()
+    const text = await h.catalog(agent)
+    expect(text).toContain('The page covers the whole surface here')
+    expect(text).toContain('presents these tools through `run_code`')
   })
 
   it('does not accumulate restrictions across syncs', async () => {
@@ -331,12 +364,72 @@ describe('gentle paging under the collapsed ptc wire', () => {
     expect(once).toEqual(['bash', 'read'])
   })
 
-  it("leaves 'native' untouched: paging stays a wire-only concern", async () => {
+  it('operator gets no page refresh from a resident tool call, only from one the replay reads', async () => {
+    // Given a paged scope whose durable log gained an activation AFTER the page
+    // was installed, When a resident host builtin completes, Then the page stays
+    // exactly where it was: such a call cannot move the active set, so the
+    // post-call resync is not paid for it.
+    const h = harness()
+    const agent = await agentOf(h)
+    await h.assemble(agent)
+    ;(agent.session as any).snapshotEvents = () => activation('ssh', 'c2')
+
+    await h.emit('tools/post-execute', { agent, name: 'read' }, {}, () => Promise.resolve({ kind: 'accept' }))
+
+    // The log says ssh is active and no sync ran: the installed page is unchanged.
+    expect(h.tools.get('mcp__ssh__exec', agent)).toBeUndefined()
+    expect(h.tools.get('mcp__github__create_issue', agent)).toBeUndefined()
+    expect(h.tools.get('bash', agent)?.name).toBe('bash')
+  })
+
+  it('operator page catches up after every call the activation replay reads', async () => {
+    // Given the same paged scope and a log that gained an activation, When a call
+    // the replay reads completes - an activation, the program transport, or a
+    // call into a paged family - Then the page catches up before the next request.
+    for (const toolName of ['tool_activate', 'run_code', 'mcp__ssh__exec']) {
+      const h = harness()
+      const agent = await agentOf(h)
+      await h.assemble(agent)
+      ;(agent.session as any).snapshotEvents = () => activation('ssh', 'c2')
+
+      await h.emit('tools/post-execute', { agent, name: toolName }, {}, () => Promise.resolve({ kind: 'accept' }))
+
+      expect(h.tools.get('mcp__ssh__exec', agent)?.name).toBe('mcp__ssh__exec')
+      expect(h.tools.get('mcp__github__create_issue', agent)).toBeUndefined()
+    }
+  })
+
+  it('operator gets the same page and summary from one partition as from the standalone helpers', async () => {
+    // Given a surface carrying resident, MCP-bridge and plugin-family tools, When
+    // one sync derives the page, Then the withheld names and the paged summary
+    // are exactly what the standalone partitions report for the same active set.
+    const surface = [...RESIDENT, ...PAGED, ...PLUGIN]
+    const h = harness({}, { surface })
+    const events = activation('ssh', 'c1')
+    const agent = await agentOf(h, events)
+    await h.assemble(agent)
+
+    const { active } = replayActivations(events, DEFAULT_MAX_ACTIVE_NAMESPACES, DEFAULT_PAGED_TOOL_PATTERNS)
+    const withheld = withheldToolNames(surface, DEFAULT_PAGED_TOOL_PATTERNS, active)
+    const visibleNames = surface.map((tool: any) => tool.name).filter((toolName: string) => !withheld.includes(toolName))
+    expect(h.tools.schemas(agent).map((tool: any) => tool.name)).toEqual(visibleNames)
+
+    const text = await h.catalog(agent)
+    const remaining = [...inactiveNamespaces(surface, DEFAULT_PAGED_TOOL_PATTERNS, active).keys()]
+    expect(remaining).toContain('github')
+    for (const namespace of remaining) {
+      expect(text).toContain(`Call \`tool_activate({ namespace: "${namespace}" })\``)
+    }
+  })
+
+  it("pages the 'native' roster too, since the waterfall can no longer filter it", async () => {
     const h = harness({ presentation: 'native' })
     const agent = await agentOf(h)
-    const assembled = await h.assemble(agent)
-    expect(assembled.tools.map((tool: any) => tool.name)).toEqual(['bash', 'read'])
-    expect(h.tools.get('mcp__github__create_issue', agent)).toBeDefined()
+    await h.assemble(agent)
+    // The native wire is rendered from the registry, so a restriction is the
+    // only mechanism left that keeps a paged family off it.
+    expect(h.wireNames(agent)).toEqual(['bash', 'read'])
+    expect(h.tools.get('mcp__github__create_issue', agent)).toBeUndefined()
     const text = await h.catalog(agent)
     expect(text).toContain('<inactive_namespaces>')
     expect(text).not.toContain('run_code')
@@ -346,9 +439,8 @@ describe('gentle paging under the collapsed ptc wire', () => {
     const h = harness({}, { restrictThrows: true })
     const agent = await agentOf(h)
     await h.emit('agent/created', { agent, source: 'resume' })
-    const assembled = await h.assemble(agent)
+    await h.assemble(agent)
 
-    expect(assembled.tools.map((tool: any) => tool.name)).toEqual(['run_code'])
     // The refusal is reported once and the session keeps its whole surface.
     const pagingWarnings = h.warnings.filter(message => message.includes('could not restrict'))
     expect(pagingWarnings).toHaveLength(1)
@@ -358,62 +450,186 @@ describe('gentle paging under the collapsed ptc wire', () => {
     expect(text).not.toContain('<inactive_namespaces>')
   })
 
-  it('installs no page at all when the deployment has no PTC runtime', async () => {
-    // The documented fallback: 'ptc' is configured but no PTC runtime is
-    // mounted, so the scope never declares the collapse and the wire stays
-    // native. The assembled array already carries paging by itself, so a
-    // registry restriction here would strip the paged families from a wire that
-    // is supposed to carry them — and the catalog would announce namespaces as
-    // withheld that nothing withheld.
+  it('pages a native fallback deployment too, where no code runtime is mounted', async () => {
+    // 'ptc' is configured but no PTC runtime is mounted, so the scope never
+    // declares the collapse and the wire stays native. Before 0.2.2 that wire
+    // carried paging by itself (the listener returned a narrowed array); the
+    // harness now owns `tools`, so the registry restriction is the only page
+    // left - and the catalog states exactly that page.
     const h = harness({ presentation: 'ptc' }, { ptcRuntime: false })
     const agent = await agentOf(h)
 
-    // No declaration, therefore no restriction, therefore no page.
-    expect(agent.mode).toBeUndefined()
-    expect(h.tools.sdkSchemas(agent).map((tool: any) => tool.name)).toContain('mcp__codegraph__explore')
-    expect(h.tools.get('mcp__github__create_issue', agent)).toBeDefined()
+    expect(h.tools.get('mcp__github__create_issue', agent)).toBeUndefined()
 
-    const assembled = await h.assemble(agent)
-    // The wire is the native one, and paging there is the wire partition's own
-    // job — that is what keeps the paged families off a native roster. What must
-    // NOT happen is the registry losing them: an unrunnable collapse means no
-    // page, so the scope keeps reaching every tool it was given.
-    expect(assembled.tools.map((tool: any) => tool.name)).toEqual(['bash', 'read'])
-    expect(h.tools.get('mcp__github__create_issue', agent)).toBeDefined()
-    expect(h.tools.sdkSchemas(agent).map((tool: any) => tool.name)).toContain('mcp__codegraph__explore')
+    await h.assemble(agent)
+    expect(h.wireNames(agent)).toEqual(['bash', 'read'])
 
     const text = await h.catalog(agent)
     expect(text).toContain('<inactive_namespaces>')
+    expect(text).toContain('This presentation carries no program transport')
     expect(text).not.toContain('run_code')
   })
 
-  it('installs no page when the host declines the presentation declaration', async () => {
-    // A declined declaration keeps the native wire exactly like a missing
-    // runtime does, and paging must not engage on a wire that cannot collapse.
-    const h = harness({ presentation: 'ptc' }, { presentThrows: true })
+  it('pages a scope whose composition selects the native roster', async () => {
+    // No declaration is involved any more: the composition's executor row is
+    // the transport, and the native roster is paged exactly the same way.
+    const h = harness({ presentation: 'native' })
     const agent = await agentOf(h)
 
-    expect(agent.mode).toBeUndefined()
-    expect(h.tools.get('mcp__github__create_issue', agent)).toBeDefined()
+    expect(h.tools.get('mcp__github__create_issue', agent)).toBeUndefined()
 
-    const assembled = await h.assemble(agent)
-    // Same as the missing runtime: the native wire pages through the assembled
-    // array, and the registry is left alone.
-    expect(assembled.tools.map((tool: any) => tool.name)).toEqual(['bash', 'read'])
-    expect(h.tools.get('mcp__github__create_issue', agent)).toBeDefined()
-    expect(h.tools.sdkSchemas(agent).map((tool: any) => tool.name)).toContain('mcp__codegraph__explore')
-    expect(h.warnings.some(w => w.includes('presentation was declined'))).toBe(true)
+    await h.assemble(agent)
+    expect(h.wireNames(agent)).toEqual(['bash', 'read'])
+    expect(h.warnings).toEqual([])
   })
 
   it('never names the reserved transport in a restriction, even with nothing paged', async () => {
     const h = harness({}, { pageable: false })
     const agent = await agentOf(h)
-    const assembled = await h.assemble(agent)
-    expect(assembled.tools.map((tool: any) => tool.name)).toEqual(['run_code'])
+    await h.assemble(agent)
+    expect(h.wireNames(agent)).toEqual(['bash', 'read'])
     // Nothing matched the paging patterns, so no filter was installed at all —
     // and the transport survives.
     expect(h.tools.sdkSchemas(agent).map((tool: any) => tool.name)).toEqual(['bash', 'read'])
     expect(h.warnings).toEqual([])
+  })
+})
+
+/**
+ * The plugin tool families the shipped patterns page. Every one of them is a
+ * tool this preset's own rows mount, and each is claimed by a literal prefix
+ * rather than by an `mcp__` bridge — so these tests pin the second derivation
+ * the patterns learned, and that the host builtins beside them never page.
+ */
+describe('plugin tool families under the shipped patterns', () => {
+  const PLUGIN_SURFACE = [...RESIDENT, ...PLUGIN]
+
+  it('operator gets every shipped plugin family paged out before the first request', async () => {
+    // Given a scope whose rows mount the plugin tool families
+    // When the scope is created and the first request is assembled
+    // Then the wire, the generated SDK and a program dispatch all carry the host
+    //      builtins alone, and the catalog names each family with its own pointer
+    const h = harness({}, { surface: PLUGIN_SURFACE })
+    const agent = await agentOf(h)
+
+    expect(h.tools.sdkSchemas(agent).map((tool: any) => tool.name)).toEqual(['bash', 'read'])
+    await h.assemble(agent)
+    expect(h.wireNames(agent)).toEqual(['bash', 'read'])
+    // A program's nested dispatch resolves against the same registry, so the
+    // call is refused, not merely hidden from the SDK projection.
+    expect(h.tools.get('task_board_list', agent)).toBeUndefined()
+    expect(h.tools.get('ui_present', agent)).toBeUndefined()
+
+    const text = await h.catalog(agent)
+    for (const namespace of ['browser', 'squad', 'ssh', 'task_board', 'team', 'ui']) {
+      expect(text).toContain(`Call \`tool_activate({ namespace: "${namespace}" })\``)
+    }
+    // One namespace, both squad spellings.
+    expect(text).toContain('- `squad` (2 tools, e.g. `squad_member_add`): Add a squad member. Call `tool_activate({ namespace: "squad" })`')
+    expect(text).not.toContain('- `task_board_list')
+  })
+
+  it('operator activates one family and gets exactly its tools back', async () => {
+    // Given a paged plugin surface whose log already carries one activation
+    // When the next request is assembled
+    // Then that family reaches the program surface and the SDK projection while
+    //      every other family stays paged
+    const h = harness({}, { surface: PLUGIN_SURFACE })
+    const agent = await agentOf(h, [...activation('task_board', 'c1')])
+    await h.assemble(agent)
+
+    expect(h.tools.get('task_board_list', agent)?.name).toBe('task_board_list')
+    expect(h.tools.sdkSchemas(agent).map((tool: any) => tool.name)).toContain('task_board_create')
+    expect(h.tools.get('browser_navigate', agent)).toBeUndefined()
+    expect(h.tools.get('squads_create', agent)).toBeUndefined()
+
+    const text = await h.catalog(agent)
+    expect(text).toContain('- namespace `task_board` (activated):')
+    expect(text).not.toContain('Call `tool_activate({ namespace: "task_board" })`')
+    expect(text).toContain('Call `tool_activate({ namespace: "squad" })`')
+  })
+
+  it('operator sees the oldest plugin family paged out once a fourth is activated', async () => {
+    // Given four plugin families activated in the durable log
+    // When the next assembly publishes the page
+    // Then the least recently used family is withheld again while the newer three stay reachable
+    const h = harness({}, { surface: PLUGIN_SURFACE })
+    const agent = await agentOf(h, [
+      ...activation('task_board', 'c1'),
+      ...activation('squad', 'c2'),
+      ...activation('browser', 'c3'),
+      ...activation('ssh', 'c4'),
+    ])
+    await h.assemble(agent)
+
+    expect(h.tools.get('task_board_list', agent)).toBeUndefined()
+    expect(h.tools.get('squads_create', agent)?.name).toBe('squads_create')
+    expect(h.tools.get('browser_navigate', agent)?.name).toBe('browser_navigate')
+    expect(h.tools.get('ssh_exec', agent)?.name).toBe('ssh_exec')
+
+    const text = await h.catalog(agent)
+    expect(text).toContain('Call `tool_activate({ namespace: "task_board" })`')
+    expect(text).not.toContain('- `task_board_list')
+  })
+
+  it('operator keeps a family used from inside a program on the wire past the LRU cap', async () => {
+    // Given three active plugin families and a use of the OLDEST through a dispatch
+    // When a fourth family is activated
+    // Then the used family is still reachable and the untouched one is paged out
+    const h = harness({}, { surface: PLUGIN_SURFACE })
+    const agent = await agentOf(h, [
+      ...activation('task_board', 'c1'),
+      ...activation('squad', 'c2'),
+      ...activation('browser', 'c3'),
+      ptcToolDispatch('task_board_list', 'call_root:ptc:1'),
+      ...activation('ssh', 'c4'),
+    ])
+    await h.assemble(agent)
+
+    expect(h.tools.get('task_board_list', agent)?.name).toBe('task_board_list')
+    expect(h.tools.get('browser_navigate', agent)?.name).toBe('browser_navigate')
+    expect(h.tools.get('ssh_exec', agent)?.name).toBe('ssh_exec')
+    expect(h.tools.get('squads_create', agent)).toBeUndefined()
+
+    const text = await h.catalog(agent)
+    expect(text).toContain('Call `tool_activate({ namespace: "squad" })`')
+    expect(text).not.toContain('Call `tool_activate({ namespace: "task_board" })`')
+  })
+
+  it('operator gets MCP servers and plugin families paged side by side, each under its own name', async () => {
+    // Given one surface carrying both an MCP bridge and the plugin families
+    // When the shipped patterns page it and one MCP namespace is activated
+    // Then the MCP derivation is untouched and one activation lifts one namespace
+    const h = harness({}, { surface: [...RESIDENT, ...PAGED, ...PLUGIN] })
+    const agent = await agentOf(h, [...activation('github', 'c1')])
+    await h.assemble(agent)
+
+    expect(h.tools.get('mcp__github__create_issue', agent)?.name).toBe('mcp__github__create_issue')
+    expect(h.tools.get('mcp__codegraph__explore', agent)).toBeUndefined()
+    expect(h.tools.get('squads_create', agent)).toBeUndefined()
+    expect(h.tools.get('task_board_list', agent)).toBeUndefined()
+
+    const text = await h.catalog(agent)
+    expect(text).toContain('Call `tool_activate({ namespace: "codegraph" })`')
+    expect(text).toContain('Call `tool_activate({ namespace: "task_board" })`')
+    expect(text).toContain('Call `tool_activate({ namespace: "squad" })`')
+  })
+
+  it('operator keeps every host builtin resident in both presentations', async () => {
+    // Given a scope carrying the plugin families beside the host builtins
+    // When both presentations assemble
+    // Then the builtins stay on the wire and reachable, whatever the transport
+    await Promise.all(['native', 'ptc'].map(async (presentation) => {
+      const h = harness({ presentation }, {
+        surface: [...PLUGIN_SURFACE, { name: 'web_search', description: 'Search the web.' }],
+      })
+      const agent = await agentOf(h)
+      await h.assemble(agent)
+      expect(h.wireNames(agent), presentation).toEqual(['bash', 'read', 'web_search'])
+      expect(h.tools.get('read', agent)?.name, presentation).toBe('read')
+      expect(h.tools.get('web_search', agent)?.name, presentation).toBe('web_search')
+      expect(h.warnings, presentation).toEqual([])
+    }))
   })
 })
 
@@ -427,6 +643,26 @@ describe('gentle paging under the collapsed ptc wire', () => {
  * reading `tools.schemas(agent)` back would find an empty page and refuse a
  * namespace the same request's catalog names.
  */
+/**
+ * One ordinary tool call as the ptc runtime records it: under the default
+ * presentation a top-level `tool/call` is always `run_code`, so a real tool
+ * call reaches the log as a dispatch and nowhere else.
+ */
+function ptcToolDispatch(toolName: string, subCallId: string, isError = false) {
+  return {
+    type: 'tool/ptc-dispatch',
+    data: {
+      rootCallId: 'call_root',
+      parentCallId: 'call_root',
+      subCallId,
+      name: toolName,
+      arguments: {},
+      isError,
+      content: [{ type: 'text', text: isError ? 'boom' : 'ok' }],
+    },
+  }
+}
+
 /** One activation as the ptc runtime records it: a dispatch, not a tool call. */
 function ptcDispatch(namespace: string, subCallId: string) {
   return {
@@ -444,48 +680,80 @@ function ptcDispatch(namespace: string, subCallId: string) {
 }
 
 describe('tool_activate against the restricted ptc surface', () => {
-  /** Mount the sibling row against the harness registry and return its tool. */
-  function activateTool(): any {
+  /** Mount the sibling row with one config and return its tool. */
+  function activateToolWith(config: Record<string, unknown>): any {
     const registered: any[] = []
-    applyActivate({ tools: { register: (spec: any) => registered.push(spec) }, get: () => undefined }, {})
+    applyActivate({ tools: { register: (spec: any) => registered.push(spec) }, get: () => undefined }, config)
     expect(registered).toHaveLength(1)
     return registered[0]
   }
 
-  it('user activates a namespace hidden by the scope projection', async () => {
-    // Given a session whose projection withholds paged tools.
+  /** Mount the sibling row on its shipped default and return its tool. */
+  function activateTool(): any {
+    return activateToolWith({})
+  }
+
+  it('operator gets one eviction answer from the catalog and the activation tool under custom patterns', async () => {
+    // Given a catalog and an activation tool mounted on ONE custom pattern list
+    // When a use of the custom-only foo family refreshes it and a fourth
+    //      activation pushes github past the cap
+    // Then the activation tool agrees github was evicted and re-activates it,
+    //      instead of refusing it as already active while the registry withholds it
+    const custom = ['mcp__*', 'foo_*']
+    const h = harness({ pagedToolPatterns: custom }, { surface: [...RESIDENT, ...PAGED, ...PLUGIN, FOO_TOOL] })
+    const agent = await agentOf(h, [
+      ...activation('foo', 'c1'),
+      ...activation('github', 'c2'),
+      ...activation('codegraph', 'c3'),
+      // Only the custom list reads this name as a family: a row replaying the
+      // log with the shipped list refreshes nothing here, and the two replays
+      // part ways — which is how the deadlock opened.
+      ptcToolDispatch('foo_exec', 'call_root:ptc:1'),
+      ...activation('docker', 'c4'),
+    ])
+    await h.assemble(agent)
+
+    // The registry withheld github while keeping the refreshed foo family.
+    expect(h.tools.get('mcp__github__list_prs', agent)).toBeUndefined()
+    expect(h.tools.get('foo_exec', agent)?.name).toBe('foo_exec')
+
+    const tool = activateToolWith({ pagedToolPatterns: custom })
+    // Re-activating the evicted family is the call that used to be refused.
+    const result = await tool.execute({ namespace: 'github' }, { callId: 'call-2', agent })
+    expect(result.text).toContain('Activated namespace "github" (2 tools): mcp__github__create_issue, mcp__github__list_prs')
+    // A family that really is active keeps its refusal.
+    await expect(tool.execute({ namespace: 'foo' }, { callId: 'call-3', agent }))
+      .rejects.toThrow(/already active/)
+  })
+
+  it('activates a namespace the restriction hid from the scope projection', async () => {
     const h = harness()
     const agent = await agentOf(h)
     // The page is real: the projection the activation tool could read itself
     // no longer lists the paged names.
     expect(h.tools.schemas(agent).map((tool: any) => tool.name)).toEqual(['bash', 'read'])
 
-    // When the user activates the catalog's namespace.
     const result = await activateTool().execute({ namespace: 'github' }, { callId: 'call-1', agent })
-    // Then the response names the activated tools.
     expect(result.text).toContain('Activated namespace "github" (2 tools): mcp__github__create_issue, mcp__github__list_prs')
   })
 
-  it('user can read a namespace activated inside a program', async () => {
-    // Given a successful namespace activation recorded by a program.
+  it('lifts the page for a namespace activated from inside a program', async () => {
+    // The end of the loop the paged wire depends on: the activation is recorded
+    // as a dispatch, the catalog replays it, and the scope stops withholding it.
     const h = harness()
     const agent = await agentOf(h, [ptcDispatch('github', 'call_root:ptc:1')])
 
-    // When the next tool projection is read.
     const names = h.tools.schemas(agent).map((tool: any) => tool.name)
-    // Then the activated namespace is available and the other stays paged.
     expect(names).toContain('mcp__github__create_issue')
     expect(names).not.toContain('mcp__codegraph__explore')
   })
 
-  it('user gets an explicit refusal when activating an already active namespace', async () => {
-    // Given a session where the namespace is already active.
+  it('still names a namespace whose tools are all already active', async () => {
     const h = harness()
     const agent = await agentOf(h, [...activation('github', 'call-a')])
     // Nothing of github is withheld any more, so that half of the page is not
     // in the projection at all — the publication is what keeps it nameable.
     expect(h.tools.schemas(agent).map((tool: any) => tool.name)).toContain('mcp__github__create_issue')
-    // When the user activates it again, then the refusal identifies its current state.
     await expect(activateTool().execute({ namespace: 'github' }, { callId: 'call-b', agent }))
       .rejects.toThrow(/already active/)
   })

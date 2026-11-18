@@ -13,12 +13,13 @@
  * renders the current facts as one of its fields, republished only on change.
  *
  * The register itself is a list of single-line facts, newest last, rebuilt by
- * replaying `tool/call` events for this tool from the session log — exactly
- * the way the paging activation state replays. A fact is a string the model
- * writes; registering a new fact APPENDS, and registering one already present
- * is a no-op report. REVOCATION is append-only too: a `revoke` entry removes
- * every earlier fact carrying the same tag, so the fold stays deterministic
- * after resume and compaction without any process memory.
+ * replaying this tool's calls out of the session log — exactly the way the
+ * paging activation state replays, and from both wire shapes a session records
+ * them in ({@link factRegisterCall}). A fact is a string the model writes;
+ * registering a new fact APPENDS, and registering one already present is a
+ * no-op report. REVOCATION is append-only too: a `revoke` entry removes every
+ * earlier fact carrying the same tag, so the fold stays deterministic after
+ * resume and compaction without any process memory.
  *
  * The tool is deliberately small: it validates and reports, it does not edit
  * the context itself. The projection the model sees next step is the fold of
@@ -54,34 +55,85 @@ export const MAX_FACT_CHARS = 160
 export const MAX_FACTS = 12
 
 /**
+ * The call one event contributes to the fold, or undefined when the event is
+ * not a `fact_register` call that took effect.
+ *
+ * The session records the call in one of two shapes, and which one depends on
+ * the presentation the session runs. `native` records a top-level `tool/call`
+ * whose `arguments` is the JSON string the model emitted. `ptc` — the shipped
+ * default — collapses the wire to `run_code` and reaches every other tool from
+ * inside a program, which the runtime records as `tool/ptc-dispatch`: its
+ * `arguments` is already an object, and a dispatch that failed carries its own
+ * `isError` on the dispatch record (`event.data.isError`), not on the event
+ * envelope. Reading only `tool/call` therefore folded an empty register in
+ * every factory-default session — pin and revoke both reported success while no
+ * `key facts` field ever rendered — which is the same gap `paging.mjs` replays
+ * both shapes to avoid.
+ *
+ * A dispatch that reported an error never took effect, so it contributes
+ * nothing: a failed pin must not pin, and a failed revoke must not drop a fact
+ * that still stands. `tool/ptc-dispatch-start` only announces a dispatch that
+ * has not settled yet, so the event-type check below leaves it out. The
+ * `native` half keeps its existing semantics untouched: a `tool/call` is read
+ * whatever its `tool/result` later reported, exactly as before this change.
+ */
+function factRegisterCall(event) {
+  if (event?.type === 'tool/ptc-dispatch') {
+    const dispatch = event.data
+    if (dispatch?.name !== FACT_LEDGER_TOOL || dispatch?.isError === true) return undefined
+    return dispatch
+  }
+  if (event?.type !== 'tool/call' || event.data?.name !== FACT_LEDGER_TOOL) return undefined
+  return event.data
+}
+
+/**
+ * Fold ONE event into one register: a successful `fact_register` call appends
+ * its fact (or revokes by tag), whichever wire shape recorded it. Facts carry no
+ * ids — revocation matches on the optional `tag`, and an untagged fact can only
+ * be revoked by revoking its exact text as the tag of last resort.
+ *
+ * Exported because the register is folded from the same event stream as the rest
+ * of the working-context line: that projection folds every field in one pass, so
+ * the pin/revoke rule has to be applicable per event instead of per stream.
+ * @param facts - the register to fold into; left untouched by an unrelated event.
+ * @param event - one durable session event.
+ * @returns the same array, so a stream fold can thread it through the pass.
+ */
+export function applyFactLedgerEvent(facts, event) {
+  const register = Array.isArray(facts) ? facts : []
+  const data = factRegisterCall(event)
+  if (data === undefined) return register
+  let args = data.arguments
+  if (typeof args === 'string') {
+    try { args = JSON.parse(args) } catch { args = undefined }
+  }
+  if (args === undefined || args === null) return register
+  if (typeof args.revoke === 'string' && args.revoke.trim() !== '') {
+    const tag = args.revoke.trim()
+    for (let index = register.length - 1; index >= 0; index -= 1) {
+      if (register[index].tag === tag || register[index].text === tag) register.splice(index, 1)
+    }
+    return register
+  }
+  if (typeof args.fact !== 'string' || args.fact.trim() === '') return register
+  const text = args.fact.trim().slice(0, MAX_FACT_CHARS)
+  if (register.some(entry => entry.text === text)) return register
+  const tag = typeof args.tag === 'string' && args.tag.trim() !== '' ? args.tag.trim() : undefined
+  register.push({ text, tag })
+  if (register.length > MAX_FACTS) register.splice(0, register.length - MAX_FACTS)
+  return register
+}
+
+/**
  * Fold the current fact register from the event stream: every successful
- * `fact_register` call appends its fact (or revokes by tag). Facts carry no
- * ids — revocation matches on the optional `tag`, and an untagged fact can
- * only be revoked by revoking its exact text as the tag of last resort.
+ * `fact_register` call appends its fact (or revokes by tag), whichever wire
+ * shape recorded it. The per-event rule lives in {@link applyFactLedgerEvent} so
+ * a single-pass projection folds the same register without a second walk.
  */
 export function foldFactLedger(events) {
   const facts = []
-  for (const event of Array.isArray(events) ? events : []) {
-    if (event?.type !== 'tool/call' || event.data?.name !== FACT_LEDGER_TOOL) continue
-    let args = event.data?.arguments
-    if (typeof args === 'string') {
-      try { args = JSON.parse(args) } catch { args = undefined }
-    }
-    if (args === undefined || args === null) continue
-    if (typeof args.revoke === 'string' && args.revoke.trim() !== '') {
-      const tag = args.revoke.trim()
-      for (let index = facts.length - 1; index >= 0; index -= 1) {
-        if (facts[index].tag === tag || facts[index].text === tag) facts.splice(index, 1)
-      }
-      continue
-    }
-    if (typeof args.fact !== 'string' || args.fact.trim() === '') continue
-    const text = args.fact.trim().slice(0, MAX_FACT_CHARS)
-    if (facts.some(entry => entry.text === text)) continue
-    const tag = typeof args.tag === 'string' && args.tag.trim() !== '' ? args.tag.trim() : undefined
-    facts.push({ text, tag })
-    if (facts.length > MAX_FACTS) facts.splice(0, facts.length - MAX_FACTS)
-  }
+  for (const event of Array.isArray(events) ? events : []) applyFactLedgerEvent(facts, event)
   return facts
 }
 
@@ -142,7 +194,7 @@ export function apply(ctx) {
     isConcurrencySafe: () => true,
     async execute(args) {
       if (typeof args?.revoke === 'string' && args.revoke.trim() !== '') {
-        return { text: `Revocation recorded for "${args.revoke.trim()}": every pinned fact under that tag (or matching that text) is dropped from the next step\'s working context.` }
+        return { text: `Revocation recorded for "${args.revoke.trim()}": every pinned fact under that tag (or matching that text) is dropped from the next step's working context.` }
       }
       if (typeof args?.fact !== 'string' || args.fact.trim() === '') {
         throw new Error('fact_register requires either a non-empty `fact` to pin or a non-empty `revoke` tag/text to unpin')

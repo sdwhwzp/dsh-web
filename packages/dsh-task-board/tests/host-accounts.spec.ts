@@ -76,13 +76,12 @@ describe('task-board deployment identities', () => {
     expect(store.getTask('revoked-task'), 'Then no revoked action reaches the ledger').toBeUndefined()
   })
 
-  it('admin cannot reset acceptance or record a result on another owner task', () => {
+  it('admin cannot record a result on another owner task', () => {
     // Given a task persisted with Alice as its owner.
     const store = ledger()
     store.applyRequest('create-alice', { kind: 'create', id: 'alice-task', input: input() }, undefined, alice)
 
-    // When Bob attempts either new lifecycle action, then ownership rejects it before any record changes.
-    expect(() => store.applyRequest('reset-bob', { kind: 'reset-verification', taskId: 'alice-task' }, undefined, bob)).toThrow('another account')
+    // When Bob attempts to record an external outcome, then ownership rejects it before any record changes.
     expect(() => store.applyRequest('external-bob', {
       kind: 'record-external-outcome', taskId: 'alice-task', result: 'failed', initiatedBy: 'outside-agent',
     }, undefined, bob)).toThrow('another account')
@@ -276,19 +275,17 @@ describe('task-board deployment identities', () => {
     }
     const execute = vi.fn(async () => ({ kind: 'success' as const }))
     const runner = new HostExecutionRunner(gateway, { execute }, fixtureWorkspaces(), undefined, p => fixture.accounts.assert(p))
-    const task = { ...createTask(input(), 1, 'a'), permission: 'read-only' as const, model: 'fake/model', goalRun: true }
-    await expect(runner.launch(task, { principal: alice, goalEnabled: true })).resolves.toBe('session-a')
-    expect(execute).toHaveBeenCalledTimes(2)
-    expect(execute).toHaveBeenNthCalledWith(1, 'session-a', '/permission read-only', expect.any(AbortSignal))
-    expect(execute).toHaveBeenNthCalledWith(2, 'session-a', '/goal ' + task.prompt, expect.any(AbortSignal))
+    const task = { ...createTask(input(), 1, 'a'), permission: 'read-only' as const, model: 'fake/model' }
+    await expect(runner.launch(task, { principal: alice })).resolves.toBe('session-a')
+    expect(execute).toHaveBeenCalledExactlyOnceWith('session-a', '/permission read-only', expect.any(AbortSignal))
     expect((await runner.listRunning(alice)).known).toBe(true)
     expect(await runner.inspect('session-a', 1, undefined, {}, alice)).toEqual({ outcome: 'succeeded' })
-    expect(calls.map(call => call.method)).toEqual(['create', 'rename', 'selectModel', 'prompt', 'list', 'list', 'follow', 'page', 'projections'])
-    await expect(runner.launch(task, { principal: alice, reuseSessionId: 'session-a', goalEnabled: true })).resolves.toBe('session-a')
+    expect(calls.map(call => call.method)).toEqual(['create', 'rename', 'selectModel', 'prompt', 'list', 'list', 'follow', 'page'])
+    await expect(runner.launch(task, { principal: alice, reuseSessionId: 'session-a' })).resolves.toBe('session-a')
     expect(calls.slice(-2).map(call => call.method)).toEqual(['selectModel', 'prompt'])
     fixture.revoke()
-    await expect(runner.launch(task, { principal: alice, goalEnabled: true })).rejects.toThrow('revoked')
-    expect(gateway.invoke).toHaveBeenCalledTimes(10)
+    await expect(runner.launch(task, { principal: alice })).rejects.toThrow('revoked')
+    expect(gateway.invoke).toHaveBeenCalledTimes(9)
   })
 
   it('admin uses authenticated task routes and loses streams on revocation', async () => {
@@ -297,7 +294,11 @@ describe('task-board deployment identities', () => {
     const service = new TaskBoardHostService({ invoke: async () => ({ items: [] }) } as unknown as TypertGateway, { ledger: ledger(), accounts: fixture.accounts, power: new PowerInhibitor({ platform: 'linux' }) })
     disposers.push(() => service.dispose())
     const routes = makeTaskBoardRoutes(service, { authenticate: req => fixture.accounts.request(req), assertPrincipal: principal => fixture.accounts.assert(principal) })
-    const server = createServer((req, res) => { void routes.find(route => route.path === req.url)?.handler(req, res) })
+    const server = createServer((req, res) => {
+      const route = routes.find(candidate => candidate.path === req.url)
+      if (route !== undefined) void route.handler(req, res)
+      else { res.writeHead(404); res.end() }
+    })
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
     const address = server.address()
     if (address === null || typeof address === 'string') throw new Error('test listener unavailable')
@@ -309,6 +310,7 @@ describe('task-board deployment identities', () => {
       expect((await fetch(base + '/action', { method: 'POST', headers, body: JSON.stringify(action) })).status).toBe(200)
       expect(service.ledger.taskPrincipal('http')).toEqual(alice)
       expect((await fetch(base + '/state', { headers })).status).toBe(200)
+      expect(await (await fetch(base + '/model-catalog', { headers })).json()).toEqual({ catalog: { groups: [] } })
       const events = await fetch(base + '/events', { headers })
       expect(events.status).toBe(200)
       const reader = events.body!.getReader()
@@ -317,7 +319,7 @@ describe('task-board deployment identities', () => {
       // A normal board event rechecks the account before writing another SSE frame.
       service.setConfiguration(true, false)
       expect((await reader.read()).done).toBe(true)
-      for (const endpoint of ['state', 'events', 'verification']) expect((await fetch(base + '/' + endpoint, { headers })).status).toBe(403)
+      for (const endpoint of ['state', 'events', 'model-catalog']) expect((await fetch(base + '/' + endpoint, { headers })).status).toBe(403)
       expect((await fetch(base + '/action', { method: 'POST', headers, body: JSON.stringify(action) })).status).toBe(403)
     } finally {
       server.closeAllConnections()
@@ -353,11 +355,11 @@ describe('task-board deployment identities', () => {
     })
     let fire: (() => void) | undefined
     const timers = { timeout: (callback: () => void) => { fire = callback; return () => { fire = undefined } }, interval: () => () => {} }
-    const verificationCatalog = vi.fn(async (principal?: TaskBoardPrincipal) => {
+    const modelCatalog = vi.fn(async (principal?: TaskBoardPrincipal) => {
       expect(principal).toEqual(alice)
       return undefined
     })
-    const service = new TaskBoardHostService({ invoke } as unknown as TypertGateway, { ledger: ledger(dir, () => now), accounts: fixture.accounts, workspaceRegistry: fixtureWorkspaces(), verificationCatalog, now: () => now, timers, power: new PowerInhibitor({ platform: 'linux' }) })
+    const service = new TaskBoardHostService({ invoke } as unknown as TypertGateway, { ledger: ledger(dir, () => now), accounts: fixture.accounts, workspaceRegistry: fixtureWorkspaces(), modelCatalog, now: () => now, timers, power: new PowerInhibitor({ platform: 'linux' }) })
     disposers.push(() => service.dispose())
     const runtime = service as unknown as { pollSessions(): Promise<void> }
     service.refreshSchedule()
@@ -367,7 +369,7 @@ describe('task-board deployment identities', () => {
     await vi.waitFor(() => expect(service.snapshot().tasks.find(task => task.id === 'scheduled')?.executions[0].sessionId).toBe('owned-session'))
     expect(service.snapshot().tasks.find(task => task.id === 'unowned')?.executions[0].result).toBe('failed')
     expect(invoke.mock.calls.map(([call]) => call.method)).toEqual(['create', 'rename', 'prompt'])
-    expect(verificationCatalog).toHaveBeenCalledOnce()
+    expect(modelCatalog).toHaveBeenCalledOnce()
     await runtime.pollSessions()
     expect(service.snapshot().power.sessionStateKnown).toBe(true)
     service.ledger.settle('scheduled', service.snapshot().tasks.find(task => task.id === 'scheduled')!.executions[0].id, 'succeeded')

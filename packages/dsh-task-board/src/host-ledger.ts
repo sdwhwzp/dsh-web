@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { chmodSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { dshHome } from './dsh-home.ts'
 import { parseTaskPrincipals, principalKey, type TaskBoardPrincipal } from './host-accounts.ts'
@@ -15,7 +15,6 @@ import {
   cascadeTargets,
   combineCascadeOutcome,
   hasOutstandingDescendants,
-  isOutstanding,
   normalizeSubtaskDepth,
   openGroupExecution,
   outstandingDescendants as lineageOutstandingDescendants,
@@ -32,7 +31,6 @@ import { applySetParent } from './core/use-cases/task-parent.ts'
 import { applyDeleteTag, applyRenameTag } from './core/use-cases/task-tag.ts'
 import { applyUpdateTask, canEditTaskContent, hasContentPatch } from './core/use-cases/task-update.ts'
 import { TASK_BOARD_MIGRATABLE_SCHEMA_VERSIONS, TASK_BOARD_SCHEMA_VERSION, TASK_BOARD_ZONE_STAMP_SCHEMA_VERSION, type TaskBoardAction, type TaskBoardSchedulerSnapshot } from './protocol.ts'
-import { withoutAcceptanceAnomalies, type ExecutionVerification } from './core/verification.ts'
 import { DEFAULT_SESSION_PERMISSION, requiresPermissionConfirmation, type TaskPermission } from './core/handover.ts'
 
 interface PersistedScheduler extends TaskBoardSchedulerSnapshot {
@@ -364,8 +362,34 @@ const LEGACY_START_TOLERANCE_MS = 2000
  * live owner; only one that has been unreadable for longer than any write can
  * take is treated as an unclean-shutdown leftover (issue #1528: a 0-byte lock
  * kept the Host half from mounting until it was deleted by hand).
+ *
+ * The same window bounds the identity-unprobeable takeover below: it is two
+ * heartbeat intervals, so an owner that keeps beating is never mistaken for a
+ * leftover (issue #2061).
  */
 const UNREADABLE_LOCK_GRACE_MS = 60_000
+
+/**
+ * How often the lock owner refreshes its lock file's mtime (issue #2061). The
+ * record itself never changes, only the timestamp moves, so a later start can
+ * tell a live owner from a hard-kill leftover even when the platform identity
+ * probe reads nothing (a protected process, a WMI/CIM timeout). Two missed
+ * beats age the lock past UNREADABLE_LOCK_GRACE_MS and make it reclaimable; a
+ * beating owner stays protected.
+ */
+const LOCK_HEARTBEAT_MS = 30_000
+
+/**
+ * The process identity reads the lock decision depends on. Injectable so the
+ * unprobeable-identity branch is testable on every platform without a real
+ * PowerShell/CIM round trip.
+ */
+export interface LockProcessProbe {
+  isAlive(pid: number): boolean
+  startTimeMs(pid: number): number | undefined
+}
+
+const defaultLockProcessProbe: LockProcessProbe = { isAlive: processIsAlive, startTimeMs: processStartTimeMs }
 
 /** Whether the recorded start time proves the recorded PID is another process. */
 function startTimeMismatch(recorded: number, actual: number, exact: boolean): boolean {
@@ -387,17 +411,7 @@ function mergeTask(a: TaskRecord, b: TaskRecord): TaskRecord {
     const previous = byId.get(entry.id)
     byId.set(entry.id, previous === undefined ? entry : betterExecution(previous, entry))
   }
-  // Acceptance evidence is the one field "betterExecution" cannot choose: a
-  // browser half that also wrote this execution carries no attempts, and taking
-  // its copy would erase the Host's verdict. The copy with the most recorded
-  // attempts wins, and one execution's verdict is never copied onto another.
-  const executions = [...byId.values()].sort((x, y) => x.startedAt - y.startedAt).map(entry => {
-    if (entry.verification !== undefined) return entry
-    const richer = [...a.executions, ...b.executions]
-      .filter(other => other.id === entry.id && other.verification !== undefined)
-      .sort((x, y) => (y.verification?.attempts.length ?? 0) - (x.verification?.attempts.length ?? 0))[0]
-    return richer?.verification === undefined ? entry : { ...entry, verification: richer.verification }
-  })
+  const executions = [...byId.values()].sort((x, y) => x.startedAt - y.startedAt)
   return { ...newer, executions: retainRecentExecutions(executions) }
 }
 
@@ -474,6 +488,10 @@ export class HostTaskLedger {
   private readonly requestCache = new Map<string, CachedRequest>()
   private readonly lockToken = crypto.randomUUID()
   private lockFd: number | undefined
+  private lockHeartbeat: ReturnType<typeof setInterval> | undefined
+  private readonly processProbe: LockProcessProbe
+  /** Warning sink; defaults to console.warn, tests inject a collector. */
+  private readonly warn: (message: string) => void
   readonly file: string
   readonly lockFile: string
   /** Small sidecar for the 30 s scheduler heartbeat (lastTickAt only). */
@@ -511,7 +529,7 @@ export class HostTaskLedger {
   /** Today's measured spend in tokens, or undefined when nothing can be measured. */
   private readonly spendUsed: (now: number) => number | undefined
 
-  constructor(dir: string = join(dshHome(), 'task-board'), private readonly now: () => number = Date.now, options: { sessionDefaultPermission?: TaskPermission | (() => TaskPermission); maxSubtaskDepth?: number; cardDefaults?: () => CardDefaults; spendBudgetTokens?: () => number; spendUsedToday?: (now: number) => number | undefined } = {}) {
+  constructor(dir: string = join(dshHome(), 'task-board'), private readonly now: () => number = Date.now, options: { sessionDefaultPermission?: TaskPermission | (() => TaskPermission); maxSubtaskDepth?: number; cardDefaults?: () => CardDefaults; spendBudgetTokens?: () => number; spendUsedToday?: (now: number) => number | undefined; processProbe?: LockProcessProbe; warn?: (message: string) => void } = {}) {
     // Resolved before the load/repair passes below: they can evaluate the gate.
     const baseline = options.sessionDefaultPermission
     this.sessionDefault = typeof baseline === 'function' ? baseline : () => baseline ?? DEFAULT_SESSION_PERMISSION
@@ -519,12 +537,15 @@ export class HostTaskLedger {
     this.cardDefaults = options.cardDefaults ?? (() => ({}))
     this.spendBudget = options.spendBudgetTokens ?? (() => DEFAULT_SPEND_BUDGET_TOKENS)
     this.spendUsed = options.spendUsedToday ?? (now => usedTokensToday(now))
+    this.processProbe = options.processProbe ?? defaultLockProcessProbe
+    this.warn = options.warn ?? ((message) => { console.warn(message) })
     mkdirSync(dir, { recursive: true })
     this.file = join(dir, 'ledger-v2.json')
     this.lockFile = join(dir, 'ledger-v2.lock')
     this.schedulerFile = join(dir, 'scheduler-v2.json')
     this.cleanStaleTemporaryFiles(dir)
     this.lockFd = this.acquireLock()
+    this.startLockHeartbeat()
     try {
       this.document = this.load(dir)
       for (const request of this.document.recentRequests) {
@@ -705,7 +726,46 @@ export class HostTaskLedger {
     return () => { this.listeners.delete(listener) }
   }
 
+  /**
+   * Refresh the lock's mtime so a later start can distinguish a live owner from
+   * a hard-kill leftover without reading the process identity (issue #2061).
+   * Best-effort: a failed beat only ages the lock, and a record that no longer
+   * carries this owner's token stops the heartbeat instead of beating for
+   * whoever holds the lock now.
+   */
+  renewLock(): void {
+    if (this.lockFd === undefined) return
+    try {
+      const owner = JSON.parse(readFileSync(this.lockFile, 'utf8')) as { token?: unknown }
+      if (owner.token !== this.lockToken) {
+        // Another start took the ledger over. Stop beating for a lock that is
+        // not ours and say so once: an operator needs to know two hosts met.
+        this.warn(`[task-board] lost the ledger lock to another owner; this instance stops renewing ${this.lockFile}`)
+        this.stopLockHeartbeat()
+        return
+      }
+      const seconds = this.now() / 1000
+      utimesSync(this.lockFile, seconds, seconds)
+    } catch {
+      // A missing or unreadable lock is not ours to refresh.
+    }
+  }
+
+  private startLockHeartbeat(): void {
+    const timer = setInterval(() => { this.renewLock() }, LOCK_HEARTBEAT_MS)
+    // The beat must never keep a stopping Host alive.
+    timer.unref?.()
+    this.lockHeartbeat = timer
+  }
+
+  private stopLockHeartbeat(): void {
+    if (this.lockHeartbeat === undefined) return
+    clearInterval(this.lockHeartbeat)
+    this.lockHeartbeat = undefined
+  }
+
   dispose(): void {
+    this.stopLockHeartbeat()
     const fd = this.lockFd
     if (fd === undefined) return
     this.lockFd = undefined
@@ -1263,32 +1323,6 @@ export class HostTaskLedger {
         this.finalizeReadyRuns(false)
         break
       }
-      case 'reset-verification': {
-        // The explicit user reset of the acceptance anomaly counter (issue
-        // #1828). It clears the attempts the ENVIRONMENT produced — timeouts,
-        // authentication failures, unresolvable routes, and attempts the time
-        // budget ended — and nothing else: a quality verdict is the board's own
-        // judgement of the work and survives every reset. Only the open
-        // execution is addressable, because the reset exists to unblock a
-        // completion claim on a run that is still going.
-        const task = this.document.tasks.find(item => item.id === action.taskId)
-        if (task === undefined) throw new Error('task not found')
-        if (task.archivedAt !== undefined) throw new Error('archived task is read-only')
-        const execution = [...task.executions].reverse().find(entry => entry.endedAt === undefined)
-        if (execution === undefined) throw new Error('task has no open execution')
-        const verification = execution.verification
-        if (verification === undefined || verification.applicability !== 'enforced') {
-          throw new Error('this execution is not gated by task acceptance')
-        }
-        const cleared = withoutAcceptanceAnomalies(verification)
-        if (cleared === undefined) throw new Error('this execution has no acceptance anomaly to reset')
-        this.document.tasks = this.document.tasks.map(item => item.id !== action.taskId ? item : {
-          ...item,
-          updatedAt: now,
-          executions: item.executions.map(entry => entry.id === execution.id ? { ...entry, verification: cleared } : entry),
-        })
-        break
-      }
       case 'restore': {
         if (this.subtreeHasOpenExecution(action.taskId)) throw new Error('running task cannot be restored')
         const result = applyRestoreTask(this.document.tasks, action.taskId, now, this.maxSubtaskDepth)
@@ -1719,54 +1753,6 @@ export class HostTaskLedger {
     return this.normalizeDocument({ ...parsed, tasks: rows as TaskRecord[] })
   }
 
-  /**
-   * Find the still-open execution that ran in one session, with its task.
-   *
-   * The completion gate keys on the session id its tool call arrives from: the
-   * execution record is the only object binding a session to a card, and an
-   * already-settled execution is deliberately not returned (a session the board
-   * no longer owns must not be gated).
-   * @param sessionId - the DSH session the tool call runs in.
-   * @returns the open execution and its task, or undefined.
-   */
-  findOpenExecutionBySession(sessionId: string): { task: TaskRecord; execution: ExecutionRecord } | undefined {
-    if (sessionId === '') return undefined
-    for (const task of this.document.tasks) {
-      for (const execution of task.executions) {
-        if (execution.endedAt !== undefined) continue
-        if (execution.sessionId === sessionId) return { task, execution }
-      }
-    }
-    return undefined
-  }
-
-  /**
-   * Replace one execution's acceptance block (creating it when absent).
-   *
-   * A no-op when the serialized value is unchanged, so a coarse caller that
-   * re-writes the same state never bumps the ledger revision. A settled
-   * execution keeps its record: the report of a finished cycle must survive,
-   * and only the board's own settlement moves the card.
-   * @param taskId - the task owning the execution.
-   * @param executionId - the execution to update.
-   * @param verification - the new block.
-   * @returns true when the ledger changed.
-   */
-  setVerification(taskId: string, executionId: string, verification: ExecutionVerification): boolean {
-    const now = this.now()
-    const task = this.document.tasks.find(item => item.id === taskId)
-    const execution = task?.executions.find(entry => entry.id === executionId)
-    if (task === undefined || execution === undefined) return false
-    if (JSON.stringify(execution.verification ?? null) === JSON.stringify(verification)) return false
-    this.document.tasks = this.document.tasks.map(item => item.id !== taskId ? item : {
-      ...item,
-      updatedAt: now,
-      executions: item.executions.map(entry => entry.id === executionId ? { ...entry, verification } : entry),
-    })
-    this.commit()
-    return true
-  }
-
   private load(dir: string): LedgerDocument {
     const existed = existsSync(this.file)
     // schemaVersion stays unknown-typed here: on-disk documents may be v2 or
@@ -1785,7 +1771,7 @@ export class HostTaskLedger {
       } catch (error) {
         // Migration failure is explicit: the original file stays in place
         // for manual recovery and the ledger refuses to start (fail closed).
-        throw new Error(`ledger v${String(parsed.schemaVersion)} to v${TASK_BOARD_SCHEMA_VERSION} migration failed; original file kept at ${this.file}: ${error instanceof Error ? error.message : String(error)}`)
+        throw new Error(`ledger v${String(parsed.schemaVersion)} to v${TASK_BOARD_SCHEMA_VERSION} migration failed; original file kept at ${this.file}: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
       }
     }
     try {
@@ -1933,6 +1919,28 @@ export class HostTaskLedger {
     for (const listener of [...this.listeners]) listener()
   }
 
+  /**
+   * Move an unidentifiable, heartbeat-aged lock aside instead of deleting it:
+   * the record is the only evidence of which process held the ledger, and the
+   * takeover is a judgment call an operator may need to audit (issue #2061).
+   * A refused rename falls back to removal, because the takeover itself must
+   * not depend on the filesystem allowing the rename.
+   */
+  private quarantineOrphanLock(pid: number, age: number): void {
+    const orphan = `${this.lockFile}.orphan-${this.now()}`
+    let kept = true
+    try {
+      renameSync(this.lockFile, orphan)
+    } catch {
+      kept = false
+      try { unlinkSync(this.lockFile) } catch (unlinkError) {
+        if ((unlinkError as NodeJS.ErrnoException).code !== 'ENOENT') throw unlinkError
+      }
+    }
+    const seconds = Number.isFinite(age) ? `${Math.round(age / 1000)}s` : 'an unreadable age'
+    this.warn(`[task-board] reclaimed the ledger lock of process ${pid}: its identity could not be probed and its heartbeat is ${seconds} old${kept ? `; the record was kept as ${orphan}` : ''}`)
+  }
+
   private acquireLock(): number {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
@@ -1975,8 +1983,8 @@ export class HostTaskLedger {
           }
           continue
         }
-        if (pid !== undefined && processIsAlive(pid)) {
-          const actualStartedAt = pid === process.pid ? ownProcessStartTimeMs() : processStartTimeMs(pid)
+        if (pid !== undefined && this.processProbe.isAlive(pid)) {
+          const actualStartedAt = pid === process.pid ? ownProcessStartTimeMs() : this.processProbe.startTimeMs(pid)
           // A reused PID is exposed when the live process identity no longer
           // matches the recorded one: either the recorded start time differs
           // beyond the probe's resolution (strict for ms-precise 'exact'
@@ -1992,13 +2000,27 @@ export class HostTaskLedger {
                 try { return statSync(this.lockFile).mtimeMs < actualStartedAt } catch { return true }
               })()
           )
-          if (!staleReuse) {
+          // A live PID whose identity cannot be read at all (a protected
+          // process, a WMI/CIM timeout) used to fail closed forever, so a
+          // hard-kill leftover whose PID was reused kept the Host half, and
+          // every cron card with it, unmounted until someone deleted the lock
+          // by hand (issue #2061). The owner's heartbeat is the second identity
+          // source: a lock untouched for longer than two beats cannot belong to
+          // a running owner, so it is quarantined and taken over. A fresh lock
+          // still fails closed, and a confirmed live owner is never stolen from
+          // however old its lock looks.
+          const lockAge = (() => {
+            try { return this.now() - statSync(this.lockFile).mtimeMs } catch { return Number.POSITIVE_INFINITY }
+          })()
+          const staleHeartbeat = actualStartedAt === undefined && lockAge >= UNREADABLE_LOCK_GRACE_MS
+          if (!staleReuse && !staleHeartbeat) {
             const confirmedOwner = ownerStartedAt !== undefined && actualStartedAt !== undefined && !startTimeMismatch(ownerStartedAt, actualStartedAt, ownerExact)
             const hint = confirmedOwner
               ? ''
               : `; if this PID was reused after a crash and no other DSH host is running, remove ${this.lockFile} manually and retry`
-            throw new Error(`task-board ledger is already owned by process ${pid}${hint}`)
+            throw new Error(`task-board ledger is already owned by process ${pid}${hint}`, { cause: error })
           }
+          if (staleHeartbeat && !staleReuse) this.quarantineOrphanLock(pid, lockAge)
         }
         try { unlinkSync(this.lockFile) } catch (unlinkError) {
           if ((unlinkError as NodeJS.ErrnoException).code !== 'ENOENT') throw unlinkError

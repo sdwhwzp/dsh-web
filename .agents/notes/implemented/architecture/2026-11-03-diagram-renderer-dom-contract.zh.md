@@ -17,14 +17,19 @@ Status: implemented
 - **新增 \`dsh-diagrams\` 包，原地渲染 mermaid 围栏。** 一个观察器同时覆盖会话正文与文档预览
   面板，因为两个面走的是同一个组件。
 - **接入点是渲染出的 DOM。** 页面侧观察器盯 \`document.body\`，把每批变更映射到所属的
-  \`div.md-code-block\`，再从 banner 的 infostring 元素读围栏语言。这些名字钉在一个模块里
-  （\`src/core/contract.ts\`），旁边就是契约测试。
+  \`div.md-code-block\`，再从 banner 读围栏语言，两种已知形态都接受：携带原始 infostring 的
+  \`_infostring_\` 元素，以及 0.2.2-rc.3 的 \`_language_\` span。高亮器不认识的语言（mermaid 即其中
+  之一）在 span 里显示本地化占位符（\`代码块\`、\`Code block\`），因此标签不是真实语言 token 时
+  回退到源码首个 mermaid 关键字判定，而真实语言标签（js、bash、json 等）一律不接管（#2056）。
+  这些名字钉在一个模块里（\`src/core/contract.ts\`），旁边就是契约测试。
 - **原代码块只隐藏、不删除。** 渲染器的复制按钮仍从 \`<pre>\` 取源码；渲染失败按原样恢复。
 - **运行库由本包伺服、按需拉取。** 宿主半区只有一条只读路由
   （\`/api/dsh-diagrams/vendor/mermaid.js\`，走共享配对围栏），伺服构建时从 npm 包复制到
   \`lib/assets/\` 的 mermaid IIFE。没有 mermaid 块的页面不下载任何东西。
 - **渲染出的 SVG 二次消毒。** mermaid 以 \`securityLevel: 'strict'\` 运行，输出仍要过一遍剥除
-  （元素、\`on*\` 属性、\`javascript:\` URL）；清理后仍可疑的标记被拒，围栏退回代码块。
+  （元素、\`on*\` 属性、解析出的 scheme 为 \`javascript:\` / \`vbscript:\` / \`data:\` 的 URL 属性）。scheme 靠解析取值判定，
+  不做前缀匹配：浏览器会先删掉 scheme 里的 TAB/LF/CR 与前导 C0 控制字符，这类取值同样被剥。
+  清理后仍可疑的标记被拒，围栏退回代码块。
 - **主题切换重绘。** mermaid 把颜色画进 SVG，明暗切换按保存的源码重绘每张已完成的图。
 
 ## Alternatives considered
@@ -40,8 +45,11 @@ Status: implemented
 
 ## Consequences
 
-- **DOM 钩子不是契约。** 宿主若改名 \`md-code-block\` 或 infostring 类名，图示渲染停止，围栏退回
-  代码块。钉住的常量与它们的测试，让这件事在 SDK cohort 升级时变成显式失败，而不是静默退化。
+- **DOM 钩子不是契约。** 宿主若改名 \`md-code-block\` 或 banner 语言类名
+  （\`_infostring_\` / \`_language_\`），图示渲染停止，围栏退回代码块。钉住的常量与它们的测试，
+  让这件事在 SDK cohort 升级时变成显式失败，而不是静默退化。
+- **占位符标签与通用非语言围栏无法区分。** 标注为 \`text\` / \`plain\` / \`code\` 且源码以 mermaid
+  关键字开头的围栏会被接管：渲染器对它显示同样的占位符，DOM 无法区分两者（#2056）。
 - **流式围栏延后出图。** 未闭合的围栏无法解析；源码确实变化后在静默期之后重试，围栏闭合后出图。
 - **渲染是排程而非一次点火。** mermaid 在页面主线程上同步解析与布局，因此一张图一帧地绘制
   （对帧被节流的标签页配超时兜底），消毒后的 SVG 按「主题 + 源码」记忆化，运行库只在配色变化时
@@ -54,7 +62,7 @@ Status: implemented
 
 ## Testing
 
-\`pnpm --filter @linxin666/dsh-client-ui-diagrams typecheck\` 与 \`test\`（21 个用例：块发现、
-认领/恢复、SVG 消毒、观察器渲染与失败回落与主题重绘、变更范围映射、vendor 路由的
+\`pnpm --filter @linxin666/dsh-client-ui-diagrams typecheck\` 与 \`test\`（35 个用例：两种 banner
+形态下的块发现、认领/恢复、SVG 消毒、观察器渲染与失败回落与主题重绘、变更范围映射、vendor 路由的
 200/403/404/405/HEAD，以及契约钉桩）。实时验收需要包被挂载（即宿主重启），因此留给用户确认，
 不在此声称已验证。

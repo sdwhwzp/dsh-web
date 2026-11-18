@@ -8,11 +8,14 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 
 /**
  * Pinned union of dsh.client.inject module ids across every workspace
- * package. Re-verified for the 0.2.2-rc.1 cohort: each name is a browser
+ * package. Re-verified for the 0.2.2-rc.3 cohort (sixteen names, unchanged
+ * from rc.2, until message-edit's removal dropped the three it alone injected,
+ * leaving thirteen):
+ * each name is a browser
  * roster row of the shell composition (dsh-web-app cordis.patch.yml
  * dsh.client rows) or a frozen static module (dsh-client-ui-slots;
  * dsh-client-store needs no injection because its value imports ride the
- * platform table). The 0.1.1-rc.2 set's dsh-client-runtime row is gone
+ * platform table, so the packages that do inject it declare it explicitly). The 0.1.1-rc.2 set's dsh-client-runtime row is gone
  * with its package; the api controller and api-remotes rows are the
  * Typert Remote replacement faces. dsh-client-ui-workspace joined at
  * 0.1.7-alpha.1: it is the ui-workspace row of dsh-web-app and the provider
@@ -23,9 +26,10 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
  * `main` seat plus the ctx.layout panel-navigation service the board selects
  * its page through, so the row must be live before the board can contribute
  * (the board's own registrations wait on the seat declaration either way).
- * dsh-client-ui-chat and dsh-client-ui-session joined with message-edit:
- * ui-chat owns conversation.chat.turnTail, while ui-session supplies the
- * Session standard props and useAccess gate that the editor consumes.
+ * dsh-client-ui-chat and dsh-client-ui-session left with message-edit: only
+ * that package injected them (ui-chat for the conversation.chat.turnTail seat
+ * and ui-session for the Session standard props and useAccess gate the editor
+ * consumed), so no workspace package declares them now that it is gone.
  * dsh-client-ui-sidebar-right joined with browser-view's live tab: it is the
  * ui-sidebar-right row of dsh-web-app and the owner of ctx.sidebarRightTabs,
  * the service that tab type registers into, so the row must be live before
@@ -40,11 +44,8 @@ const APPROVED_INJECT_MODULES = [
   '@deepseek-ai/dsh-client-connection',
   '@deepseek-ai/dsh-client-locale',
   '@deepseek-ai/dsh-client-store',
-  '@deepseek-ai/dsh-client-ui-chat',
-  '@deepseek-ai/dsh-client-ui-conversation',
   '@deepseek-ai/dsh-client-ui-layout',
   '@deepseek-ai/dsh-client-ui-renderer',
-  '@deepseek-ai/dsh-client-ui-session',
   '@deepseek-ai/dsh-client-ui-settings',
   '@deepseek-ai/dsh-client-ui-sidebar',
   '@deepseek-ai/dsh-client-ui-sidebar-right',
@@ -69,11 +70,11 @@ function collectInjects() {
   return [...names].sort()
 }
 
-test('every dsh.client.inject name is an approved 0.2.2-rc.1 client module', () => {
+test('every dsh.client.inject name is an approved 0.2.2-rc.3 client module', () => {
   for (const name of collectInjects()) {
     assert.ok(
       APPROVED_INJECT_MODULES.includes(name),
-      `inject name outside the approved 0.2.2-rc.1 module set: ${name}`,
+      `inject name outside the approved 0.2.2-rc.3 module set: ${name}`,
     )
   }
 })

@@ -110,6 +110,8 @@ describe('resolveConfig', () => {
       announceToAgent: true,
       presentation: 'ptc',
       dispatcher: true,
+      pagedToolPatterns: '',
+      idleReclaimSteps: 0,
     })
   })
 

@@ -5,7 +5,7 @@
 <p align="center">
   <img src="https://img.shields.io/npm/v/@linxin666/dsh-remote-bridge?style=flat-square" alt="Version">
   &nbsp;
-  <img src="https://img.shields.io/badge/DSH-%3E%3D0.2.2--rc.1-4c6ef5?style=flat-square&amp;labelColor=454a54" alt="DSH">
+  <img src="https://img.shields.io/badge/DSH-%3E%3D0.2.2--rc.3-4c6ef5?style=flat-square&amp;labelColor=454a54" alt="DSH">
   &nbsp;
   <img src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" alt="License">
 </p>
@@ -50,12 +50,13 @@
 
 | 方法 | 请求 `p` | 响应 `r` |
 | --- | --- | --- |
-| `hello` | `{proto:1, minor:17, client:"ios/0.1", cap:["session.snapshot.trim.v1","subagent.thread.v1"]}` | `{proto:1, minor:21, server:"dsh-remote-bridge", capabilities:["session.snapshot.trim.v1","session.snapshot.page.v1","questions.v1","questions.list.v1","subagent.thread.v1","jobs.v1","agents.v1","delta.v1","session.list.omit-archived.v1","session.deep-history.v1","frame.deflate.v1","session.list.compact.v1","session.snapshot.since.v1","session.fork.v1","commands.v1","workspace.v1","session.admin.v1","squads.v1","push.v1","usage.v1","usage.stats.v1","ui.v1","ui.list.v1"], resume:"snapshot", auth:"paired" 或 "unpaired"}` |
+| `hello` | `{proto:1, minor:17, client:"ios/0.1", cap:["session.snapshot.trim.v1","subagent.thread.v1"]}` | `{proto:1, minor:22, server:"dsh-remote-bridge", capabilities:["session.snapshot.trim.v1","session.snapshot.page.v1","questions.v1","questions.list.v1","subagent.thread.v1","jobs.v1","agents.v1","delta.v1","session.list.omit-archived.v1","session.deep-history.v1","frame.deflate.v1","session.list.compact.v1","session.snapshot.since.v1","session.fork.v1","commands.v1","workspace.v1","session.admin.v1","squads.v1","push.v1","usage.v1","usage.stats.v1","ui.v1","ui.list.v1","session.attachment.path.v1"], resume:"snapshot", auth:"paired" 或 "unpaired"}` |
 | `session.list` | `{since?, cwd?, maxRows?, after?}` | `{mode, token, sessions:[{id, title, updatedAt, agentRunning, cwd?, parentSessionId?, origin?, blank, archived?}]}`；紧凑页为 `{mode:"reset", token:"", compact:true, sessions:[...], nextAfter?}` |
 | `session.titles` | `{ids:[<sessionId>, ...]}` | `{titles:{"<id>":"<title>", ...}}` |
 | `session.snapshot` | `{sessionId, sinceSeq?, maxBytes?}` | `{turns:[...], lastSeq:<uint>, hasMore?}`；增量另加 `mode:"since", reset:false`，替换客户端副本的基线另加 `mode:"full", reset:true` |
 | `session.history` | `{sessionId, before?, maxBytes?}` | `{turns:[...], nextBefore?:<uint>, hasMore:<bool>}` |
 | `session.history.deep` | `{sessionId, before?, maxBytes?}` | `{turns:[...], nextBefore?:<uint>, hasMore:<bool>}` |
+| `session.attachment.path` | `{sessionId, path}` | `{image:{path, mediaType?, bytes?, width?, height?}, data:"<base64>"}` — the reference the session's own record stated, beside the bytes at that path. The path must be absolute and byte-identical to one the session named; `path-not-in-session`, `not-found`, `not-an-image` or `frame-too-large` answers instead |
 | `session.prompt` | `{sessionId, text, requestId}` | `{accepted:true}` |
 | `session.interrupt` | `{sessionId}` | `{ok:true}` |
 | `presets.list` | `{}` | 宿主 `agentPresets/list` 的身体，逐字转发 |
@@ -134,7 +135,7 @@ fork 的方法同样什么都不解释。`session.fork` 把 `sessionId` 与客�
 
 `approval.request` 的摘要取自宿主按客户端语言给出的显示理由，缺失时回落英文、再回落工具名，并附带工具名本身。客户端用 `approval.resolve` 作答，`decision` 取 `allowed-once` 或 `rejected`；未知或过期的 `id` 会被拒绝，而无人应答的请求在两分钟后按 unavailable 结算，宿主视之为拒绝。工具发起请求的那一刻，每一条已配对连接都会收到该事件——首播不在任何能力名之后——而声明了 `approvals.v1` 的连接会在 `hello` 之后再次收到所有仍在等待的请求，因此重连过的手机、或事后才打开该会话的界面，手里依然有卡片。只有未结算的请求会被重放：已作答、已超时、已撤回的请求早已离开认领表，而重新递一次请求绝不会挪动它的两分钟截止时间。该能力只门控这第二次送达，因此它不出现在 `hello` 的 `capabilities` 里、也不改动 `minor`：握手对每个客户端都回同一个帧。桥只在下游有已配对客户端连接时才认领审批请求：一个都没有时，请求交给下一个应答者，而不是干等一台不在场的手机。
 
-提问通道是唯一一条能比套接字活得久的认领。提问以 `question.request` 事件到达手机，call id 用宿主自己的；阻塞式提问没有 call id，就由本桥另铸一个。手机用 `question.answer` 结算宿主的询问：询问仍然开着时，答案直接解开本桥手里的 promise；宿主自己的截止时间已经放走模型之后，迟到的答案改走宿主的 Remote `answer`。`question.list` 回答本桥此刻仍持有的提问，手机据此与手里的卡对账。没有任何已配对连接在线、但设备名册里有登记过推送令牌时，桥替那台手机认领这道题，推送就是它的送达：在桥自有的一个窗口内，这道题只存在于手机侧，窗口结束即回到宿主自己的应答者链。这个窗口是 `OFFLINE_QUESTION_CLAIM_TTL_MS`，十分钟，可用 `DSH_REMOTE_BRIDGE_OFFLINE_CLAIM_TTL_MS` 覆盖。窗口内重连并声明 `questions.v1` 的手机直接拿到这条仍然有效的认领，窗口到此为止；手机作答即结算，宿主链于是从未启动；而已配对连接完成 `hello` 却没有声明这条通道时，认领立刻被撤回——线上没人能收的认领不留。阻塞式提问（无 call id、无 deadline）同样认领，代价写在明处：它背后的 agent 最多白等这一个窗口。审批沿用上面更严的那条规则：永远不为不在线上的手机持有任何东西。
+提问通道是唯一一条能比套接字活得久的认领。提问以 `question.request` 事件到达手机，call id 用宿主自己的；阻塞式提问没有 call id，就由本桥另铸一个。手机用 `question.answer` 结算宿主的询问：询问仍然开着时，答案直接解开本桥手里的 promise；宿主自己的截止时间已经放走模型之后，迟到的答案改走宿主的 Remote `answer`。认领成立即刻让位给宿主自己的应答者链，两端同时持有卡片，先答者胜：宿主链先答时，桥向已声明 `questions.v1` 的连接广播 `state:"settled"` 的 `question.request` 并释放认领；手机先答时，桥返回手机的答案并忽略宿主链随后到达的结算；宿主链 reject 不是判决，认领保留，手机仍可作答。`question.list` 回答本桥此刻仍持有的提问，手机据此与手里的卡对账。没有任何已配对连接在线、但设备名册里有登记过推送令牌的设备时，桥照旧替那台手机认领这道题、在宿主没有在线浏览器客户端时发推送，并立刻让位给宿主自己的应答者链：认领活到被答、宿主自己的截止时间到点或本桥卸载；若 APNs 对名册上每个已登记令牌都拒绝，则放弃这次认领。审批沿用上面更严的那条规则：永远不为不在线上的手机认领任何东西。
 
 可交互回复是唯一一条「走一整页而不是走一个问题」的通道。`ui_present` 是本桥自己的模型工具：agent 写一整份自包含文档（以 `<!doctype html>` 开头，UTF-8 最多 256 KiB），它作为 `ui.request` 事件、用宿主自己的 `ToolCallId` 下发，于是这张卡正好挂在转录里那条工具调用行上。随后这次调用阻塞，直到用户在页面里的**第一条**动作为止——那个动作 `{type, payload?}`（`type` 是页面自己的闭集，`payload` 最多 8 KiB）就是这次工具调用的返回值：一张卡结算一个动作，需要继续接受动作就让 agent 再呈现一次。结算时这条卡以 `state:"settled"` 对每个声明了 `ui.v1` 的客户端再公告一次（包括刚作答的那台），所以手机上重复的第二次点击、以及第二台手机都能读到它已结束。`ui.list` 回答本桥此刻仍持有的卡，是手机重启后的对账依据，且只有 `complete` 的应答才允许退休一张卡。卡永不携带 `expiresAt`：工具 schema 不声明 `timeout`，本桥也就不发明超时；它拿的是与提问同一个宽限窗口——再没有人能作答的卡在「最后一次配对设备离开」留下的窗口到期时，以超时交还给 agent，而在这个窗口内声明了通道的手机则被重放活卡、并取消这次释放。没有任何声明了 `ui.v1` 的已配对连接时，`ui_present` 立即回 `{ok:false, reason:"unavailable"}`，不占用宿主的等待。真的到过线缆上的那次呈现，其结果在 `meta.ui` 里带着同一份展示载荷——`{key, title?, html, height?, state}`，`key` 是 `"<sessionId>/<callId>"` 拼法——供从转录渲染、手里没有 `ui.request` socket 的客户端使用；结果正文仍是一句人可读的话。
 
@@ -149,7 +150,7 @@ fork 的方法同样什么都不解释。`session.fork` 把 `sessionId` 与客�
 
 已注册方法的派发排在两道协议闸门之后：没有插件注册的名字最先回 `unknown-method`；没有有效设备令牌的连接回 `unpaired`，与协议方法完全一致；从未声明该表所需能力的客户端同样回 `unknown-method`——方法对它而言不存在，而不是没有权限。处理器收到请求载荷与本连接 id，回 `{ok:true, r}` 或 `{ok:false, code, msg}`；两种都原样穿过，因为错误码归注册它的插件所有。处理器抛错、或两种形状都没回时，以桥自己的 `internal` 穿过。
 
-`hello` 现在回 `minor:21`，起自可交互回复通道落地：它新增两个能力名（`ui.v1`、`ui.list.v1`）、一个主题（`ui.request`）、两个方法（`ui.event`、`ui.list`）与一个模型工具（`ui_present`），因此客户端从线缆上读到两个新名字、一种新事件与两种新应答体，而任何既有帧、方法与键都不改形状。`minor:20` 是用量台账通道落地时：`usage.stats.v1` 背后，客户端可以调 `usage.stats` 读宿主自己的台账，`usage.session` 也多了可选的 `modelContextWindow`（取自那条路由的模型目录），因此它从线缆上读到一个新的应答体和一个新的可选键，并且必须先读到这个名字才敢问——低于这一版的桥回 `unknown-method`、也不带那个键，而任何帧、主题与既有方法都不改形状。`minor:19` 是用量通道落地：`usage.v1` 背后，客户端可以调 `usage.session` 与 `usage.balance`，因此它从线缆上读到两个新的应答体，并且必须先读到这个名字才敢问——低于那一版的桥对两者都回 `unknown-method`。`minor:18` 是「一张实况卡排下几个会话」：`content-state` 可以带 `rows`，最多三项 `{name, status, phase}`，顺序由桥定——先提问中的会话（按提问到达顺序），再正在跑的会话（按最近更新倒序）——因此不新增方法、不新增能力名、也不改动任何既有键，`minor` 只加一。行的 `name` 是宿主自己的标题摘掉尾部路径组的结果，因为线上不许出现路径。`minor:17` 是实况卡推送落地：锁屏卡与灵动岛由 `push.v1` 既有的登记面驱动，桥侧只新增发送路径（`liveactivity` 推送、按会话投影的 `SessionActivityState`）。`minor:16` 是通知推送通道落地：`push.v1` 背后，客户端可以调 `push.register`，让设备表记住自己的 APNs 令牌，于是回合结束或出现待答提问时手机会被叫醒，而它自己的 socket 并没有开着。`minor:15` 是小队通道落地：`squads.v1` 背后，客户端可以调 `squads.state`、`squads.list`、`squads.runs`、`squads.runMember` 与 `squads.runSquad`，因此它从线上读到五种新的应答体，并驱动宿主的小队域而不是从别处推导 agent。`minor:14` 是会话管理通道落地：`workspace.v1` 背后，客户端可以调 `workspace.list` 并读到宿主的工作区与两个全局会话集合；`session.admin.v1` 背后，它可以改名、置顶、取消置顶、归档与取消归档一条会话，因此它从线上读到六种新的应答体。`minor:13` 是待答提问列表落地：`questions.list.v1` 背后，客户端可以调 `question.list`，拿回本桥此刻仍持有的提问——手机据此对账它手里的卡，也是它得知「自己离线时某个提问已经结束」的唯一途径，因为最后一个配对设备离开时，桥会撤回全部认领。`minor:12` 是指令通道落地之时：`commands.v1` 背后，客户端可以调 `session.commands` 与 `session.command`，因此它从线上读到一种新的应答体。`minor:11` 是 fork 通道落地之时（比先一步在集成分支上落地的快照增量通道高一位）：`session.fork.v1` 背后，客户端可以调 `session.fork` 并拿到宿主自己的 fork 结果。`minor:10` 是快照可按请求增量之时：`session.snapshot.since.v1` 背后，带 `sinceSeq` 的 `session.snapshot` 要么只回该水位之上的 entry，要么回一份带 `mode` 与 `reset` 的完整基线，所以这一位是为客户端能从线上读到的应答形状而提的。`minor:9` 是紧凑名册之时：`session.list.compact.v1` 背后，带 `cwd`、`maxRows` 或 `after` 的列出得到更短、且可分页的行，所以这一位是为客户端能从线上读到的行 schema 而提的。`minor:8` 是下行帧的形态本身成为一种能力之时：`frame.deflate.v1` 背后，声明了的客户端可能收到承载裸 DEFLATE 的 binary 帧，所以这一位是为客户端能从线上读到的东西而提的。`minor:7` 是两条通道汇合之时；`minor:6` 是其中任一条单独在位——agent 通道在 dev 上，持久历史分页在它自己的分支上；`minor:5` 时是名册不再携带已归档会话。`agents.v1` 背后，`presets.list` 与 `session.create` 转发宿主的预设名册与一次创建请求；`session.deep-history.v1` 背后，`session.history.deep` 把会话的持久存储一直翻到最早一条 entry；`session.fork.v1` 背后，`session.fork` 把一条会话分叉成继承它的新会话。`minor:4` 加了字节级增量，`minor:3` 是后台作业通道，`minor:2` 是子代理线程，`minor:1` 是本扩展缝。它们都没有改动主版本 1、任何冻结字段、方法名或主题名。唯一对每个客户端都变短的响应体是名册本身，它不再点名已归档会话；其余答案对什么都不声明的客户端仍是协议 v1 自己的。
+`hello` 现在回 `minor:22`，起自按路径取图通道落地：`session.attachment.path.v1` 只是一个公告（与 `session.deep-history.v1` 同例），名字背后客户端可以调 `session.attachment.path`，读回这次会话自己的持久记录点过的某一张图的字节——来源要么是消息体里的 offload 占位符，要么是持久工具结果发布的那个图像引用——因此它从线上读到一种新的应答体，并且必须先读到这个名字才敢问。这个方法对每一条已配对连接都开放：能力名只决定客户端知不知道它存在，不决定桥放不放行，不声明这个名字的客户端只是少了这份知情。没有任何既有帧、既有主题或既有方法改形状。`minor:21` 是当时可交互回复通道落地：它新增两个能力名（`ui.v1`、`ui.list.v1`）、一个主题（`ui.request`）、两个方法（`ui.event`、`ui.list`）与一个模型工具（`ui_present`），因此客户端从线缆上读到两个新名字、一种新事件与两种新应答体，而任何既有帧、方法与键都不改形状。`minor:20` 是用量台账通道落地时：`usage.stats.v1` 背后，客户端可以调 `usage.stats` 读宿主自己的台账，`usage.session` 也多了可选的 `modelContextWindow`（取自那条路由的模型目录），因此它从线缆上读到一个新的应答体和一个新的可选键，并且必须先读到这个名字才敢问——低于这一版的桥回 `unknown-method`、也不带那个键，而任何帧、主题与既有方法都不改形状。`minor:19` 是用量通道落地：`usage.v1` 背后，客户端可以调 `usage.session` 与 `usage.balance`，因此它从线缆上读到两个新的应答体，并且必须先读到这个名字才敢问——低于那一版的桥对两者都回 `unknown-method`。`minor:18` 是「一张实况卡排下几个会话」：`content-state` 可以带 `rows`，最多三项 `{name, status, phase}`，顺序由桥定——先提问中的会话（按提问到达顺序），再正在跑的会话（按最近更新倒序）——因此不新增方法、不新增能力名、也不改动任何既有键，`minor` 只加一。行的 `name` 是宿主自己的标题摘掉尾部路径组的结果，因为线上不许出现路径。`minor:17` 是实况卡推送落地：锁屏卡与灵动岛由 `push.v1` 既有的登记面驱动，桥侧只新增发送路径（`liveactivity` 推送、按会话投影的 `SessionActivityState`）。`minor:16` 是通知推送通道落地：`push.v1` 背后，客户端可以调 `push.register`，让设备表记住自己的 APNs 令牌，于是回合结束或出现待答提问时手机会被叫醒，而它自己的 socket 并没有开着。`minor:15` 是小队通道落地：`squads.v1` 背后，客户端可以调 `squads.state`、`squads.list`、`squads.runs`、`squads.runMember` 与 `squads.runSquad`，因此它从线上读到五种新的应答体，并驱动宿主的小队域而不是从别处推导 agent。`minor:14` 是会话管理通道落地：`workspace.v1` 背后，客户端可以调 `workspace.list` 并读到宿主的工作区与两个全局会话集合；`session.admin.v1` 背后，它可以改名、置顶、取消置顶、归档与取消归档一条会话，因此它从线上读到六种新的应答体。`minor:13` 是待答提问列表落地：`questions.list.v1` 背后，客户端可以调 `question.list`，拿回本桥此刻仍持有的提问——手机据此对账它手里的卡，也是它得知「自己离线时某个提问已经结束」的唯一途径，因为最后一个配对设备离开时，桥会撤回全部认领。`minor:12` 是指令通道落地之时：`commands.v1` 背后，客户端可以调 `session.commands` 与 `session.command`，因此它从线上读到一种新的应答体。`minor:11` 是 fork 通道落地之时（比先一步在集成分支上落地的快照增量通道高一位）：`session.fork.v1` 背后，客户端可以调 `session.fork` 并拿到宿主自己的 fork 结果。`minor:10` 是快照可按请求增量之时：`session.snapshot.since.v1` 背后，带 `sinceSeq` 的 `session.snapshot` 要么只回该水位之上的 entry，要么回一份带 `mode` 与 `reset` 的完整基线，所以这一位是为客户端能从线上读到的应答形状而提的。`minor:9` 是紧凑名册之时：`session.list.compact.v1` 背后，带 `cwd`、`maxRows` 或 `after` 的列出得到更短、且可分页的行，所以这一位是为客户端能从线上读到的行 schema 而提的。`minor:8` 是下行帧的形态本身成为一种能力之时：`frame.deflate.v1` 背后，声明了的客户端可能收到承载裸 DEFLATE 的 binary 帧，所以这一位是为客户端能从线上读到的东西而提的。`minor:7` 是两条通道汇合之时；`minor:6` 是其中任一条单独在位——agent 通道在 dev 上，持久历史分页在它自己的分支上；`minor:5` 时是名册不再携带已归档会话。`agents.v1` 背后，`presets.list` 与 `session.create` 转发宿主的预设名册与一次创建请求；`session.deep-history.v1` 背后，`session.history.deep` 把会话的持久存储一直翻到最早一条 entry；`session.fork.v1` 背后，`session.fork` 把一条会话分叉成继承它的新会话。`minor:4` 加了字节级增量，`minor:3` 是后台作业通道，`minor:2` 是子代理线程，`minor:1` 是本扩展缝。它们都没有改动主版本 1、任何冻结字段、方法名或主题名。唯一对每个客户端都变短的响应体是名册本身，它不再点名已归档会话；其余答案对什么都不声明的客户端仍是协议 v1 自己的。
 
 ## 错误码
 
@@ -167,7 +168,9 @@ fork 的方法同样什么都不解释。`session.fork` 把 `sessionId` 与客�
 | `snapshot-too-large` | 开帧快照无法压缩进单帧：连一个回合都放不下 |
 | `squads-unavailable` | 本宿主没有本桥能到达的 `dsh-agents` 小队域：插件 loopback 路由没有应答、旁边没有可读的账本，或者应答体不是本构建读得懂的那一个域。小队读取从不以空板回答，而插件自己抛出的拒绝带着插件自己的码穿过 |
 | `squads-run-unavailable` | 定义读得到，但两条运行指令服务不了：到达不了任何 loopback 运行路由，只读账本也启动不了会话。回一个从未启动的运行是这条通道唯一不做的事 |
-| `internal` | 桥在服务该调用时自身失败 |
+| `path-not-in-session` | `session.attachment.path` 点名的路径不在这次会话自己的持久 transcript 里——客户端自选的路径，或 `realpath()` 解析后不再等于它自己的那种 |
+| `not-found` | 白名单里有这个路径，但那里已经没有常规文件：被删了，或被换成了目录、设备或 fifo |
+| `not-an-image` | 文件自己的头几个字节不是 PNG、JPEG、WebP 或 GIF 中的任何一种；扩展名一律不作数 |
 | `frame-too-large` | 该帧超过 10 MiB 上限，未被解析 |
 | `malformed` | 该帧不是形状可辨的单个 JSON 对象 |
 | `direction-violation` | 客户端发来了只有宿主才发的 `res` 或 `ev` 帧 |
@@ -250,7 +253,7 @@ curl -s http://127.0.0.1:3080/remote-bridge/pair/token
 - **隧道的目标是入站网关而非 webServer 端口**：cloudflared 快速隧道与命名隧道的目标均指向 `ingress-gate` 的动态回环端口，绝不直连 `webServer` 端口。外界经隧道传入的请求无法触达 webServer 路由、内部 API 或其他插件。
 - **中继注册行与公网暴露面**：中继注册行只写入快速隧道的 URL，也就是入站闸门，公网因此只看得见 /ios/v1。计划为 quick 且隧道 running 时把闸门 URL 注册给中继 Worker（代理稳定子域名到本机，端点与后缀由配置决定、缺省为 `<id>.dsh-market.com`）；卸载时只清本地引用不撤行。二维码公网地址由 `livePublicOriginOf` 裁定：bridge 或 named 租约优先稳定子域名；quick 租约在注册未成功时退回隧道 running URL；无租约用隧道 URL；皆无则无地址。其后退回 `DSH_REMOTE_PUBLIC_BASE_URL`，局域网兜底仅当局域网转发器真的在监听时才按实际绑定的 address 与 port 给出（不猜地址列表首项，转发器停止即无兜底；已彻底移除磁盘 registry 行作为兜底地址，消除了对老插件数据文件的最后一处依赖）。
 - **局域网转发器的目标同样是入站网关**：局域网转发器监听本机局域网 IPv4 地址，并将请求严格转发至 `ingress-gate` 端口，因此局域网入口的暴露面同样仅有 `/ios/v1`。
-- **中继桥会合点白名单**：`relay-bridge-connector.ts` 对 Durable Object 汇聚的入站流执行完全相同的白名单检查，非 `/ios/v1` 的 HTTP 流直接应答 `404 {"error":"not-found"}`，非白名单 WebSocket 升级直接回复 `ws-fail 404 {"error":"not-found"}`，两条路都不建立上游连接。
+- **中继桥会合点白名单**：`relay-bridge-connector.ts` 对 Durable Object 汇聚的入站流执行完全相同的白名单检查，非 `/ios/v1` 的 HTTP 流直接应答 `404 {"error":"not-found"}`，非白名单 WebSocket 升级直接回复 `ws-fail 404 {"error":"not-found"}`，两条路都不建立上游连接。通过白名单的流会丢弃调用方的 `accept-encoding`、改向回环宿主索取 `identity`，于是桥接响应遇到的压缩只可能来自边缘自己：在这一端压缩过的 body 到边缘时已经不可读，边缘再压一层，调用方就只解开了两层中的一层（issue #2052）。
 - **身份目录沿用历史拼写与并存禁忌**：中继身份目录 `$DSH_HOME/remote-web-ui-registry/` 与状态文件 `remote-web-ui-relay-bridge.json` 有意沿用历史拼写，确保既有 profile 保持身份连续性，已配对设备升级后无需重新配对。**已知风险与并存禁忌**：同一 profile 切勿同时启用本插件与已弃用的 `dsh-remote-web-ui` 的中继——两者按 profile 共用同一份身份文件；若新桥以 `relay=false` 挂载，会撤销该身份下的注册行并释放租约，从而打断老插件正在使用的公网中继；若两侧 relay 同时开启，bridge 传输下两个连接器会拿同一凭据竞争同一个 Durable Object 连接互相顶掉，quick 传输下后注册者覆盖前者。该收尾行为是有意设计的。
 - **本插件不含浏览器配对面**：本包不包含配对 cookie 门控、`/api/pair` 路由族、`/remote` 代理通道以及手机浏览器竖屏触控适配层。
 
@@ -275,7 +278,7 @@ curl -s http://127.0.0.1:3080/remote-bridge/pair/token
 
 ## Web GUI 配对面板
 
-浏览器半区存在的理由，是让从不开终端的操作者也有一条发起配对的路径。它沿用家族在侧栏底部的惯例：触发器注册进官方 `sidebar.footer.action` 列表槽位（由 ui-sidebar 声明，与 `dsh-update` 的更新器共用该列表槽位），点开后是官方 `Modal`，这张无头卡片由本包填充。它渲染的每个控件都是库里已有的 primitive——弹窗、三个动作与它们的字形——因此遮罩、卡片、焦点圈定、Esc、焦点归还，以及每个 hover/focus/disabled 状态都是官方壳自己的行为，而不是本包的一份复制品。它由同一插件行承载：产物是 `exports["./client"]`，`dsh.client` 声明必须先就位的 client 模块。
+浏览器半区存在的理由，是让从不开终端的操作者也有一条发起配对的路径。它沿用家族在侧栏底部的惯例：触发器注册进官方 `sidebar.footer.action` 列表槽位（由 ui-sidebar 声明，与家族其它脚部触发器共用该列表槽位），点开后是官方 `Modal`，这张无头卡片由本包填充。它渲染的每个控件都是库里已有的 primitive——弹窗、三个动作与它们的字形——因此遮罩、卡片、焦点圈定、Esc、焦点归还，以及每个 hover/focus/disabled 状态都是官方壳自己的行为，而不是本包的一份复制品。它由同一插件行承载：产物是 `exports["./client"]`，`dsh.client` 声明必须先就位的 client 模块。
 
 面板只做一件事——把活着的那个一次性配对码摆到操作者面前，且只有这一个阅读顺序：
 
@@ -352,6 +355,7 @@ dsh plugin --profile web add link:$(pwd)/packages/dsh-remote-bridge
 - **令牌比对不泄漏长度。** 用的是定长比较而非提前返回的比较，因此错误令牌无法被逐字节逼近。
 - **审批在客户端在线时 fail closed。** 只要还有一个已配对客户端在线，桥才认领工具的权限请求；一个都没有时，请求交给下一个应答者而不是卡住。已认领而无人应答的审批会被归一为 `unavailable`，宿主按拒绝处理：手机沉默永远不等于同意。
 - **header 是更安全的载体。** `Authorization: Bearer <deviceToken>` 让凭据不进入 URL；`?token=` 是给无法设置握手 header 的客户端的，此时中继、边缘与访问日志都会看到一条以该设备身份鉴权的 URL。
+- **一张图只能由点过它的那条会话取。** `session.attachment.path` 只在拿到的字符串逐字节等于**这次会话自己的持久 transcript** 点过的某个路径时才回字节：来源是消息体里的 offload 占位符，或持久工具结果发布的图像引用。白名单每次请求都从该会话自己的存储现算，别的什么都不读——走的就是 `session.history.deep` 那条持久读面、同一道栅栏，所以父会话不是本连接可读的委派子会话在任何存储调用之前就被拒——而客户端一个路径都贡献不了。白名单与字节之间还立着四道判定：逐字节相等、`realpath()` 必须解析回它自己（指向别处的软链接被拒而不是被跟随）、那里必须是常规文件、头几个字节必须是四种图像签名之一；扩展名一律不看。白名单之外的文件一个都不读，也不会去列目录。不是宿主绝对路径的条目根本不进白名单，所以 `browser_screenshot` 那个磁盘上没有对应文件的插件命名空间名永远发不出去。
 - **中继档位分流与授权凭据边界。** 名册（`devices.json`）schema 3 → 4，每台设备行新增可选的 `relay: {grant, receivedAt}`。那枚 `grant` 是账号服务签发的 30 天 HS256 凭据，经**已配对的加密连接**由手机交给宿主，宿主只把它原样放进 claim 请求体。宿主因此仍然不知道账号是谁、也不知道档位：它只知道「我有没有一份被中继承认的租约」。档位判定发生在自建中继与账号服务之间的一次回环请求里，中继只把额度写进租约行，不落任何用户标识。`hello.relay`、能力名 `relay.tier.v1`、`relay.grant` 这一帧**只在配置了第二个会合点时才存在**；不配置时握手逐字节等于今天，那一帧回 `unknown-method`。两个配置项名：`relaySecondaryControlUrl` 与 `relaySecondaryPublicSuffix`，缺省都不配置。
 
 ## 已知限制
@@ -371,6 +375,7 @@ dsh plugin --profile web add link:$(pwd)/packages/dsh-remote-bridge
 - **名册改动在下一次宿主启动时生效。** 名册每个进程只读一次，因此移除设备要等 `dsh web` 重启才起作用。
 - **面板只显示一个配对码，别的都不做。** 它不能列出、命名或吊销已配对设备，也从不消耗配对码——配对发生在手机上，吊销仍然是改名册加重启宿主。
 - **面板的新鲜度只到它上一次取码为止。** 它在打开时取一次码，之后每按一次「重新取码」再取一次；一直开着时过期的码会翻成过期状态，而不会自己悄悄续期。
+- **白名单按会话水位算，不按请求算。** `session.attachment.path` 要读完一条会话的整份持久存储才能算出白名单，在宿主当前最长的那条会话上（5680 条 entry、压缩后 6.0 MiB）解压要 40.8 ms、解压加解析要 108 ms，而这条路按桥自己的窗口一次要翻两页，每页都付一次。因此每条连接只记住最近四个会话的白名单，键是读它时的那个 `asOfSeq`，最久没用的先逐出：同一水位下的第二次请求不再翻页，而任何一条事件落盘都会推高水位、逼出一次重算。这不是图像字节的缓存——字节每次调用都从磁盘直取，与 `session.attachment` 完全一致。
 - **`scripts/client.mjs` 是检查用的工具，不是客户端 SDK。** 它只按固定顺序跑一遍，不保存状态，也没有重连逻辑。
 - **卡片自己的子帧在桌面端没有被拦。** 手机端把卡片里的嵌套 `<iframe>` 当作跨文档跳转一律拒绝；这里沙箱化的画框没有等价的拦截点，所以页面自己的子帧仍会渲染，只是每一帧都保持不透明源。
 - **keyed 注册经由一条本地缝到达槽位。** 声明 `tool.call.toolview` 的那个 SDK 包不是本包的依赖，因此槽位是经窄化后的 `ctx.slots` 端口到达的，端口里镜像了 owner 的阶段联合；把那个包收作 devDependency 后，这条缝会被 SDK 自己的类型替掉。

@@ -222,12 +222,27 @@
     <priority>0.7</priority>
   </url>
   <url>
+    <loc>https://dsh-market.com/tryon/?skin=whale-watercolour</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://dsh-market.com/tryon/?skin=equation-sea</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
     <loc>https://dsh-market.com/tryon/?skin=lucy-nightsignal</loc>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://dsh-market.com/tryon/?skin=crt-phosphor</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://dsh-market.com/tryon/?skin=pixel-whale</loc>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
@@ -273,6 +288,11 @@
   </url>
   <url>
     <loc>https://dsh-market.com/tryon/?skin=black-gold-vip</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://dsh-market.com/tryon/?skin=md3</loc>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>

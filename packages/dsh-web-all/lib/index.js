@@ -933,16 +933,11 @@ const RETIRED_PLUGINS$1 = Object.freeze(Object.values({
 	"update": "@linxin666/dsh-update"
 }).sort());
 Schema.any().volatile();
-/**
-* Loopback-fenced degraded-state route (installed once per shell context).
-* Payload is additive: `{ ok, degraded: [{ plugin, stage, message, reason, at }] }`
-* — the reason field is what a degraded plugin's own panel renders (#1730),
-* and a reader that predates it keeps using stage/message.
-*/
 function makeDegradedRoute() {
 	return {
 		kind: "exact",
 		path: "/api/dsh-web-all/degraded",
+		auth: "anonymous",
 		handler: async (req, res) => {
 			let remote = req.socket.remoteAddress ?? "";
 			if (remote.startsWith("::ffff:")) remote = remote.slice(7);

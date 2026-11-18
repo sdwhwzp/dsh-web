@@ -3,7 +3,7 @@
 English | [中文](README.zh.md)
 
 <p align="center">
-  <img src="https://img.shields.io/badge/DSH-%3E%3D0.2.2--rc.1-4c6ef5?style=flat-square&amp;labelColor=454a54" alt="DSH">
+  <img src="https://img.shields.io/badge/DSH-%3E%3D0.2.2--rc.3-4c6ef5?style=flat-square&amp;labelColor=454a54" alt="DSH">
   &nbsp;
   <img src="https://img.shields.io/badge/license-BSD--3--Clause-blue?style=flat-square" alt="License">
 </p>
@@ -19,8 +19,8 @@ This package is an external plugin for DeepSeek Harness (DSH), structured as a c
 - **Evidence in the conversation**: every `browser_screenshot` result carries the image, so the transcript keeps the picture the agent acted on instead of only a sentence about it.
 - **Isolated by default**: the plugin launches its own Chromium with a throwaway profile, so the browser you are signed into is not touched while the mode below stays off.
 - **Your own browser on request**: with `realBrowserEnabled` set, the plugin attaches over CDP to a browser you started with remote debugging. Each DSH session on this host can enumerate, read, navigate, click and type in every tab that browser has — tabs that existed before the attach and tabs opened afterwards — and the sign-ins already in that profile work, because the pages run in it and no cookie is imported.
-- **Signs itself in to this host's own GUI**: a fresh isolated profile has no session cookie, so the viewer would only ever see the 401 challenge. When a navigation lands on that challenge over loopback, the plugin asks the host's connection service for the same ticketed URL `dsh web` printed, and retries once. The cookie that mints lives in the throwaway profile and dies with it.
-- **Closing is explicit**: `browser_close` without a tab id closes only the tabs the calling session opened; a tab of an attached browser closes only when the call names its id. The panel shows no close control for such a tab.
+- **Signs itself in to this host's own GUI**: a fresh isolated profile has no session cookie, so the viewer would only ever see the 401 challenge. When a navigation lands on that challenge over loopback, the plugin asks the host's connection service for the same ticketed URL `dsh web` printed, and retries once. The challenge is either the exchange page's own sentence or the bare `unauthorized` a Host answers when route admission refuses the site root first; the bare form only counts when the requested URL is this host's own listener origin (same protocol and port). The cookie that mints lives in the throwaway profile and dies with it.
+- **Closing is explicit, and idle pages clean themselves up**: `browser_close` without a tab id closes only the tabs the calling session opened; a tab of an attached browser closes only when the call names its id. The panel shows no close control for such a tab. Separately, a page the plugin opened itself closes once no browser tool has touched it for `idleCloseDays` days, so a forgotten page does not outlive the session that opened it.
 
 ## How it works
 
@@ -56,12 +56,15 @@ The single-occupant `rightbar` / `rightbar.session` seats are still not touched:
 
 ## Configuration
 
-Both fields are volatile, so the host generates this plugin's settings form from them and a change reaches the running plugin without a restart. They also appear as the **Real browser** card under **Web Extensions -> Web Plugins**, alongside the plugin row's configuration page; both surfaces edit the same values.
+All three fields are volatile, so the host generates this plugin's settings form from them and a change reaches the running plugin without a restart. They also appear as the **Real browser** card under **Web Extensions -> Web Plugins**, alongside the plugin row's configuration page; both surfaces edit the same values.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
 | `realBrowserEnabled` | `false` | Attach to a browser started with remote debugging instead of launching the dedicated Chromium |
 | `cdpEndpoint` | `http://127.0.0.1:9222` | HTTP endpoint of the browser to attach to; a host that is not loopback is refused |
+| `idleCloseDays` | `3` | Days without a browser tool touching a page the plugin opened itself before that page closes; `0` disables the sweep |
+
+Idle close counts tool activity and nothing else: any `browser_*` call that resolves to a page restarts that page's clock, while watching it in the panel does not. The host reads the window every ten minutes, so an edit applies to the next sweep without a restart, and a host with no browser running sweeps nothing. The clock lives in memory only, so restarting the host starts every page's window again. A page adopted from your own browser is never closed by the timer.
 
 Turning the mode on, turning it off, and changing the endpoint all detach from the browser the plugin is talking to. An external browser and every tab in it stay exactly as they are; the next tool call connects again with the current setting. A browser the plugin launched itself is shut down as before.
 
@@ -78,22 +81,23 @@ Sign in to the sites the agent should see inside that profile once; the plugin d
 
 ## Security model
 
-- **Loopback only, in both modes**: the panel socket is fenced to loopback requests, and a CDP endpoint whose host is not loopback is refused before a connection is attempted.
+- **Loopback only, in both modes**: the panel socket is fenced to loopback requests, and a CDP endpoint whose host is not loopback is refused before a connection is attempted. Both the panel socket and its status route declare anonymous admission and enforce that fence themselves, so a Host that requires authentication for unspecified routes still serves them to a loopback caller.
 - **No authentication on the CDP endpoint**: the devtools protocol has no credentials, so any process on this machine that can reach that port drives the same tabs. The mode is off by default, and a loopback endpoint is what keeps that reach local.
 - **Throwaway profile in isolated mode**: Chrome runs on a fresh `--user-data-dir` under the system temp directory with a random debugging port, so no cookie, session or extension of the user's real browser is reachable.
 - **Your sign-ins stay in your browser**: the plugin reads pages, not the cookie jar; nothing is copied out of the attached profile into the plugin, the isolated profile or disk.
 - **Every DSH session sees every tab**: while CDP mode is on, every session on this host can enumerate, read, navigate, click and type in every tab of the attached browser, including tabs opened after it attached. The mode grants that to the host, not to one session.
 - **Headless by default**: in isolated mode nothing pops up on the desktop; the tab is the only view.
-- **Process lifetime**: a Chromium the plugin launched is killed when the plugin disposes; disposing or changing configuration only detaches from an external browser and closes neither the browser nor any of its tabs.
+- **Idle close never touches an adopted page**: the sweep selects only targets the plugin created itself, so a tab of your own browser closes only when a caller names its id, and disposing the plugin still closes nothing there.
+- **Process lifetime**: a Chromium the plugin launched is killed when the plugin disposes; disposing or changing configuration only detaches from an external browser and closes neither the browser nor any of its tabs. A session whose CDP socket has closed is dropped on its next call and detached the same way — it never closes an external browser or its tabs — then reconnected to the configured endpoint; a reconnect that fails is reported as the connection error, and the configured source is never swapped for another one.
 - **Failure is an error, not a downgrade**: an endpoint that does not answer fails the tool call with the connection error, and the plugin never falls back to the isolated browser, so the panel cannot show a browser other than the configured one.
-- **Token handling**: the launch token is minted per navigation, held in memory, and never written to disk; the retry only happens on a loopback target whose document is DSH's own challenge, so no other local service is ever handed the token.
+- **Token handling**: the launch token is minted per navigation, held in memory, and never written to disk; the retry only happens on a loopback target whose document is DSH's own challenge, so no other local service is ever handed the token. A bare refusal is attributed to this host by its published listener origin before the token is minted.
 
 ## Known limits
 
 - The tab is a **view**. Input comes from the agent through the tools; it does not forward your mouse or keyboard.
 - CDP mode lists every tab the browser has, including tabs that have nothing to do with this workspace; the panel does not filter or hide them.
 - Chrome 136 and later ignore `--remote-debugging-port` for the default data directory, so the default Chrome profile cannot be attached this way: use a profile explicitly started with a non-default `--user-data-dir` ([Changes to remote debugging switches](https://developer.chrome.com/blog/remote-debugging-port)).
-- A browser that was launched without the debug port, or that has since exited, produces a connection error on the tool call; the plugin starts nothing in its place.
+- A browser that was launched without the debug port, or that has since exited, produces a connection error on the tool call. The retry on the next call reconnects only to the configured endpoint; the plugin never starts a real browser in its place.
 - The tab lives inside the right sidebar, so it needs that column; a layout that hides the column hides the tab.
 - Frames are produced when the page changes, so a static page holds the last frame instead of streaming duplicates.
 - Switching chips keeps the body mounted (`keepMounted`), so the socket survives; the frame still waits for the next change.

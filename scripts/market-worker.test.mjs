@@ -130,7 +130,6 @@ test('worker records a like via one D1 batch with recount and count read', async
   globalThis.fetch = async () => new Response(JSON.stringify({ success: true, action: 'market-like', hostname: 'dsh-market.com' }))
   try {
     const seen = []
-    const stmt = () => ({ bind: (...args) => ({ sql: 'stmt', args, original: true }) })
     const db = {
       prepare: (sql) => {
         const s = { sql }
@@ -139,7 +138,6 @@ test('worker records a like via one D1 batch with recount and count read', async
       },
       batch: async (items) => {
         seen.push({ kind: 'batch', count: items.length })
-        const wants = items.map((i) => i.kind)
         return [
           { results: [] },
           { results: [] },
@@ -307,7 +305,7 @@ test('worker serves the OpenAPI description and API docs', async () => {
 test('worker adds RFC 8288 Link headers on the homepage', async () => {
   const response = await worker.fetch(new Request('https://dsh-market.com/'), {
     ASSETS: {
-      async fetch(request) {
+      async fetch() {
         return new Response('<!doctype html><html></html>', { headers: { 'content-type': 'text/html', 'cache-control': 'public, max-age=0, must-revalidate', etag: 'abc' } })
       },
     },
@@ -336,6 +334,7 @@ test('worker serves a markdown homepage via Accept: text/markdown', async () => 
         '/manifest/skins.json': JSON.stringify({ items: [{ id: 'harbor', name: '港湾', nameEn: 'Harbor', author: 'linxin', rank: 1, description: '海港灯火主题' }] }),
         '/manifest/pets.json': JSON.stringify({ items: [{ id: 'whale', displayName: '鲸鱼', rank: 1 }] }),
         '/manifest/plugins.json': JSON.stringify({ items: [{ id: 'dsh-ssh', name: 'SSH', rank: 1, category: 'dev', description: 'Remote shell host' }] }),
+        '/manifest/presets.json': JSON.stringify({ items: [{ id: 'analyst', name: '分析师', nameEn: 'Analyst', author: 'linxin', rank: 1, category: 'research', description: 'Research preset' }] }),
       }
       return new Response(bodies[pathname] || '{}', { headers: { 'content-type': 'application/json' } })
     },
@@ -349,6 +348,7 @@ test('worker serves a markdown homepage via Accept: text/markdown', async () => 
   assert.match(body, /^# DSH Web UI/)
   assert.match(body, /港湾/)
   assert.match(body, /HTTP\/dsh-ssh|dsh-ssh/) // plugin listed
+  assert.match(body, /分析师/) // preset listed
 })
 
 test('worker keeps HTML when a browser Accept header is sent', async () => {
@@ -373,7 +373,7 @@ test('challenge page renders the explicit Turnstile widget', async () => {
   assert.equal(response.headers.get('content-type'), 'text/html; charset=utf-8')
   const html = await response.text()
   assert.match(html, /challenges\.cloudflare\.com\/turnstile\/v0\/api\.js\?render=explicit/)
-  assert.match(html, /size:&quot;invisible&quot;|size:\"invisible\"/)
+  assert.match(html, /size:&quot;invisible&quot;|size:"invisible"/)
 })
 
 function telemetryDb(options = {}) {

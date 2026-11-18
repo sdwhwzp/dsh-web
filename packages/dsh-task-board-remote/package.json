@@ -1,7 +1,7 @@
 {
   "name": "@linxin666/dsh-task-board-remote",
-  "description": "Puts the dsh Web GUI task board on the remote surface: the host half binds the board's capability face to the dsh-remote-bridge extension seam, so a paired phone reads the same ledger (snapshot, acceptance options, idempotent actions, revision events) through the host's own gates.",
-  "version": "0.4.15-dsh.20261104.1",
+  "description": "Puts the dsh Web GUI task board on the remote surface: the host half binds the board's capability face to the dsh-remote-bridge extension seam, so a paired phone reads the same ledger (snapshot, model catalog, idempotent actions, revision events) through the host's own gates.",
+  "version": "0.4.19-dsh.20261118.1",
   "icon": "icon.svg",
   "type": "module",
   "engines": {
@@ -21,7 +21,7 @@
   },
   "dsh": {
     "engines": {
-      "dsh": ">=0.2.2-rc.1"
+      "dsh": ">=0.2.2-rc.3"
     },
     "bundle": {
       "patch": "./cordis.patch.yml"
@@ -34,7 +34,7 @@
     "typecheck": "tsgo --noEmit"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh": ">=0.2.2-rc.1"
+    "@deepseek-ai/dsh": ">=0.2.2-rc.3"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.1.0",

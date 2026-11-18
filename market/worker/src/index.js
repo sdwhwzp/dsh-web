@@ -69,15 +69,16 @@ async function homeMarkdown(env) {
     return res.json().catch(() => ({ items: [] }))
   }
   try {
-    const [skins, pets, plugins] = await Promise.all([
+    const [skins, pets, plugins, presets] = await Promise.all([
       read('/manifest/skins.json'),
       read('/manifest/pets.json'),
       read('/manifest/plugins.json'),
+      read('/manifest/presets.json'),
     ])
     const lines = [
       '# DSH Web UI 创意工坊',
       '',
-      'dsh-market.com — DSH Web UI 社区皮肤、宠物与插件的一站式创意工坊。',
+      'dsh-market.com — DSH Web UI 社区皮肤、宠物、插件与 Agent 预设的一站式创意工坊。',
       '本文件是站点的 Markdown 表示，通过内容协商（Accept: text/markdown）提供给智能体。',
       '',
       '- API 目录: https://dsh-market.com/.well-known/api-catalog',
@@ -120,6 +121,17 @@ async function homeMarkdown(env) {
       if (p.npm) lines.push('- npm: ' + p.npm)
       lines.push('')
     }
+    lines.push('## Agent 预设 (Presets)', '')
+    const presetItems = Array.isArray(presets.items) ? presets.items : []
+    if (!presetItems.length) lines.push('暂无预设。')
+    for (const pr of presetItems.sort((a, b) => (a.rank - b.rank) || String(a.id).localeCompare(String(b.id)))) {
+      lines.push('### ' + (pr.name || pr.id) + ' (' + pr.id + ')')
+      if (pr.nameEn) lines.push('- 英文名: ' + pr.nameEn)
+      if (pr.author) lines.push('- 作者: ' + pr.author)
+      if (pr.category) lines.push('- 分类: ' + pr.category)
+      if (pr.description) lines.push('- 说明: ' + pr.description)
+      lines.push('')
+    }
     const body = lines.join('\n')
     markdownCache = { at: now, body, tokens: estimateTokens(body) }
     return markdownCache
@@ -144,7 +156,7 @@ function json(data, status = 200, extra = {}) {
   })
 }
 
-function preflight(request) {
+function preflight(_request) {
   const headers = new Headers({
     // ACAO * is intentional: the legitimate writers are MarketCards embedded
     // in arbitrary per-user DSH GUI origins (loopback, LAN, custom domains),

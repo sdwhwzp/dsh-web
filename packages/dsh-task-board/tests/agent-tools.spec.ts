@@ -20,7 +20,6 @@ import { TaskBoardHostService } from '../src/host-service.ts'
 import { PowerInhibitor } from '../src/power-inhibitor.ts'
 import { fixtureWorkspaces } from './workspace-fixture.ts'
 import type { TaskPermission } from '../src/core/tasks.ts'
-import { exceptionAttempts, type VerificationAttempt } from '../src/core/verification.ts'
 
 const roots: string[] = []
 const NOW = 1_700_000_000_000
@@ -124,26 +123,6 @@ async function onlyTaskId(live: Harness): Promise<string> {
 }
 
 
-/** One recorded acceptance attempt, built for the tool-surface tests. */
-function verificationAttempt(stage: 'exception', index: number): VerificationAttempt {
-  return {
-    index,
-    at: NOW + index,
-    stage,
-    passed: false,
-    score: 0,
-    baseline: 0,
-    criteria: [],
-    findings: [],
-    usage: { calls: 0, inputTokens: 0, outputTokens: 0, reasoningTokens: 0 },
-    evidence: { chars: 0, omittedCharacters: 0, entries: 0, hash: '' },
-    route: { provider: 'p', model: 'm' },
-    channel: 'explicit-tag',
-    rounds: 0,
-    error: 'environment failure',
-  }
-}
-
 describe('agent tool definitions', () => {
   it('operator records external results only in the current caller board', async () => {
     // Given one resolver shared by callers with different boards.
@@ -211,7 +190,7 @@ describe('agent tool definitions', () => {
     // Given a live board service
     const live = harness()
     const update = live.tools.find(tool => tool.name === 'task_board_update')
-    const permission = (update?.parameters as { properties?: Record<string, { oneOf?: Array<{ enum?: string[] }> }> }).properties?.permission
+    const permission = (update!.parameters as { properties?: Record<string, { oneOf?: Array<{ enum?: string[] }> }> }).properties?.permission
 
     // When the update tool's permission parameter is read
     // Then the clearing value is its own const branch, because an OpenAI-compatible
@@ -538,28 +517,6 @@ describe('task_board_manage', () => {
     expect((moved.task as { executionCount: number }).executionCount).toBe(0)
   })
 
-  it('user clearing the acceptance anomalies of a card whose judge could not answer is told it worked', async () => {
-    // Given a running card whose open execution recorded two acceptance anomalies
-    const live = harness()
-    await call(live, 'task_board_create', { title: 'root' })
-    const taskId = await onlyTaskId(live)
-    const run = await call(live, 'task_board_run', { taskId })
-    const executionId = (run.started as Array<{ executionId: string }>)[0]!.executionId
-    live.host.ledger.setVerification(taskId, executionId, {
-      contract: { enabled: true, modelSource: 'inherit', route: { provider: 'p', model: 'm' }, preset: 'coding', threshold: 0.65 },
-      attempts: [verificationAttempt('exception', 1), verificationAttempt('exception', 2)],
-      applicability: 'enforced',
-    })
-
-    // When the user clears them through the manage tool
-    const cleared = await call(live, 'task_board_manage', { taskId, action: 'reset-verification' })
-
-    // Then the card is acknowledged and the counter is empty again
-    expect(cleared.ok).toBe(true)
-    const stored = live.host.ledger.getTask(taskId)?.executions.find(entry => entry.id === executionId)?.verification
-    expect(exceptionAttempts(stored)).toHaveLength(0)
-  })
-
   it('user reporting work finished outside this Host gets a recorded outcome in the run history', async () => {
     // Given a card that was never run here
     const live = harness()
@@ -617,19 +574,6 @@ describe('task_board_manage', () => {
     expect((await call(live, 'task_board_get', { taskId })).task).toMatchObject({ status: 'todo' })
   })
 
-  it('user clearing acceptance anomalies on a card that never ran is refused with the reason', async () => {
-    // Given a card that was never run
-    const live = harness()
-    await call(live, 'task_board_create', { title: 'root' })
-    const taskId = await onlyTaskId(live)
-
-    // When the user asks to clear acceptance anomalies anyway
-    const refused = await call(live, 'task_board_manage', { taskId, action: 'reset-verification' })
-
-    // Then the refusal names the obstacle rather than silently doing nothing
-    expect(refused.ok).toBe(false)
-    expect(refused.message).toContain('no open execution')
-  })
 
   it('user parks a card in the running column and sees it there without a run', async () => {
     // Given a card in the todo column
@@ -873,29 +817,6 @@ describe('team runs are gone from the tool surface', () => {
     expect(run?.description).toContain('subagent')
     const manage = live.tools.find(definition => definition.name === 'task_board_manage')
     expect(manage?.description).toContain('backfill every subtask card')
-  })
-})
-
-describe('/goal opt-in through the tools', () => {
-  it('user creating a card gets one plain turn by default and the model can opt it in', async () => {
-    // Given a fresh board
-    const live = harness()
-
-    // When the model creates a card without naming the option
-    const defaulted = await call(live, 'task_board_create', { title: 'default' })
-    const defaultTask = defaulted.task as { id: string; goalRun?: boolean }
-
-    // Then the default is off, and the view reports no deviation from it
-    expect(defaultTask.goalRun).toBeUndefined()
-
-    // And an explicit true opts the card into goal runs, which the view reports
-    const opted = await call(live, 'task_board_create', { title: 'goal', goalRun: true })
-    const optedTask = opted.task as { id: string; goalRun?: boolean }
-    expect(optedTask.goalRun).toBe(true)
-
-    // And returning it to the default clears the stored opt-in
-    const updated = await call(live, 'task_board_update', { taskId: optedTask.id, goalRun: false })
-    expect((updated.task as { goalRun?: boolean }).goalRun).toBeUndefined()
   })
 })
 

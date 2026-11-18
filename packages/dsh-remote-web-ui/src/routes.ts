@@ -1088,7 +1088,7 @@ export function makeRoutes(deps: PairRoutesDeps): WebRoute[] {
       writeJson(res, 403, { ok: false, code: 'forbidden' })
       return
     }
-    writeJson(res, 200, { ok: true, ...(deps.lanBindStatus?.() ?? {}) })
+    writeJson(res, 200, { ok: true, ...deps.lanBindStatus?.() })
   }
 
   /**
@@ -1308,7 +1308,10 @@ export function makeRoutes(deps: PairRoutesDeps): WebRoute[] {
     // re-serves exists (same condition as /pair-app).
     routes.push({ kind: 'exact', path: PAIR_PATHS.appServiceWorker, handler: handleAppServiceWorker })
   }
-  return routes
+  // All pairing and phone-UI routes enforce their own loopback, device-cookie,
+  // or bootstrap-token fence and must remain reachable without desktop browser login.
+  type AuthAwareRoute = (typeof routes)[number] & { readonly auth?: 'anonymous' | 'required' | 'deny' }
+  return routes.map((route): AuthAwareRoute => ({ ...route, auth: 'anonymous' }))
 }
 
 /**

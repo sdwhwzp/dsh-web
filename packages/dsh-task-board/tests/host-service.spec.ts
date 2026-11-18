@@ -9,6 +9,7 @@ import type { TaskBoardWorkspaceRegistry } from '../src/host-runner.ts'
 import { PowerInhibitor } from '../src/power-inhibitor.ts'
 import { createTask, EXECUTION_HISTORY_LIMIT, startExecution, withSchedule } from '../src/core/tasks.ts'
 import type { TaskBoardPrincipal } from '../src/host-accounts.ts'
+import { LEGACY_AGENT_TEAMS_REASON } from '../src/core/subtask.ts'
 import { fixtureWorkspaces } from './workspace-fixture.ts'
 
 const roots: string[] = []
@@ -128,12 +129,17 @@ describe('single-session runs', () => {
     return { gateway, prompts, creates }
   }
 
-  function serviceFor(ledger: HostTaskLedger, gateway: ReturnType<typeof launchGateway>['gateway']): TaskBoardHostService {
+  function serviceFor(
+    ledger: HostTaskLedger,
+    gateway: ReturnType<typeof launchGateway>['gateway'],
+    extra: { legacyAgentTeams?: () => boolean } = {},
+  ): TaskBoardHostService {
     return new TaskBoardHostService(gateway, {
       ledger,
       power: new PowerInhibitor({ platform: 'linux' }),
       now: () => NOW,
       workspaceRegistry: fixtureWorkspaces(),
+      ...extra,
     })
   }
 
@@ -234,6 +240,49 @@ describe('single-session runs', () => {
     expect(rootCard?.status).toBe('failed')
     expect(rootCard?.executions.at(-1)?.error).toContain('liangshen')
     expect(rootCard?.executions.at(-1)?.error).toContain('unfinished subtasks')
+    service.dispose()
+  })
+
+  it('user on a legacy Agent Teams deployment sees the forced run fail closed before a session exists', async () => {
+    // Given a root with one unfinished subtask, on a deployment that registers
+    // the legacy team tool the dispatcher preset refuses to orchestrate beside
+    const ledger = new HostTaskLedger(root(), () => NOW)
+    seedTree(ledger)
+    const { gateway, prompts, creates } = launchGateway()
+    const service = serviceFor(ledger, gateway, { legacyAgentTeams: () => true })
+
+    // When the user runs the parent
+    service.apply('run-1', { kind: 'run', taskId: 'root' })
+    await flushLaunchChain()
+
+    // Then no session was created or prompted at all, and the card carries the
+    // refusal the browser renders in the reader's own language
+    expect(creates).toHaveLength(0)
+    expect(prompts).toHaveLength(0)
+    const rootCard = ledger.state().tasks.find(task => task.id === 'root')
+    expect(rootCard?.status).toBe('failed')
+    expect(rootCard?.executions.at(-1)?.error).toBe(LEGACY_AGENT_TEAMS_REASON)
+    service.dispose()
+  })
+
+  it('operator on that same legacy deployment still runs a card with no unfinished subtasks', async () => {
+    // Given a root whose only subtask is already in the done column, so this run
+    // is not forced under the dispatcher preset
+    const ledger = new HostTaskLedger(root(), () => NOW)
+    seedTree(ledger)
+    ledger.applyRequest('finish-a', { kind: 'move', taskId: 'a', status: 'done' })
+    const { gateway, creates } = launchGateway()
+    const service = serviceFor(ledger, gateway, { legacyAgentTeams: () => true })
+
+    // When the user runs it
+    service.apply('run-1', { kind: 'run', taskId: 'root' })
+    await flushLaunchChain()
+
+    // Then the run is the card's own plain execution: the compatibility probe
+    // only refuses the runs it would otherwise force
+    expect(creates).toHaveLength(1)
+    expect(creates[0].agentPreset).toBeUndefined()
+    expect(ledger.state().tasks.find(task => task.id === 'root')?.status).toBe('running')
     service.dispose()
   })
 
@@ -822,8 +871,8 @@ describe('TaskBoardHostService scheduling without a browser', () => {
       if (request.method === 'list') return { items: [{ sessionId: 'session-a', running: false }] }
       throw new Error('history offline')
     }, () => ({
-      async *[Symbol.asyncIterator]() {
-        throw new Error('follow offline')
+      [Symbol.asyncIterator]() {
+        return { next: () => { throw new Error('follow offline') } }
       },
     }))
     const service = new TaskBoardHostService(gateway, {
@@ -1110,10 +1159,10 @@ describe('TaskBoardHostService poll heartbeat', () => {
     const now = new Date(2026, 7, 16, 10, 0, 30).getTime()
     const ledger = new HostTaskLedger(root(), () => now)
     ledger.applyRequest('create-parent', {
-      kind: 'create', id: 'parent', input: { title: 'Parent', description: '', prompt: 'work', permission: 'read-only', goalRun: true },
+      kind: 'create', id: 'parent', input: { title: 'Parent', description: '', prompt: 'work', permission: 'read-only' },
     })
     ledger.applyRequest('create-child', {
-      kind: 'create', id: 'child', input: { title: 'Child', description: '', prompt: 'child work', parentId: 'parent', goalRun: true },
+      kind: 'create', id: 'child', input: { title: 'Child', description: '', prompt: 'child work', parentId: 'parent' },
     })
     const sessions: string[] = []
     const permissions: string[] = []
@@ -1137,10 +1186,6 @@ describe('TaskBoardHostService poll heartbeat', () => {
       power: new PowerInhibitor({ platform: 'linux' }),
       now: () => now,
       workspaceRegistry: fixtureWorkspaces(),
-      // The native-/goal master switch is on AND both cards opted in: the
-      // option is off by default, so this case asserts that every member of a
-      // cascade that asked for it arms its own goal.
-      goalRunEnabled: () => true,
       commandDispatcher: {
         execute: async (_sessionId, line) => { permissions.push(line); return { kind: 'success', text: 'ok' } as const },
       },
@@ -1150,13 +1195,12 @@ describe('TaskBoardHostService poll heartbeat', () => {
     service.apply('run-1', { kind: 'run', taskId: 'parent' })
 
     // Then exactly one session exists: the parent's own, under its pinned
-    // permission, with its own goal armed from its own composed prompt
+    // permission, with one plain turn
     await vi.waitFor(() => {
       expect(ledger.state().tasks[0]?.executions[0]?.sessionId).toBe('session-1')
     })
     expect(sessions).toEqual(['session-1'])
-    expect(permissions.filter(line => line.startsWith('/permission'))).toEqual(['/permission read-only'])
-    expect(permissions.filter(line => line.startsWith('/goal '))).toHaveLength(1)
+    expect(permissions).toEqual(['/permission read-only'])
     // The subtask keeps its card and gets no execution of its own
     expect(ledger.state().tasks.map(task => task.status)).toEqual(['running', 'todo'])
     expect(ledger.state().tasks[1]?.executions).toHaveLength(0)

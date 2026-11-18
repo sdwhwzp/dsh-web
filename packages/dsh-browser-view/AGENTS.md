@@ -38,15 +38,30 @@ DSH Web GUI 插件 dsh-browser-view（实时浏览器视图）。包级规则：
 - 插件 dispose 时必须停掉投屏：隔离模式杀掉自己启动的 Chromium 子进程；外部 CDP 只
   分离，不关闭浏览器或其标签页。配置切换同样只分离外部会话。修改生命周期要同步 README
   的 `安全模型` 与本节。
+- 闲置关闭（`idleCloseDays`，默认 3 天，0 关闭）只关本插件自己创建的标签页：
+  `TabManager.idleCandidates` 只认 `origin === 'created'`，接管的真实页面永不因计时被关闭。
+  活跃信号只有工具调用（`BrowserViewService.tabFor` 解析成功后 touch），面板观看、投屏帧
+  与选中都不算；计时只在内存里，宿主重启后从零开始，不落盘。改这条要同步 README 的关闭
+  契约与本包 Agent Note。
+- 传输已关闭的会话（外部浏览器重启或崩溃、隔离模式的 Chromium 退出）在下一次调用时按
+  同一套清理被替换：外部会话只分离，隔离会话杀掉已退出的子进程后重新拉起；替换失败按
+  连接错误上报，绝不切换到另一种模式。
 - 截图只经宿主附件服务（`ctx.get('attachments').saveImage`）落盘，因为 image part 的
   `attachment` ref 必须由该服务签发；除此之外不得把截图副本、页面文本或控制台内容
   写进插件自有目录、日志或缓存。附件服务缺席时 `browser_screenshot` 必须报错，不得
   伪造图片或改走临时文件。
 
 - 鉴权补票（`src/host/auth.ts`）：只对 loopback 目标、且文档确实是 DSH 自己的鉴权页
-  时才向 `ctx.connection.authenticatedUrl` 取令牌，每次导航最多补一次；无 connection
-  服务、取票抛错、补票后仍是鉴权页都必须**静默退化**，不得报错或改变导航结果。令牌
-  只经内存流转，不落盘。
+  时才取令牌，每次导航最多补一次；无 connection 服务、取票抛错、补票后仍是鉴权页都必须
+  **静默退化**，不得报错或改变导航结果。令牌只经内存流转，不落盘。鉴权页有两种形态：
+  token 交换页的 `dsh web authentication required` 文本，以及 post-#8266 宿主在路由准入
+  阶段拒绝时返回的裸 `unauthorized`；后者是任何本地服务都可能返回的通用正文，只有
+  当请求 URL 与 `ctx.webServer.getOrigin()` 是同一个 loopback 监听者（协议与端口都一致）
+  时才当作本宿主的鉴权页。
+- 路由准入：state 路由与 socket upgrade 必须声明 `auth: 'anonymous'`。post-#8266 宿主把
+  未声明策略的路由默认按 `required` 拒绝，面板会看不到状态、socket 也升不上去；准入
+  放行后仍由插件自己的 loopback 围栏（`isLoopbackRequest`）裁决。这条与 diagrams /
+  usage / task-board 等自围栏路由同一写法。
 
 ## 提交前检查
 

@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -7,7 +7,6 @@ import { createTask, EXECUTION_HISTORY_LIMIT, startExecution, withSchedule, type
 import { HostTaskLedger, processIsAlive, processState, win32StartTimeMs, type PowerShellProbe } from '../src/host-ledger.ts'
 import { nextRunAtMs, resolveHostTimeZone } from '../src/core/schedule.ts'
 import { TASK_BOARD_SCHEMA_VERSION } from '../src/protocol.ts'
-import { budgetAttempts, exceptionAttempts, passedAttempt, type ExecutionVerification, type VerificationAttempt } from '../src/core/verification.ts'
 
 const roots: string[] = []
 const NOW = new Date(2026, 7, 16, 10, 0, 30).getTime()
@@ -74,30 +73,6 @@ function spawnZombie(): number | undefined {
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
-
-/** One recorded acceptance attempt of a given stage, built for the ledger tests. */
-function attempt(stage: 'exception' | 'budget' | 'quality', index: number, passed = false): VerificationAttempt {
-  return {
-    index,
-    at: NOW + index,
-    stage,
-    passed,
-    score: stage === 'quality' ? 0.8 : 0,
-    baseline: stage === 'quality' ? 0.1 : 0,
-    criteria: stage === 'quality' ? [{ id: 'specification', name: 'Specification Adherence', score: 0.8, baseline: 0.1, threshold: 0.65, passed: true }] : [],
-    findings: [],
-    usage: { calls: 1, inputTokens: 0, outputTokens: 0, reasoningTokens: 0 },
-    evidence: { chars: 0, omittedCharacters: 0, entries: 0, hash: '' },
-    route: { provider: 'p', model: 'm' },
-    channel: 'explicit-tag',
-    rounds: 2,
-    ...(stage === 'quality' ? {} : { error: 'environment failure' }),
-  }
-}
-
-const anomaly = (index: number): VerificationAttempt => attempt('exception', index)
-const budgetStop = (index: number): VerificationAttempt => attempt('budget', index)
-const passedQuality = (index: number): VerificationAttempt => attempt('quality', index, true)
 
 describe('HostTaskLedger', () => {
   it('imports each source once and merges newer fields with the execution union', () => {
@@ -541,6 +516,119 @@ describe('HostTaskLedger', () => {
     expect(message).not.toContain('remove')
   })
 
+  /**
+   * A live PID whose start time cannot be read at all: the protected-process /
+   * WMI-timeout case of issue #2061. Injected so the branch runs on every
+   * platform without a real PowerShell round trip.
+   */
+  const unprobeableOwner = { isAlive: () => true, startTimeMs: () => undefined }
+
+  it('operator gets a mounted board over a hard-kill lock whose reused PID cannot be identified (issue #2061)', () => {
+    // Given: a hard-kill leftover whose PID was reused by a process no probe can
+    // identify, and whose heartbeat is two hours cold.
+    const root = tempRoot()
+    const lockFile = join(root, 'ledger-v2.lock')
+    const record = JSON.stringify({ pid: 4242, token: 'hard-kill-owner', startedAt: NOW - 7_200_000, probe: 'exact' })
+    writeFileSync(lockFile, record, 'utf8')
+    const past = NOW - 2 * 60 * 60 * 1000
+    utimesSync(lockFile, past / 1000, past / 1000)
+    // The warning sink is a constructor seam, so the notice is collected
+    // without patching the global console.
+    const notices: string[] = []
+    // When: the next Host start acquires the ledger.
+    const ledger = new HostTaskLedger(root, () => NOW, { processProbe: unprobeableOwner, warn: message => { notices.push(message) } })
+    expect(ledger.state().scheduler.ledgerId).toBeDefined()
+    ledger.dispose()
+    // Then: the board mounted, the previous record survives as an orphan file,
+    // and exactly one warning names the pid it took over from.
+    const orphans = readdirSync(root).filter(name => name.startsWith('ledger-v2.lock.orphan-'))
+    expect(orphans).toHaveLength(1)
+    expect(readFileSync(join(root, orphans[0]!), 'utf8')).toBe(record)
+    const reclaim = notices.filter(message => message.includes('reclaimed the ledger lock'))
+    expect(reclaim).toHaveLength(1)
+    expect(reclaim[0]).toContain('4242')
+  })
+
+  it('operator is refused a fresh lock whose live owner cannot be identified', () => {
+    // Given: a lock whose heartbeat is five seconds old and whose live owner's
+    // identity cannot be probed. An unreadable identity is not proof of a leftover.
+    const root = tempRoot()
+    const lockFile = join(root, 'ledger-v2.lock')
+    writeFileSync(lockFile, JSON.stringify({ pid: 4242, token: 'live-owner', startedAt: NOW - 5_000, probe: 'exact' }), 'utf8')
+    utimesSync(lockFile, (NOW - 5_000) / 1000, (NOW - 5_000) / 1000)
+    // When: a second Host start tries to acquire the same ledger.
+    // Then: it refuses, names the owner, and leaves the lock and its record alone.
+    expect(() => new HostTaskLedger(root, () => NOW, { processProbe: unprobeableOwner })).toThrow('already owned by process 4242')
+    expect(existsSync(lockFile)).toBe(true)
+    expect(readdirSync(root).filter(name => name.startsWith('ledger-v2.lock.orphan-'))).toHaveLength(0)
+  })
+
+  it('operator never loses the ledger to a second start while a confirmed live owner holds it', () => {
+    // Given: a live owner whose recorded identity the probe confirms, on a lock
+    // whose heartbeat looks two hours cold.
+    const root = tempRoot()
+    const lockFile = join(root, 'ledger-v2.lock')
+    const startedAt = NOW - 7_200_000
+    writeFileSync(lockFile, JSON.stringify({ pid: 4242, token: 'live-owner', startedAt, probe: 'exact' }), 'utf8')
+    const past = NOW - 2 * 60 * 60 * 1000
+    utimesSync(lockFile, past / 1000, past / 1000)
+    const probe = { isAlive: () => true, startTimeMs: () => startedAt }
+    let message = ''
+    // When: another start tries to take the ledger.
+    try {
+      new HostTaskLedger(root, () => NOW, { processProbe: probe })
+    } catch (error) {
+      message = (error as Error).message
+    }
+    // Then: the confirmed owner keeps the lock, with no orphan and no misleading
+    // "remove it by hand" hint.
+    expect(message).toContain('already owned by process 4242')
+    expect(message).not.toContain('remove')
+    expect(readdirSync(root).filter(name => name.startsWith('ledger-v2.lock.orphan-'))).toHaveLength(0)
+  })
+
+  it('operator keeps a live owner protected through the renewed lock heartbeat', () => {
+    // Given: a mounted ledger whose owner identity cannot be probed, so the
+    // heartbeat is the only evidence a later start can read.
+    vi.useFakeTimers()
+    try {
+      const root = tempRoot()
+      let clock = NOW
+      const ledger = new HostTaskLedger(root, () => clock, { processProbe: unprobeableOwner })
+      const lockFile = join(root, 'ledger-v2.lock')
+      // When: one heartbeat interval passes and a second start tries the ledger.
+      clock = NOW + 30_000
+      vi.advanceTimersByTime(30_000)
+      // Then: the beat moved the mtime, the second start reads a fresh heartbeat
+      // and is refused, and dispose leaves no timer behind.
+      expect(Math.abs(statSync(lockFile).mtimeMs - clock)).toBeLessThanOrEqual(1)
+      expect(() => new HostTaskLedger(root, () => clock + 1_000, { processProbe: unprobeableOwner })).toThrow('already owned')
+      ledger.dispose()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('operator sees the old owner stop beating for a lock another process holds', () => {
+    // Given: a mounted ledger whose lock file now carries another owner's token.
+    const root = tempRoot()
+    const notices: string[] = []
+    const ledger = new HostTaskLedger(root, () => NOW, { processProbe: unprobeableOwner, warn: message => { notices.push(message) } })
+    const lockFile = join(root, 'ledger-v2.lock')
+    writeFileSync(lockFile, JSON.stringify({ pid: 9999, token: 'someone-else' }), 'utf8')
+    const marker = NOW - 60_000
+    utimesSync(lockFile, marker / 1000, marker / 1000)
+    // When: the old owner's heartbeat fires and it then disposes.
+    ledger.renewLock()
+    // Then: it neither refreshed nor removed a lock that is not its own.
+    expect(Math.abs(statSync(lockFile).mtimeMs - marker)).toBeLessThanOrEqual(1)
+    ledger.dispose()
+    expect(existsSync(lockFile)).toBe(true)
+    expect(JSON.parse(readFileSync(lockFile, 'utf8')).token).toBe('someone-else')
+    expect(notices.filter(message => message.includes('lost the ledger lock'))).toHaveLength(1)
+  })
+
   it('treats an unreaped zombie as dead even though kill(0) reports it alive', () => {
     const zombie = spawnZombie()
     if (zombie === undefined) return // environment reaps orphans; cannot exercise
@@ -600,59 +688,6 @@ describe('HostTaskLedger', () => {
     expect(declared.status).toBe('done')
     expect(declared.executions).toHaveLength(0)
     expect(declared.updatedAt).toBe(NOW)
-  })
-
-  it('operator clearing acceptance anomalies resets the counter but keeps every recorded verdict', () => {
-    // Given an open execution carrying one anomaly, one budget stop and one pass
-    const ledger = new HostTaskLedger(tempRoot(), () => NOW)
-    ledger.applyRequest('create', { kind: 'create', id: 'task-a', input: { title: 'A', description: '', prompt: '' } })
-    const execution = ledger.applyRequest('run', { kind: 'run', taskId: 'task-a' }).runs?.[0]?.execution
-    expect(execution).toBeDefined()
-    const attempts: ExecutionVerification['attempts'] = [
-      anomaly(1), anomaly(2), budgetStop(1), passedQuality(1),
-    ]
-    ledger.setVerification('task-a', execution!.id, {
-      contract: {
-        enabled: true, modelSource: 'inherit', route: { provider: 'p', model: 'm' }, preset: 'coding', threshold: 0.65,
-      },
-      attempts,
-      applicability: 'enforced',
-      failedReason: 'acceptance anomaly budget exhausted',
-    })
-
-    // When the operator clears the recorded anomalies
-    ledger.applyRequest('reset', { kind: 'reset-verification', taskId: 'task-a' })
-
-    // Then only the non-verdict attempts are gone: the pass record survives
-    const cleared = ledger.state().tasks[0].executions[0].verification
-    expect(exceptionAttempts(cleared)).toHaveLength(0)
-    expect(budgetAttempts(cleared)).toHaveLength(0)
-    expect(passedAttempt(cleared)?.passed).toBe(true)
-    expect(cleared?.failedReason).toBeUndefined()
-
-    // And a second reset is refused, because there is nothing left to clear
-    expect(() => ledger.applyRequest('reset2', { kind: 'reset-verification', taskId: 'task-a' })).toThrow('no acceptance anomaly')
-  })
-
-  it('operator clearing anomalies is refused on a card with no open execution or no acceptance gate', () => {
-    // Given a card that was never run, and a card whose open execution is not gated
-    const ledger = new HostTaskLedger(tempRoot(), () => NOW)
-    ledger.applyRequest('create-idle', { kind: 'create', id: 'idle', input: { title: 'A', description: '', prompt: '' } })
-    ledger.applyRequest('create-plain', { kind: 'create', id: 'plain', input: { title: 'B', description: '', prompt: '' } })
-    const execution = ledger.applyRequest('run', { kind: 'run', taskId: 'plain' }).runs?.[0]?.execution
-    ledger.setVerification('plain', execution!.id, {
-      contract: { enabled: false, modelSource: 'inherit', preset: 'coding', threshold: 0.65 },
-      attempts: [anomaly(1)],
-      applicability: 'disabled',
-    })
-
-    // When the operator tries to clear acceptance anomalies on either card
-    const idle = (() => { try { ledger.applyRequest('r1', { kind: 'reset-verification', taskId: 'idle' }); return '' } catch (error) { return (error as Error).message } })()
-    const plain = (() => { try { ledger.applyRequest('r2', { kind: 'reset-verification', taskId: 'plain' }); return '' } catch (error) { return (error as Error).message } })()
-
-    // Then both are refused, with the reason that names the actual obstacle
-    expect(idle).toContain('no open execution')
-    expect(plain).toContain('not gated by task acceptance')
   })
 
   it('operator recording an external outcome writes one execution the column and the history both derive from', () => {

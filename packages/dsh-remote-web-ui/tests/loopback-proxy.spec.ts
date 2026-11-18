@@ -4,7 +4,7 @@
  * the outer leg down without an unhandled error, and normal completion must
  * keep reusing the upstream keep-alive connection.
  */
-import { createServer, request as httpRequest, type IncomingHttpHeaders, type IncomingMessage, type Server } from 'node:http'
+import { createServer, request as httpRequest, type IncomingHttpHeaders, type Server } from 'node:http'
 import { describe, expect, it } from 'vitest'
 import type { AddressInfo } from 'node:net'
 import type { InnerAuth } from '../src/inner-auth.ts'

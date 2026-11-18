@@ -2,7 +2,7 @@
 
 中文 | [English](README.en.md)
 
-dsh-web 是面向 DeepSeek Harness（DSH）Web GUI、DeepSeek 网页版与官方桌面客户端（DeepSeek Desktop）的模块化插件生态与 AI 智能体开发工作台。全面支持 DeepSeek-V3 与 DeepSeek-R1 等前沿推理模型，为开发者与重度用户提供自主任务自动化看板（Cron 定时后台执行）、手机 App 远程访问、Web SSH 终端与 Linux 集群运维、全量会话检索与归档管理、Token 用量与成本监控（含 Token 银行），以及一站式主题皮肤与桌面宠物工坊。用户既可以通过官方 profile 机制将插件全家桶一键挂载至已有的 `dsh web` 实例，也可以直接在官方 DeepSeek Harness 桌面客户端中开箱即用。
+dsh-web 是面向 DeepSeek Harness（DSH）Web GUI、DeepSeek 网页版与官方桌面客户端（DeepSeek Desktop）的模块化插件生态与 AI 智能体开发工作台（涵盖 21 个主仓家族包与 4 个卫星仓包，共 25 个公开发布的 `@linxin666/dsh-*` 模块）。全面适配 DeepSeek V4.1 系列等前沿推理与编程大模型及多供应商生态，为开发者与重度用户提供自主任务自动化看板（父卡自治派发子任务与 Cron 定时调度）、梁神模式（极简 Persona、PTC 程序化工具传输与零缓存失效按需分页）、智能体小队（可复用成员定义与整队 Agent Teams 协同）、实时浏览器视图（右侧栏 CDP 实时投屏与网页交互自动化）、手机 App 远程访问、Web SSH 终端与 Linux 集群运维、全量会话检索与归档管理、Token 用量与成本监控（含 Token 银行），以及一站式主题皮肤与桌面宠物工坊（dsh-market.com）。用户既可以通过官方 profile 机制将插件全家桶一键挂载至已有的 `dsh web` 实例，也可以直接在官方 DeepSeek Harness 桌面客户端中开箱即用。
 
 <p align="center">
   <img src="docs/dsh-web-banner.zh.jpg" alt="dsh-web — DeepSeek Harness (DSH) Web GUI 插件全家桶与 AI 智能体工作台架构图（任务看板、手机远程、SSH 运维、Token 统计、主题皮肤）" width="100%">
@@ -23,14 +23,14 @@ dsh-web 是面向 DeepSeek Harness（DSH）Web GUI、DeepSeek 网页版与官方
   &nbsp;
   <a href="https://dsh-market.com"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fdsh-market.com%2Fapi%2Ftelemetry%2Fbadge%2Fusers&style=flat-square&label=users" alt="users"></a>
   &nbsp;
-  <a href="https://www.npmjs.com/package/@deepseek-ai/dsh"><img src="https://img.shields.io/badge/DSH-%3E%3D0.2.2--rc.1-4c6ef5?style=flat-square&amp;labelColor=454a54" alt="DSH"></a>
+  <a href="https://www.npmjs.com/package/@deepseek-ai/dsh"><img src="https://img.shields.io/badge/DSH-%3E%3D0.2.2--rc.3-4c6ef5?style=flat-square&amp;labelColor=454a54" alt="DSH"></a>
   &nbsp;
   <img src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" alt="License">
 </p>
 
 <p align="center">
   <strong>DeepSeek Harness（DSH）Web 插件生态 · 模块化智能体工作台</strong><br>
-  <em>全功能 Web UI · 任务自动化看板 · 手机 App 远程访问 · Web SSH 运维 · Token 成本统计 · 视觉工坊</em>
+  <em>全功能 Web UI · 任务自动化看板 · 梁神模式 · 智能体小队 · 实时浏览器视图 · 手机 App 远程访问 · Web SSH 运维 · Token 成本统计 · 视觉工坊</em>
 </p>
 
 <div align="center">
@@ -44,17 +44,18 @@ dsh-web 是面向 DeepSeek Harness（DSH）Web GUI、DeepSeek 网页版与官方
 原生 DeepSeek Harness Web 提供了核心的对话交互与工具调用能力，但在多任务并发调度、长程后台执行、移动端协同以及工程化开发运维方面仍有扩展空间。
 
 dsh-web 通过官方 profile 机制挂载到 `dsh web`，零修改侵入官方源码，为用户提供完整的模块化扩展体系：
-- **工程运维与协同插件**：涵盖长程自动化任务看板（多 Agent 级联/Teams 编排、对抗验收质检与定时调度）、梁神模式（极简 Persona、PTC 代码运行传输与敏捷调度纪律）、手机 App 远程访问、SSH 终端传输、全量会话归档管理以及模型能力声明编辑器；
+- **工程运维与协同插件**：涵盖长程自动化任务看板（父卡自治派发子任务与定时调度）、梁神模式（极简 Persona、PTC 代码运行传输与敏捷调度纪律）、智能体小队（可复用成员定义与整队 Agent Teams 协同）、实时浏览器视图（右侧栏 CDP 实时投屏与 11 项浏览器工具）、手机 App 远程访问、SSH 终端与集群运维、全量会话归档管理及消息分支编辑；
 - **视觉主题与资产解耦**：功能插件与样式资产完全分离。皮肤插件负责底层渲染，多样化的主题皮肤（含样式、贴图与动态特效）以及桌面宠物可通过 [DSH 创意工坊](#创意工坊dsh-marketcom)自由安装；
 - **全家桶聚合与按需组合**：既支持通过 `@linxin666/dsh-web-all` 聚合包一键安装完整功能，也支持按需单独安装特定插件。聚合包预集成家族全部功能插件，详见[插件全家桶使用指南](packages/dsh-web-all/README.zh.md)。
 
-![DeepSeek Harness Web GUI 配合 dsh-web 插件全家桶的工作台主界面展示（支持 DeepSeek-V3 与 DeepSeek-R1 模型）](docs/screenshots/13-hero-main.png)
+![DeepSeek Harness Web GUI 配合 dsh-web 插件全家桶的工作台主界面展示（任务看板、梁神模式、智能体小队与主题皮肤）](docs/screenshots/13-hero-main.png)
 
 | 核心能力与场景 | 原生 dsh web | dsh-web 全家桶优势 |
 | --- | --- | --- |
-| Agent 预设与执行纪律 | 仅官方标准预设（Standard / Minimal 等），静态上下文开销大 | 官方预设 + 创意工坊社区预设 + 梁神模式（极简 Persona 约束、PTC 程序化工具传输、MCP 温和分页、关键事实登记簿与老虎机拨杆） |
-| 自定义模型能力 | 无法可视化修改模型属性 | 逐模型可视化声明 Vision 图片多模态支持与 DeepSeek-R1 推理思考强度档位，支持供应商快速启闭 |
-| 自动化任务看板 | 无 | Host 权威 5 列看板 + 多 Agent 树状级联/原生 Teams 编排 + 裁判模型双盲验收门控 + 离线 Cron 定时与防休眠电源保护 + GitHub Issue 自动提 PR 闭环 + 8 项模型原生工具面 |
+| Agent 预设与执行纪律 | 仅官方标准预设（Standard / Minimal 等），静态上下文开销大 | 官方预设 + 创意工坊社区预设 + 梁神模式（极简 Persona 约束、PTC 程序化工具传输、按需工具族温和分页、关键事实登记簿与老虎机拨杆） |
+| 智能体小队与团队编排 | 仅单次会话内临时子代理调用 | 可复用小队与成员定义（预设/权限/模型/思考档位/系统提示词简报）+ 整队 Agent Teams 协同运行与实时状态投影 + 10 项 `squads_*` / `squad_member_*` 原生工具 |
+| 实时浏览器视图与视觉交互 | 无可视化受控浏览器视图 | 右侧栏 CDP 实时投屏标签页 + 默认隔离 Chromium 与真实已登录浏览器接管 + 11 项 `browser_*` 交互与无损区域截图工具 |
+| 自动化任务看板 | 无 | Host 权威 Schema v7 五列看板 + 树状子任务与父卡自治派发 + 卡片多模态附件 + 离线 Cron/单次定时与防休眠电源保护 + GitHub / Team Hub / 手机远端三扩展 + 8 项模型原生工具面 |
 | 手机 App 远程访问 | 仅限本机浏览器 | 手机 App 扫码直连、协议 v1 WebSocket 实时流式交互、公网中继/隧道与局域网接入 |
 | 远程服务器运维 | 无 | 网页版 SSH 终端 (xterm.js)、SFTP 文件传输、端口转发隧道与集群批量命令 |
 | Token 用量与成本监控 | 无 | 每日 Token 消耗明细、多供应商余额查询预警、套餐使用进度与 Token 银行鲸元券 |
@@ -65,8 +66,10 @@ dsh-web 通过官方 profile 机制挂载到 `dsh web`，零修改侵入官方�
 
 | 核心使用场景与用户需求 | 推荐解决方案与能力 | 快速入口 |
 | --- | --- | --- |
-| 打造 24/7 无人值守 AI 研发流水线，通过 Cron 定时巡检、多 Agent 团队级联协作、Issue 自动修复提 PR 或长程目标闭环 | 任务看板：Host 权威后台调度、多 Agent 级联/Teams 编排、对抗式裁判验收质检、GitHub Issue-to-PR 闭环、防休眠电源守护 | [任务看板与 cron 定时执行](packages/dsh-task-board/README.zh.md) |
-| 追求极致编码推理效率与超低上下文开销，需要极简 Prompt、程序化工具调用（PTC）与严苛 Agent 调度/工作纪律 | 梁神模式：极简 Persona、run_code 程序化传输、MCP 温和分页、关键事实登记簿与老虎机拨杆开关 | [梁神模式预设与 PTC 传输](packages/dsh-liangshen/README.zh.md) |
+| 打造 24/7 无人值守 AI 研发流水线，通过 Cron/单次定时巡检、树状子任务父卡自治派发或 Issue 自动修复提 PR | 任务看板：Host 权威后台调度、树状子任务与父卡自治派发、GitHub / Team Hub / 手机远端扩展、防休眠电源守护 | [任务看板与 cron 定时执行](packages/dsh-task-board/README.zh.md) |
+| 追求极致编码推理效率与超低上下文开销，需要极简 Prompt、程序化工具调用（PTC）与严苛 Agent 调度/工作纪律 | 梁神模式：极简 Persona、run_code 程序化传输、按需工具族温和分页、关键事实登记簿与老虎机拨杆开关 | [梁神模式预设与 PTC 传输](packages/dsh-liangshen/README.zh.md) |
+| 组建可复用的专业 AI 成员与智能体小队，按需单独点播成员会话或以 Agent Teams 整队协同攻坚 | 智能体小队：可复用成员定义（预设/权限/模型/思考档位/简报）、整队协同运行与实时状态投影、10 项模型原生工具 | [智能体小队与整队运行](packages/dsh-agents/README.zh.md) |
+| 在对话右侧实时观看 Agent 驱动的 Chromium 画面，执行网页交互测试、DOM 快照或复用本机已登录浏览器 | 实时浏览器视图：右侧栏 CDP 实时投屏、隔离 Chromium 与真实浏览器接管、11 项交互与无损区域截图工具 | [实时浏览器视图与 CDP 控制](packages/dsh-browser-view/README.zh.md) |
 | 在手机上通过协议 v1 远程访问与控制 DeepSeek Harness | 手机 App 远程访问：协议 v1 WebSocket、会话流式响应、入站网关与公网/局域网接入 | [手机 App 远程访问](packages/dsh-remote-bridge/README.zh.md) |
 | 委派 AI 智能体执行远程 Linux 服务器运维、SFTP 文件传输、SSH 终端交互或排查线上服务 | SSH 运维面板：Web 终端 (xterm.js)、可视化 SFTP 传输、端口转发隧道、集群批量命令 | [SSH 终端、文件传输与隧道](packages/dsh-ssh/README.zh.md) |
 | 监控 DeepSeek API 及主流大模型 Token 消耗明细、查询供应商账户余额预警或套餐进度 | 使用统计：每日消耗明细、余额查询、账单估算、套餐追踪与 Token 银行鲸元券 | [用量统计与 Token 银行](packages/dsh-usage/README.zh.md) |
@@ -87,11 +90,11 @@ dsh-web 通过官方 profile 机制挂载到 `dsh web`，零修改侵入官方�
 
 ## 创意工坊（dsh-market.com）
 
-[创意工坊](https://dsh-market.com) 是 DSH 生态的一站式资产分发平台，统一提供主题皮肤、桌面宠物、功能插件与社区 Agent 预设。所有项目按照真实设备点赞热度排序，皮肤支持即时试穿预览，插件提供一键安装命令。经典的 Blue Fantasy 蓝色幻想随皮肤插件内置，其余主题皮肤与宠物资产均可在工坊浏览、查看源代码并按需安装。在 Web GUI 的“创意工坊”设置卡中可直接浏览线上清单，皮肤与宠物可一键下载至 DSH 主目录并在对应设置页选用；社区预设下载至本地预设库，启用后即可在“设置 → Agent 预设”中用于新建会话。
+[创意工坊](https://dsh-market.com) 是 DSH 生态的一站式资产分发平台，当前汇聚 66 款主题皮肤（含 Wallpaper Engine 动态壁纸）、12 只互动桌面宠物、139 项社区插件索引与 33 个社区 Agent 预设。所有项目按照真实设备点赞热度排序，皮肤支持即时试穿预览，插件提供一键安装命令。经典的 Blue Fantasy 蓝色幻想随皮肤插件内置，其余主题皮肤与宠物资产均可在工坊浏览、查看源代码并按需安装。在 Web GUI 的“创意工坊”设置卡中可直接浏览线上清单，皮肤与宠物可一键下载至 DSH 主目录并在对应设置页选用；社区预设下载至本地预设库，启用后即可在“设置 → Agent 预设”中用于新建会话。
 
 ![DeepSeek Harness 创意工坊 dsh-market.com — 主题皮肤、桌面宠物与社区插件市场](docs/screenshots/31-market-home.png)
 
-创意工坊站点为本仓库的组成部分：前端为纯静态构建，由构建脚本 `scripts/market-build` 依据 `skin.json`、`pet.json` 与 `community.json` 等数据源自动生成；点赞等动态能力由 Cloudflare Workers 边缘函数与 D1 数据库提供支持（遵循单设备单票限制），代码合入 `main` 分支后自动触发持续集成部署。
+创意工坊站点为本仓库的组成部分：前端为纯静态构建，由构建脚本 `scripts/market-build` 依据 `skin.json`、`pet.json`、`community.json` 与 `presets/` 等数据源自动生成；点赞等动态能力由 Cloudflare Workers 边缘函数与 D1 数据库提供支持（遵循单设备单票限制，Turnstile 人机校验防护），代码合入 `dev` 分支并触及市场路径后自动触发持续集成部署。
 
 创意工坊旨在建立开放透明的社区生态，方便开发者分享作品并让用户自由选择所需扩展。
 
@@ -99,13 +102,12 @@ dsh-web 通过官方 profile 机制挂载到 `dsh web`，零修改侵入官方�
 
 ### 任务看板（Task Board · 企业级后台长程执行引擎与多 Agent 自动化流水线）
 
-通过侧边栏“任务看板”进入。任务看板不仅仅是一个可视化卡片界面，更是 DeepSeek Harness 官方 Web GUI 与桌面客户端中的**宿主权威后台长程执行与多 Agent 自动化调度引擎**。任务按“待规划、待办、进行中、已完成、已失败”五列进行全生命周期管理，以 Schema v6 事务账本为权威持久化核心，真正实现了长程任务从拆解、分发、团队协作、对抗质检到外部成果闭环的全流程自动化：
+通过侧边栏“任务看板”进入（详见 [dsh-task-board README](packages/dsh-task-board/README.zh.md)）。任务看板不仅仅是一个可视化卡片界面，更是 DeepSeek Harness 官方 Web GUI 与桌面客户端中的**宿主权威后台长程执行与多 Agent 自动化调度引擎**。任务按“待规划、待办、进行中、已完成、已失败”五列进行全生命周期管理，支持项目分区、粘贴文本 AI 解析与卡片多模态附件（每卡最多 8 个图片或文件附件，经官方附件存储 SHA256 核验，执行时图片作为多模态部件入队、文件以只读路径注入），以 Schema v7 事务账本为权威持久化核心，真正实现了长程任务从拆解、父卡自治派发到外部成果闭环的全流程自动化：
 
-- **宿主权威后台驱动与 7x24 小时离线无人值守**：区别于传统仅在前端网页轮询的脆弱看板，所有卡片流转、调度触发与执行监控完全由 DSH 后端 Host 进程作为唯一权威驱动。浏览器仅为异步视图，关闭网页标签页、熄灭屏幕或断开网络，后台智能体会话照常并发执行与原子落盘结算。内置跨平台防休眠电源管理（macOS `caffeinate`、Windows `ES_SYSTEM_REQUIRED`、带有 systemd-logind 的 Linux `systemd-inhibit`），允许显示器正常关闭的同时阻止整机因闲置休眠，确保夜间无人值守巡检与流水线准时打卡。
-- **多 Agent 树状级联并发与原生 Agent Teams 团队编排**：复杂工程目标可自由拆解为多层树状子任务（支持 1~3 层深度，内置环路与深度护栏）。**级联执行模式**通过受控准入队列（runLaunchWidth）并发派生多个独立智能体会话，自动跳过已在完成列的子任务，任一子任务失败自适应收拢整树状态；**原生 Agent Teams 模式**深度对接官方团队服务，启动专属 Team Lead 会话并在其内部为每个子任务动态孵化专属 Teammate，协同工具跨智能体联动，实现真正意义上的多智能体团队协同作战。
-- **对抗式双盲质量验收门禁（No False Completion）**：彻底终结 AI 编程中“自述已完成、实则未改动或改崩溃”的虚假交付顽疾。以 goal 形式执行的任务在 Agent 试图调用 `update_goal(complete)` 宣告完工的瞬间被 Host 强制拦截，必须由独立的裁判模型（可自选模型与思考档位）进行真实验收。验收机制沿用严苛的 Coding 质量判据、0.65 绝对通过阈值，每项判据双轮交换 A/B 位置打分消偏，并严格结合会话执行轨迹与宿主工作区真实磁盘文件的 Diff 行级变更审查。首轮未达标精准下发具象结构化问题引导 Agent 自我修复，两次仍不通过才判负，杜绝敷衍糊弄。
-- **全自动 GitHub Issue-to-PR 闭环研发流**：搭配官方扩展（`dsh-client-ui-task-board-github`），实现任务看板与 GitHub Issues / PR 状态的实时双向深度同步。远端 Issue 自动进入看板流水线驱动 Agent 读取需求、定位代码、修复 Bug 并运行测试，验收交付后全自动创建 GitHub Pull Request 并绑定 Issue 关联，PR 合并后自动关闭 Issue，打造全天候无人值守的开源与企业 Issue 自动化修复交付管线。
-- **长程目标驱动、会话持久化与冻结交接包（Freeze Handover）**：任务支持武装内置 `/goal` 引擎进行多轮自主续跑；周期性任务可开启会话复用，保留完整上下文记忆；支持通过 `<<<FREEZE` 协议将会话上下文一键冻结为包含“目标/进度/下一步”的结构化快照，并绑定工作区、预设与权限三元组，接手 Agent 瞬间无缝继承前序成果，同时内置提示词注入防御与来源审计。
+- **宿主权威后台驱动与 7x24 小时离线无人值守**：区别于传统仅在前端网页轮询的脆弱看板，所有卡片流转、调度触发与执行监控完全由 DSH 后端 Host 进程作为唯一权威驱动。支持循环 5 字段 Cron 表达式（绑定 IANA 时区与可选 `maxRuns` 次数预算）与单次未来时刻（`once`）两类定时计划；浏览器仅为异步视图，关闭网页标签页、熄灭屏幕或断开网络，后台智能体会话照常并发执行与原子落盘结算。内置跨平台防休眠电源管理（macOS `caffeinate`、Windows `ES_SYSTEM_REQUIRED`、带有 systemd-logind 的 Linux `systemd-inhibit`），允许显示器正常关闭的同时阻止整机因闲置休眠，确保夜间无人值守巡检与流水线准时打卡。
+- **树状子任务与父卡自治派发（Subtask Trees & Autonomous Parent Dispatch）**：复杂工程目标可拆解为 1 至 3 层树状子任务（内置环路与深度护栏）。执行任意卡片只为该卡片自身开启**唯一一个**会话，Host 绝不为子任务批量派生独立会话；当执行的卡片存在未完成后代时，Host 自动在本次运行中强制切入 `liangshen`（梁神模式）调度者预设，并在启动 Prompt 中注入未完成子卡清单，由父会话通过 `task_board_get` 逐张读取子卡详情、按依赖顺序通过 `subagent` 自治派发（互不依赖的子任务并发执行），完工前调用 `task_board_manage({ action: 'record-external-outcome' })` 一次性回填各子卡结论（未显式回填的后代由 Host 在父卡终结时幂等兜底结算）。多张独立卡片在同一时刻触发时，由受控准入队列（`runLaunchWidth`，1 至 16，默认 3）治理并发创建会话的宽度。
+- **GitHub Issues、云端团队协作与手机远端三路扩展**：通过标准外部提供方契约无缝挂载三大官方扩展：[dsh-client-ui-task-board-github](packages/dsh-task-board-github/README.zh.md) 实现任务看板与 GitHub Issues / PR 状态的双向实时同步，远端 Issue 自动入列驱动 Agent 定位修复、运行测试、创建关联 PR 并在合并后自动关单；[dsh-client-ui-task-board-team](packages/dsh-task-board-team/README.zh.md) 将本地 `dsh-agents` 成员绑定至云端 `team-hub`，按租约领取指派 Issue 为本地镜像卡执行，支持决策问题上报、双向评论（`team_comment`）与审阅打回返工；[dsh-task-board-remote](packages/dsh-task-board-remote/README.zh.md) 将看板能力面（`board.v1`）挂载至远程桥扩展缝，让已配对手机直接读写同一份宿主权威账本。
+- **会话持久化复用与冻结交接包（Freeze Handover）**：周期性任务可开启会话复用，保留完整上下文记忆；支持通过 `<<<FREEZE` 协议将会话上下文一键冻结为包含“目标/进度/下一步”的结构化快照，并绑定工作区、预设与权限三元组，接手 Agent 瞬间无缝继承前序成果，同时内置提示词注入防御与来源审计。
 - **企业级权限基线、安全确认门与消费熔断保护**：任务可细粒度钉住工作区、Agent 预设、沙箱权限、执行模型与推理思考强度，钉子校验失败即 Fail-Closed；超出安全基线的高权限操作设有「人工确认门（Permission Gate）」，未在 Web 界面显式放行前坚决拒绝执行与调度，杜绝 Agent 越权危害宿主系统；支持配置看板级每日 Token 消费预算上限（`spendBudgetTokens`），防止后台死循环产生意外费用。
 - **面向智能体的双向工具面与外部成果统一**：向大模型完整暴露 8 个原生工具（`task_board_list`、`task_board_get`、`task_board_create`、`task_board_update`、`task_board_set_parent`、`task_board_run`、`task_board_manage`、`task_board_schedule`），赋予对话中的 Agent 自身查看看板、分解子任务、编排流水线与自动化调度的全套能力；同时支持通过 `record-external-outcome` 统一登记在 Claude Code、Codex 等外部工具中完成的工作，让异构开发流统一汇总至一张看板。
 
@@ -115,30 +117,52 @@ dsh-web 通过官方 profile 机制挂载到 `dsh web`，零修改侵入官方�
 
 ### 梁神模式（LiangShen Mode · 极简 Persona、PTC 运行时与高效调度引擎）
 
-在新建会话输入框左侧通过专属老虎机拨杆切换，或在“设置 > Agent 预设”中选用。梁神模式（`dsh-liangshen`）是专为追求**极致推理效率、超低静态上下文开销与严苛工程执行纪律**而深度重构的杀手级预设与运行时插件。针对主流大模型在长程编程任务中容易出现的系统提示词冗长膨胀、工具 Schema 挤占上下文、思维链无效空转（如“流水账推理”）以及多轮遗忘退化等痛点，梁神模式通过原生极简提示词、程序化代码工具调用（PTC）、MCP 温和分页与关键事实局部就近投射，提供纯粹而强悍的编程作战体验：
+在新建会话输入框左侧通过专属老虎机拨杆切换，或在“设置 > Agent 预设”中选用。梁神模式（`dsh-liangshen`）是专为追求**极致推理效率、超低静态上下文开销与严苛工程执行纪律**而深度重构的杀手级预设与运行时插件。针对主流大模型在长程编程任务中容易出现的系统提示词冗长膨胀、工具 Schema 挤占上下文、思维链无效空转（如“流水账推理”）以及多轮遗忘退化等痛点，梁神模式通过原生极简提示词、程序化代码工具调用（PTC）、按需工具族温和分页与关键事实局部就近投射，提供纯粹而强悍的编程作战体验：
 
 - **极简 Persona 与严苛行动导向纪律（Zero Prompt Waste）**：彻底剥离官方 Standard 预设中冗长繁琐的系统级条文，将提示词极致收敛为单行 Persona 与经过实战千锤百炼的高效工程纪律。内置反思熔断（同一假设推演不超过两轮，缺少事实立即闭合思考并调用原生工具探测，杜绝凭空揣测）、行动导向（思考过程仅用于决定下一步具体操作，严禁在思考中预演完整代码）、并发探索（单轮内并发派发多个独立检测或搜索工具）、YAGNI 与 PDCA 循环（单步验证单一假设，不写冗余注水注释）、以及有界收敛纪律（前置检查最多 2-3 轮即刻收敛，迅速转入实际作答或编辑）。大幅降低静态 Token 占用，让模型注意力百分之百倾注于业务与代码本身。
 - **程序化工具调用传输（PTC · Programmatic Tool Calling）**：彻底终结在每次请求中平铺上百个 JSON Schema 工具参数的低效模式。默认将网络线协议（wire）极致收拢为唯一的 `run_code`（运行 TypeScript 脚本），其余所有工具均通过自动生成的强类型 SDK 在独立的沙箱线程中以代码形式调用。无论系统注册了多少复杂工具，静态传输面始终保持极小体积；模型可原生利用 `Promise.all` 编写并发工具调用，并在程序内预先过滤、聚合、提取关键数据，只将精炼结论回传至对话上下文，从根本上解决大文本输出打爆 Token 的问题。对于习惯原生工具面的场景，亦可在插件设置中一键无缝切换为组装好的原生工具清单（Native）。
-- **MCP 工具温和分页与 LRU 动态激活（Gentle Tool Paging）**：针对海量 MCP 工具或第三方插件扩展，出厂默认启用温和分页（默认匹配 `mcp__*`）。外部工具在初始状态下仅以命名空间摘要形式登记在目录消息中，既不占 wire 协议也不进 SDK 声明；当大模型判定需要使用对应工具时，可自主调用 `tool_activate({ namespace })` 按需挂载。内置 LRU 策略（上限 3 个活跃命名空间），自动淘汰最久未用的命名空间，激活状态在会话压缩与恢复后完整重建，兼具海量工具接入能力与极致小巧的静态 Schema 面。
+- **按需工具族温和分页与零前缀失效延迟回收（Gentle Tool Paging）**：针对海量 MCP 工具与高扇出插件工具族，出厂默认启用按需温和分页（默认匹配 `['mcp__*', 'browser_*', 'task_board_*', 'team_*', 'squad*', 'ui_*', 'ssh_*']`，宿主内建工具全部常驻，亦可在插件设置的「按需工具族」中自定义）。命中的工具族在初始状态下仅以命名空间摘要形式登记在目录消息中，既不占 wire 协议也不进 SDK 声明；当大模型判定需要使用对应工具族时，可自主调用 `tool_activate({ namespace })` 按需挂载。内置 LRU 策略（上限 3 个活跃命名空间），激活或调用均刷新新近度；可选 `idleReclaimSteps`（默认 `0` 关闭）仅在下次激活触碰或压缩/结束边界延迟回收长期闲置命名空间，避免在对话中途改写工具表而打穿提示词前缀缓存，激活状态在会话压缩与恢复后完整重建。
 - **关键事实登记簿与就近状态投射（Fact Register & Working Context）**：长程多轮对话中大模型极易遗忘早期的关键业务约束或踩过的坑。插件向模型提供专属 `fact_register` 工具，可将用户硬性约束、已确认的架构决策或失败路径登记为单行事实（每条不超过 160 字符，最多保留 12 条）。关键事实随 `[Working Context: ...]` 状态行在每一轮交互中就近投射至最新消息尾部的局部注意力窗口内，从物理机制上彻底解决长上下文“中间遗忘”与重复踩坑顽疾。
 - **原生调度者架构与敏捷访谈纪律（Dispatcher Identity & Triage）**：预设出厂深度集成调度者（Dispatcher）架构规范，赋能模型以团队指挥官身份统领工程任务。内置复杂度分诊机制（L0/L1 单点任务直接敏捷执行，L2 复杂任务严格遵循“澄清访谈 -> 架构规划 -> 并发子代理派发 -> 双层严格验收”标准流）；设定严格的提问预算控制（单轮最多 4 问、总计最多 3 轮、影响面排序、假设先行），杜绝无效拉扯；任务状态权威沉淀于 `todo_write`，杜绝浮躁的敷衍式交付。
 - **新建会话老虎机拨杆与炫酷中奖特效（Composer Slot Lever）**：在新建会话输入框工具行、模型选择器左侧，精心打造了一台复古老虎机拨杆控件。下拉拨杆（支持鼠标拖拽、单击或键盘快捷操作）即可一键为当前新建会话装配梁神模式，拉下命中即触发绚丽的中奖粒子特效（闪光、冲击环、火花粒子与专属彩蛋横幅）；上推即可平滑切回默认模式。拨杆自适应全局主题色彩，且在会话开始后自动隐藏，丝滑灵动，极具极客趣味。
 
 详细机制、评测数据与高级配置参数见 [dsh-liangshen README](packages/dsh-liangshen/README.zh.md)。
 
+### 智能体小队（Agent Squads · 可复用成员定义与整队协同运行）
+
+通过侧边栏“智能体”入口进入。智能体小队（`dsh-agents`）把跨会话复用的专业 AI 角色与团队编制沉淀为宿主权威账本：每个小队管理一组有序成员，既可按需单独点播某个成员开启专属会话，也可一键发起整队 Agent Teams 协同攻坚：
+
+- **可复用小队与成员定义（Reusable Squad & Member Definitions）**：小队支持配置名称、职责描述、可选绑定工作区与整队运行的 Lead 预设；每位成员独立钉住显示名称、Agent 预设（如梁神模式或研究小队预设）、沙箱权限、模型路由、推理思考强度与成员简报（Brief）。成员简报仅通过系统提示词段注入该成员专属会话，绝不污染首条用户消息或普通对话会话。
+- **整队 Agent Teams 协同运行与实时投影（Whole-Squad Runs & Live Projection）**：一键启动整队运行，小队名册与任务目标经 `team:squad` 系统提示词上下文直达 `<小队名> / Lead` 会话；Lead 按成员钉住的预设、权限与模型动态孵化专属 Teammate，任一钉子无法兑现立即 Fail-Closed 报错而不静默降级。前端直接读取共享会话存储中的 `agentTeam` 投影（`stateVersion` 4），实时呈现 Lead 与各 Teammate 的角色、执行阶段与启动异常，全程无需轮询。
+- **10 项全会话定义管理与启动工具（10 Model-Facing Management & Launch Tools）**：向宿主全体会话注册 `squads_list`、`squads_read`、`squads_create`、`squads_update`、`squads_delete`、`squad_member_add`、`squad_member_update`、`squad_member_remove`、`squads_run_member`、`squads_run_squad` 共 10 项进程内工具，支持对话中的 Agent 自主编排小队、点播单成员会话或发起整队运行，删除操作强制要求 `confirm: true` 安全确认。
+- **原子账本持久化与同源运行时避让（Atomic Ledger & Runtime Coexistence）**：定义与最新 200 条运行记录经临时文件 fsync + 原子 rename 持久化于 `$DSH_HOME/dsh-agents/ledger.json`（由 `ledger.json.lock` 保证单进程独占，损坏账本原样保留绝不覆盖）；当宿主已挂载官方 `agentTeams` 服务时自动避让内置团队运行时并无缝复用官方状态投影。
+
+详细契约、工具表与安全模型见 [dsh-agents README](packages/dsh-agents/README.zh.md)。
+
+### 实时浏览器视图（Browser View · 右侧栏 CDP 实时投屏与网页自动化）
+
+在会话右侧栏标签条或引导胶囊中打开。实时浏览器视图（`dsh-browser-view`）为 Agent 提供一个由宿主驱动、用户可在聊天旁侧实时观看的受控 Chromium 浏览器标签页，实现前端开发验证、视觉巡检与网页交互的全程可视化闭环：
+
+- **右侧栏 CDP 实时投屏与保活挂载（Right-Docked Screencast & Keep-Mounted View）**：注册专属右侧栏标签页类型 `browser-view`（与官方 `browser` 标签页和平共处），通过单条 WebSocket 实时绘制 CDP `Page.startScreencast` 画面帧、当前 URL、标题与 Agent 最近一次操作摘要；切换标签 chip 时保持挂载不断连，仅在页面变化时推流。
+- **默认隔离 Chromium 与真实已登录浏览器接管（Isolated Chromium & Real Browser Attach）**：默认惰性拉起带有一次性临时配置目录与随机调试端口的无头 Chromium（固定 1280x800 视口，访问本机 DSH Web GUI 遇 401 鉴权时自动内存取票完成登录）；开启 `realBrowserEnabled` 后可通过本地回环 CDP 端点（默认 `http://127.0.0.1:9222`）直接接管用户以非默认数据目录启动的 Chrome 或 Edge，直接在既有登录态下操作全部标签页，绝不导出或复制任何 Cookie。
+- **11 项受控浏览器交互工具（11 Agent Browser Tools）**：提供 `browser_navigate`、`browser_click`、`browser_type`、`browser_press`、`browser_scroll`、`browser_snapshot`、`browser_screenshot`、`browser_console`、`browser_network`、`browser_tabs`、`browser_close` 完整工具链；`browser_snapshot` 输出深度优先编号（`ref`）与坐标框的 DOM 结构树供精准点击与输入，每个标签页独立维护控制台日志与网络请求环形缓冲区。
+- **高保真无损区域截图与证据入列（Lossless Region Screenshots & Transcript Evidence）**：`browser_screenshot` 默认输出无损 PNG 并经宿主附件服务直接写入对话轨迹；支持传入与 `browser_snapshot` 同坐标系的 `clip: { x, y, width, height }` 进行局部区域裁剪（默认 2x 渲染倍率，可选 1x/2x/3x），显著提升模型视觉 Token 细节分辨率，越界裁剪或连接失败均显式报错而不静默回退。
+
+详细配置、真实浏览器启动参数与安全边界见 [dsh-browser-view README](packages/dsh-browser-view/README.zh.md)。
+
 ### 手机 App 远程访问（Mobile Remote · 原生手机 App 接入）
 
-在 profile 中安装 `@linxin666/dsh-remote-bridge` 插件并重启服务后，点击侧边栏底部的二维码图标（aria-label 为「配对 iPhone」）打开配对面板。使用手机 App 扫码即可直接开始使用。
+在 profile 中安装 [`@linxin666/dsh-remote-bridge`](packages/dsh-remote-bridge/README.zh.md) 插件并重启服务后，点击侧边栏底部的二维码图标（aria-label 为「配对 iPhone」）打开配对面板。使用手机 App 扫码即可直接开始使用。
 
 配对面板具备本地安全保护，令牌路由（`/remote-bridge/pair/token`）带有回环门控，仅允许在本机浏览器中访问（非本机访问返回 403）。面板生成的配对码为一次性凭据，有效期为 30 秒，点击「重新取码」将作废上一张配对码。二维码编码包含服务地址与令牌的文档（URL 形如 `wss://<origin>/ios/v1?token=...`），手机 App 扫码后即可同时获取服务地址与鉴权令牌。
 
-网络接入协议面仅暴露 `/ios/v1` 一个 WebSocket 端点，隧道与局域网转发均指向仅放行该路径的入站闸门，公网无法直接访问 Web GUI 路由。服务地址按实时状态（中继租约或运行中的隧道）、环境变量 `DSH_REMOTE_PUBLIC_BASE_URL` 以及局域网转发器实际监听地址的顺序解析。默认配置下公网可用（中继默认开启、隧道默认关闭、局域网转发默认关闭）；若需在局域网内直连，需在插件配置中开启局域网转发。原浏览器远程控制插件 `dsh-remote-web-ui` 已退役，接入栈能力已迁入本包。
+网络接入协议面仅暴露 `/ios/v1` 一个 WebSocket 端点，隧道与局域网转发均指向仅放行该路径的入站闸门，公网无法直接访问 Web GUI 路由。服务地址按实时状态（中继租约或运行中的隧道）、环境变量 `DSH_REMOTE_PUBLIC_BASE_URL` 以及局域网转发器实际监听地址的顺序解析。默认配置下公网可用（中继默认开启、隧道默认关闭、局域网转发默认关闭）；若需在局域网内直连，需在插件配置中开启局域网转发。
 
 [iOS App 还在内测，欢迎来 Discord 交流](https://discord.gg/nBy28kjun)。
 
 ### 远程连接（SSH Ops · Web 终端、SFTP 传输与集群运维）
 
-通过侧边栏“SSH”入口打开远程运维面板。支持密钥与密码认证，可一键导入本地 `~/.ssh/config` 主机列表；配置数据安全保存在 `~/.dsh/dsh-ssh.json` 中。面板提供以下操作能力：
+通过侧边栏“SSH”入口打开远程运维面板（详见 [dsh-ssh README](packages/dsh-ssh/README.zh.md)）。支持密钥与密码认证，可一键导入本地 `~/.ssh/config` 主机列表；配置数据安全保存在 `~/.dsh/dsh-ssh.json` 中。面板提供以下操作能力：
 
 - **Web 终端**：基于 xterm.js 的完整远程交互终端，支持实时输出与窗口自适应；
 - **文件传输**：集成 SFTP 上传与下载功能，提供进度提示并支持可视化浏览远程目录；
@@ -171,13 +195,17 @@ dsh-web 通过官方 profile 机制挂载到 `dsh web`，零修改侵入官方�
 
 ### 更多插件（More Plugins）
 
-- **Skill 中心**（`dsh-client-ui-skill-explorer`）：按来源集中查看与管理已加载的 agent skills，支持按名称与功能描述实时搜索过滤，多工作区独立呈现，支持一键启停与删除。
-- **插件管理器**（`dsh-client-ui-plugin-manager`）：基于官方 host 接口从 npm 或 git 仓库直接安装插件，可视化管理插件运行状态与自定义配置。
-- **插件自更新**（`dsh-update`，全家桶不含，需单独安装）：自动检测 npm 官方更新并在 Web GUI 侧边栏/设置中提供更新日志与一键平滑升级。
-- **任务看板 GitHub 同步**（`dsh-client-ui-task-board-github`）：为任务看板无缝接入 GitHub Issues 与 PR 状态双向同步，自动化驱动 AI Agent 修复与提 PR。
-- **会话 ID 辅助**（`dsh-client-ui-session-id`）：侧边栏底部提供当前会话全量 ID 的一键复制与快速检索定位。
-- **国际化语言包**（`dsh-i18n`）：提供俄语本地化定义与全家族插件命名空间统一多语言字典支持。
-- **外部归档管理**（外部插件 [@mlgbnb/dsh-archive-manager](https://github.com/z953218350/dsh-archive-manager)）：不安装。其构建仍 import 已移除的 `@deepseek-ai/dsh-client-runtime` 面；会话归档由上方内置的「会话归档管理」提供。
+- **图示渲染**（[`@linxin666/dsh-client-ui-diagrams`](packages/dsh-diagrams/README.zh.md)）：在会话正文与文档预览面板中将 `mermaid` 代码块按需原地渲染为 SVG 图示，跟随界面明暗主题重绘并经双重安全消毒。
+- **Windows 常驻 Bash**（[`@linxin666/dsh-win-bash`](packages/dsh-win-bash/README.zh.md)）：为 Windows x64 会话提供经 SHA256 与强制完整性标签校验的随包 MinGit 常驻 `win_bash` 进程，保留跨调用目录与环境变量状态并自动剥离终端转义序列。
+- **任务看板 GitHub 同步**（[`@linxin666/dsh-client-ui-task-board-github`](packages/dsh-task-board-github/README.zh.md)）：为任务看板无缝接入 GitHub Issues 与 PR 状态双向同步，自动化驱动 AI Agent 修复缺陷与提 PR。
+- **任务看板团队协作**（[`@linxin666/dsh-client-ui-task-board-team`](packages/dsh-task-board-team/README.zh.md)）：将本地 `dsh-agents` 成员绑定至云端 `team-hub`，按租约认领指派 Issue 为镜像卡执行，支持问题路由、`team_comment` 评论与审阅返工。
+- **任务看板远端面**（[`@linxin666/dsh-task-board-remote`](packages/dsh-task-board-remote/README.zh.md)）：将任务看板能力面（`board.v1`）挂载至 `dsh-remote-bridge` 扩展缝，使已配对手机直接读写同一份宿主账本。
+- **Skill 中心**（[`@linxin666/dsh-client-ui-skill-explorer`](packages/dsh-skill-explorer/README.zh.md)）：按来源集中查看与管理已加载的 agent skills，支持按名称与功能描述实时搜索过滤，多工作区独立呈现，支持一键启停、新建与删除。
+- **插件增强（更新与开关）**（[`@linxin666/dsh-client-ui-plugin-manager`](packages/dsh-plugin-manager/README.zh.md)）：为官方插件页补充注册表新版本检测、DSH 运行时最低版本门控与一键升级，支持内置插件按标题/包名/行 ID 关键词检索与分页浏览（每页 20 项），并提供可视化启停开关与配置编辑。
+- **创意工坊与综合设置面板**：含 [**创意工坊客户端**](packages/dsh-market/README.zh.md)（`@linxin666/dsh-client-ui-market`，在线浏览与一键安装皮肤、宠物、插件与预设）与 [**综合设置面板**](packages/dsh-web-settings/README.zh.md)（`@linxin666/dsh-client-ui-web-ui-settings`，集中承载家族插件开关与配置表单）。
+- **会话 ID 辅助**（[`@linxin666/dsh-client-ui-session-id`](packages/dsh-session-id/README.zh.md)）：侧边栏底部提供全部会话完整 ID 的一键复制与快速检索定位。
+- **俄语语言包**（[`@linxin666/dsh-i18n`](packages/dsh-i18n/README.zh.md)）：集中承载全家族插件命名空间的俄语（`ru`）多语言字典支持。
+- **外部归档管理**（[`@mlgbnb/dsh-archive-manager`](https://github.com/z953218350/dsh-archive-manager)）：聚合包排除此插件，因为其构建引用已移除的 `@deepseek-ai/dsh-client-runtime`。会话归档由内置的会话归档管理提供。
 
 ### 皮肤
 
@@ -190,7 +218,7 @@ dsh-web 通过官方 profile 机制挂载到 `dsh web`，零修改侵入官方�
 ### 系统要求
 
 - 已安装 DeepSeek Harness 且 `dsh web` 可正常启动。
-- npm 安装方式无需额外环境；若从源码仓库构建，需要 Node.js >= 22 与 pnpm 环境。
+- npm 安装方式无需额外环境；若从源码仓库构建，需要 Node.js >= 24.9 与 pnpm 环境。
 
 ### 三步上手（npm 安装，推荐）
 
@@ -218,16 +246,16 @@ dsh plugin --profile web add github:zhu1090093659/dsh-web
 
 ### 从仓库安装（开发调试）
 
-如需二次开发或调试插件，可按以下步骤从源码构建（要求 Node.js >= 22 与 pnpm）：
+如需二次开发或调试插件，可按以下步骤从源码构建（要求 Node.js >= 24.9 与 pnpm）：
 
 ```sh
 # 1. 克隆源码仓库
 git clone https://github.com/zhu1090093659/dsh-web.git
 cd dsh-web
 
-# 2. 安装项目依赖并构建全包
-pnpm install
-pnpm -r build
+# 2. 安装项目依赖（自动对齐宿主 @deepseek-ai SDK 软链）并构建全包
+pnpm run deps:install
+pnpm build
 
 # 3. 将本地包软链挂载至 web profile（建议先链接所有子包再注册聚合包）
 node scripts/link-profile.mjs
@@ -244,46 +272,62 @@ dsh web
 如果不需要安装全家桶，可根据实际需求单独安装各个功能模块：
 
 ```sh
-dsh plugin --profile web add @linxin666/dsh-client-ui-task-board@latest              # 任务看板
+dsh plugin --profile web add @linxin666/dsh-client-ui-task-board@latest            # 任务看板
 dsh plugin --profile web add @linxin666/dsh-liangshen@latest                       # 梁神模式（极简预设与 PTC 传输）
-dsh plugin --profile web add @linxin666/dsh-client-ui-task-board-github@latest      # 任务看板 GitHub Issues 同步扩展
-dsh plugin --profile web add @linxin666/dsh-ssh@latest                             # 远程连接（SSH）
-dsh plugin --profile web add @linxin666/dsh-usage@latest                           # 使用统计
-dsh plugin --profile web add @linxin666/dsh-pet@latest                             # 桌面悬浮宠物
+dsh plugin --profile web add @linxin666/dsh-agents@latest                          # 智能体小队（可复用成员与整队运行）
+dsh plugin --profile web add @linxin666/dsh-client-ui-browser-view@latest          # 实时浏览器视图（右侧栏 CDP 投屏与控制）
+dsh plugin --profile web add @linxin666/dsh-remote-bridge@latest                   # 手机 App 远程访问（协议 v1 桥接）
+dsh plugin --profile web add @linxin666/dsh-client-ui-task-board-github@latest     # 任务看板 GitHub Issues 同步扩展
+dsh plugin --profile web add @linxin666/dsh-client-ui-task-board-team@latest       # 任务看板云端团队协作扩展
+dsh plugin --profile web add @linxin666/dsh-task-board-remote@latest               # 任务看板手机远端面扩展
+dsh plugin --profile web add @linxin666/dsh-ssh@latest                             # 远程连接（SSH 终端与集群运维）
+dsh plugin --profile web add @linxin666/dsh-usage@latest                           # 使用统计与 Token 银行
 dsh plugin --profile web add @linxin666/dsh-session-archive@latest                 # 会话归档管理
-dsh plugin --profile web add @linxin666/dsh-update@latest                          # 插件自更新（全家桶不含）
-dsh plugin --profile web add @linxin666/dsh-client-ui-session-id@latest            # 会话 ID 复制
+dsh plugin --profile web add @linxin666/dsh-client-ui-diagrams@latest              # Mermaid 图示原地渲染
+dsh plugin --profile web add @linxin666/dsh-win-bash@latest                        # Windows 常驻私有 Bash
+dsh plugin --profile web add @linxin666/dsh-client-ui-skin-center@latest           # 皮肤中心
+dsh plugin --profile web add @linxin666/dsh-pet@latest                             # 桌面悬浮宠物
+dsh plugin --profile web add @linxin666/dsh-client-ui-market@latest                # 创意工坊客户端
+dsh plugin --profile web add @linxin666/dsh-client-ui-preset-center@latest         # 预设中心
+dsh plugin --profile web add @linxin666/dsh-client-ui-plugin-manager@latest        # 插件增强（更新与开关）
 dsh plugin --profile web add @linxin666/dsh-client-ui-skill-explorer@latest        # Skill 中心
-dsh plugin --profile web add @linxin666/dsh-i18n@latest                            # 国际化语言包
+dsh plugin --profile web add @linxin666/dsh-client-ui-web-ui-settings@latest       # 综合设置面板
+dsh plugin --profile web add @linxin666/dsh-client-ui-session-id@latest            # 会话 ID 复制
+dsh plugin --profile web add @linxin666/dsh-i18n@latest                            # 俄语语言包
 ```
 
 <details>
 <summary><strong>全部 npm 包一览</strong></summary>
 
-所有插件均以 `@linxin666/dsh-*` 命名空间公开发布于 npm：
+所有插件均以 `@linxin666/dsh-*` 命名空间公开发布于 npm（涵盖本仓 `packages/` 下 21 个家族包与 4 个独立卫星仓包，共 25 个包）：
 
-| npm 包名 | 功能说明 |
-| --- | --- |
-| [@linxin666/dsh-web-all](https://www.npmjs.com/package/@linxin666/dsh-web-all) | 全家桶聚合包：一站式包含全部功能插件与皮肤中心 |
-| [@linxin666/dsh-client-ui-task-board](https://www.npmjs.com/package/@linxin666/dsh-client-ui-task-board) | 任务看板：Host 权威长程后台自动化、多 Agent 级联/Teams 编排、对抗质检与 Cron 定时调度 |
-| [@linxin666/dsh-client-ui-task-board-github](https://www.npmjs.com/package/@linxin666/dsh-client-ui-task-board-github) | 任务看板扩展：GitHub Issues 同步（默认开启，设置可关） |
-| [@linxin666/dsh-liangshen](https://www.npmjs.com/package/@linxin666/dsh-liangshen) | 梁神模式：极简系统提示词、PTC 工具调用、MCP 分页与调度者敏捷工作纪律 |
-| [@linxin666/dsh-remote-bridge](https://www.npmjs.com/package/@linxin666/dsh-remote-bridge) | 手机 App 远程访问：协议 v1 宿主适配、原生客户端 WebSocket、入站网关与公网/局域网接入 |
-| [@linxin666/dsh-ssh](https://www.npmjs.com/package/@linxin666/dsh-ssh) | 远程运维面板：Web 终端、SFTP 传输、端口转发与集群执行 |
-| [@linxin666/dsh-usage](https://www.npmjs.com/package/@linxin666/dsh-usage) | 用量统计：Token 消耗、余额估算、套餐追踪与 Token 银行 |
-| [@linxin666/dsh-pet](https://www.npmjs.com/package/@linxin666/dsh-pet) | 桌面宠物：注册表驱动的桌面交互悬浮挂件 |
-| [@linxin666/dsh-client-ui-skin-center](https://www.npmjs.com/package/@linxin666/dsh-client-ui-skin-center) | 皮肤中心：主题与壁纸的加载与运行引擎 |
-| [@linxin666/dsh-client-ui-market](https://www.npmjs.com/package/@linxin666/dsh-client-ui-market) | 创意工坊客户端：线上资产一键下载与管理 |
-| [@linxin666/dsh-client-ui-preset-center](https://www.npmjs.com/package/@linxin666/dsh-client-ui-preset-center) | 预设中心：社区 Agent 预设安装与管理 |
-| [@linxin666/dsh-client-ui-plugin-manager](https://www.npmjs.com/package/@linxin666/dsh-client-ui-plugin-manager) | 插件管理器：可视化插件状态控制与配置编辑 |
-| [@linxin666/dsh-client-ui-skill-explorer](https://www.npmjs.com/package/@linxin666/dsh-client-ui-skill-explorer) | Skill 中心：已加载技能的浏览、检索与管理 |
-| [@linxin666/dsh-client-ui-diagrams](https://www.npmjs.com/package/@linxin666/dsh-client-ui-diagrams) | 图示渲染：把 mermaid 代码块在会话与文档预览里原地画成图 |
-| [@linxin666/dsh-session-archive](https://www.npmjs.com/package/@linxin666/dsh-session-archive) | 会话归档：全量会话检索、批量恢复与级联清理 |
-| [@linxin666/dsh-client-ui-community-plugins](https://www.npmjs.com/package/@linxin666/dsh-client-ui-community-plugins) | 社区数据源：创意工坊插件目录权威清单 |
-| [@linxin666/dsh-client-ui-web-ui-settings](https://www.npmjs.com/package/@linxin666/dsh-client-ui-web-ui-settings) | 综合设置面板：dsh-web 全局偏好与样式配置 |
-| [@linxin666/dsh-update](https://www.npmjs.com/package/@linxin666/dsh-update) | 插件自更新（全家桶不含，需单独安装）：版本检测、更新日志面板与一键原地升级 |
-| [@linxin666/dsh-client-ui-session-id](https://www.npmjs.com/package/@linxin666/dsh-client-ui-session-id) | 会话 ID 复制：侧边栏快速查看与一键复制会话全量 ID |
-| [@linxin666/dsh-i18n](https://www.npmjs.com/package/@linxin666/dsh-i18n) | 国际化语言包：俄语本地化及家族插件多语言字典 |
+| npm 包名 | 文档入口 | 功能说明 |
+| --- | --- | --- |
+| [@linxin666/dsh-web-all](https://www.npmjs.com/package/@linxin666/dsh-web-all) | [README](packages/dsh-web-all/README.zh.md) | 全家桶聚合包：一站式包含全部功能插件、皮肤中心、桌面宠物与预设中心 |
+| [@linxin666/dsh-client-ui-task-board](https://www.npmjs.com/package/@linxin666/dsh-client-ui-task-board) | [README](packages/dsh-task-board/README.zh.md) | 任务看板：Host 权威 Schema v7 五列账本、树状子任务父卡自治派发、多模态卡片附件与 Cron/单次定时调度 |
+| [@linxin666/dsh-client-ui-task-board-github](https://www.npmjs.com/package/@linxin666/dsh-client-ui-task-board-github) | [README](packages/dsh-task-board-github/README.zh.md) | 任务看板扩展：GitHub Issues 与 PR 状态双向同步及自动化提 PR 闭环 |
+| [@linxin666/dsh-client-ui-task-board-team](https://www.npmjs.com/package/@linxin666/dsh-client-ui-task-board-team) | [README](packages/dsh-task-board-team/README.zh.md) | 任务看板扩展：绑定本地 `dsh-agents` 成员认领云端 `team-hub` Issue、问题路由、双向评论与返工 |
+| [@linxin666/dsh-task-board-remote](https://www.npmjs.com/package/@linxin666/dsh-task-board-remote) | [README](packages/dsh-task-board-remote/README.zh.md) | 任务看板远端面：将看板能力面（`board.v1`）挂载至 `dsh-remote-bridge` 供已配对手机读写同一账本 |
+| [@linxin666/dsh-liangshen](https://www.npmjs.com/package/@linxin666/dsh-liangshen) | [README](packages/dsh-liangshen/README.zh.md) | 梁神模式：极简系统提示词、PTC 程序化工具传输、按需工具族温和分页、事实登记簿、调度者纪律与老虎机拨杆 |
+| [@linxin666/dsh-agents](https://www.npmjs.com/package/@linxin666/dsh-agents) | [README](packages/dsh-agents/README.zh.md) | 智能体小队：可复用小队与成员定义、整队 Agent Teams 运行与实时投影、10 项模型原生工具 |
+| [@linxin666/dsh-client-ui-browser-view](https://www.npmjs.com/package/@linxin666/dsh-client-ui-browser-view) | [README](packages/dsh-browser-view/README.zh.md) | 实时浏览器视图：右侧栏 CDP 实时投屏、隔离 Chromium 与真实已登录浏览器接管、11 项交互与无损区域截图工具 |
+| [@linxin666/dsh-remote-bridge](https://www.npmjs.com/package/@linxin666/dsh-remote-bridge) | [README](packages/dsh-remote-bridge/README.zh.md) | 手机 App 远程访问：协议 v1 宿主适配、原生客户端 WebSocket、入站网关与公网中继/隧道/局域网接入 |
+| [@linxin666/dsh-ssh](https://www.npmjs.com/package/@linxin666/dsh-ssh) | [README](packages/dsh-ssh/README.zh.md) | 远程运维面板：Web 终端、SFTP 传输、端口转发隧道、集群批量执行与 6 项 `ssh_*` 智能体工具 |
+| [@linxin666/dsh-usage](https://www.npmjs.com/package/@linxin666/dsh-usage) | [README](packages/dsh-usage/README.zh.md) | 用量统计：Token 消耗明细、供应商余额预警、编程套餐追踪与 Token 银行鲸元券 |
+| [@linxin666/dsh-session-archive](https://www.npmjs.com/package/@linxin666/dsh-session-archive) | [README](packages/dsh-session-archive/README.zh.md) | 会话归档管理：全量会话多维检索、批量归档恢复、级联物理清理与自动化生命周期策略 |
+| [@linxin666/dsh-client-ui-diagrams](https://www.npmjs.com/package/@linxin666/dsh-client-ui-diagrams) | [README](packages/dsh-diagrams/README.zh.md) | 图示渲染：把会话正文与文档预览面板中的 `mermaid` 代码块按需原地渲染为 SVG 图示 |
+| [@linxin666/dsh-win-bash](https://www.npmjs.com/package/@linxin666/dsh-win-bash) | [README](packages/dsh-win-bash/README.zh.md) | Windows 常驻私有 Bash：面向 Windows x64 会话的 SHA256 校验随包 MinGit 常驻 `win_bash` 进程 |
+| [@linxin666/dsh-client-ui-market](https://www.npmjs.com/package/@linxin666/dsh-client-ui-market) | [README](packages/dsh-market/README.zh.md) | 创意工坊客户端：在线浏览与一键下载安装主题皮肤、桌面宠物、插件与社区预设 |
+| [@linxin666/dsh-client-ui-plugin-manager](https://www.npmjs.com/package/@linxin666/dsh-client-ui-plugin-manager) | [README](packages/dsh-plugin-manager/README.zh.md) | 插件增强（更新与开关）：官方插件页注册表版本检测、运行时版本门控升级与可视化状态配置 |
+| [@linxin666/dsh-client-ui-skill-explorer](https://www.npmjs.com/package/@linxin666/dsh-client-ui-skill-explorer) | [README](packages/dsh-skill-explorer/README.zh.md) | Skill 中心：按来源集中浏览、检索、启停、新建与管理已加载的 agent skills |
+| [@linxin666/dsh-client-ui-web-ui-settings](https://www.npmjs.com/package/@linxin666/dsh-client-ui-web-ui-settings) | [README](packages/dsh-web-settings/README.zh.md) | 综合设置面板：集中承载 dsh-web 家族插件启用开关与配置表单的一级设置分区 |
+| [@linxin666/dsh-client-ui-session-id](https://www.npmjs.com/package/@linxin666/dsh-client-ui-session-id) | [README](packages/dsh-session-id/README.zh.md) | 会话 ID 辅助：侧边栏底部快速查看、搜索与一键复制会话完整 ID |
+| [@linxin666/dsh-i18n](https://www.npmjs.com/package/@linxin666/dsh-i18n) | [README](packages/dsh-i18n/README.zh.md) | 俄语语言包：集中承载家族全部插件命名空间的俄语（`ru`）多语言字典 |
+| [@linxin666/dsh-remote-web-ui](https://www.npmjs.com/package/@linxin666/dsh-remote-web-ui) | [README](packages/dsh-remote-web-ui/README.zh.md) | 跨设备浏览器远程访问（已弃用，由 dsh-remote-bridge 承接，切勿与 remote-bridge 同时启用中继） |
+| [@linxin666/dsh-client-ui-skin-center](https://www.npmjs.com/package/@linxin666/dsh-client-ui-skin-center) | [dsh-skins](https://github.com/zhu1090093659/dsh-skins) | 皮肤中心（卫星仓）：主题皮肤与 Wallpaper Engine 动态壁纸的加载引擎，内置 Blue Fantasy 主题 |
+| [@linxin666/dsh-pet](https://www.npmjs.com/package/@linxin666/dsh-pet) | [dsh-pet](https://github.com/zhu1090093659/dsh-pet) | 桌面宠物（卫星仓）：注册表驱动的桌面交互悬浮挂件与用量气泡提示 |
+| [@linxin666/dsh-client-ui-preset-center](https://www.npmjs.com/package/@linxin666/dsh-client-ui-preset-center) | [dsh-presets](https://github.com/zhu1090093659/dsh-presets) | 预设中心（卫星仓）：创意工坊社区 Agent 预设本地库管理与按需启用 |
+| [@linxin666/dsh-client-ui-community-plugins](https://www.npmjs.com/package/@linxin666/dsh-client-ui-community-plugins) | [dsh-community-plugins](https://github.com/zhu1090093659/dsh-community-plugins) | 社区插件索引（卫星仓）：驱动创意工坊与设置页的社区插件权威清单数据源 |
 
 </details>
 
@@ -334,72 +378,64 @@ dsh-web 针对主流操作系统、现代化浏览器及网络拓扑进行了深
 | 操作系统 | macOS (Apple Silicon M 系列 & Intel 芯片)、Windows 10/11 (含 WSL2)、Linux (Ubuntu, Debian, Fedora, Arch, CentOS 等) |
 | 浏览器与设备 | 桌面浏览器 (Chrome, Edge, Safari, Firefox)；移动端现代浏览器 (iOS Safari, Android Chrome 等) |
 | 网络连接架构 | 本机环回访问 (127.0.0.1)、局域网多设备互联 (LAN)、公网隧道安全穿透 (Cloudflare Tunnel, Tailscale, FRP, Nginx 反向代理) |
-| 模型供应商覆盖 | DeepSeek 官方通道与满血模型、OpenAI (GPT-4o 等)、Anthropic Claude、Google Gemini、Kimi (Moonshot)、GLM (智谱)、MiniMax、Ollama 本地大模型、SiliconFlow 等 |
-| 运行时依赖 | npm 方式安装无特殊环境依赖；源码编译需 Node.js >= 22 与 pnpm >= 9 |
+| 模型供应商覆盖 | DeepSeek 官方通道与 V4.1 系列模型、Anthropic Claude、Google Gemini、OpenAI、Kimi (Moonshot)、GLM (智谱)、MiniMax、Ollama 本地与云端模型、SiliconFlow 等 |
+| 运行时依赖 | npm 方式安装无特殊环境依赖；源码编译需 Node.js >= 24.9 与 pnpm >= 9 |
 
 ## 常见问题
 
 <details>
-<summary><strong>安装重启后，侧边栏未显示插件入口？</strong></summary>
+<summary><strong>安装重启后，侧边栏未显示插件入口怎么办？</strong></summary>
 
-请首先检查插件是否正确安装至 `web` profile（命令需包含 `--profile web`），并通过 `dsh --profile web --dump-config` 验证配置层是否已成功挂载。注意仅刷新网页无法加载新模块，必须彻底重启 `dsh web` 后端服务进程。
-
-</details>
-
-<details>
-<summary><strong>定时任务为何未能按时触发执行？</strong></summary>
-
-任务调度完全由 `dsh web` 后端宿主进程驱动，无需保持前端浏览器页面打开。若宿主进程退出、系统关机或整机进入深度睡眠，错过的触发时间点将遵循跳过策略处理，不执行回填补跑；若任务到达触发点时上一轮仍在运行，会自动顺延至下一个周期。若需要允许息屏但防止主机自动睡眠，可开启任务看板自带的电源保护选项。
+请首先检查插件是否正确安装至 `web` profile（命令需包含 `--profile web`），并通过 `dsh --profile web --dump-config` 验证配置层是否已成功挂载。注意仅刷新网页无法加载新模块，必须彻底重启 `dsh web` 后端服务进程或官方桌面客户端。
 
 </details>
 
 <details>
-<summary><strong>手机 App 配对后为何没有收到流式推送？</strong></summary>
+<summary><strong>关闭浏览器或电脑休眠后，定时任务还会继续执行吗？</strong></summary>
 
-手机 App 通过协议 v1 的 WebSocket 通道与宿主通信。隧道或中继中断期间流式更新暂停，网络恢复后连接会自动重连；更新节奏的差异主要来自广域网往返延迟。
-
-</details>
-
-<details>
-<summary><strong>试穿主题皮肤不满意如何还原？</strong></summary>
-
-皮肤面板提供免落盘试穿功能：点击试穿即刻在当前界面生效预览，离开面板或关闭预览会自动恢复初始外观；只有显式点击“应用”按钮才会将主题配置写入磁盘，可放心预览各类主题。
+任务调度完全由 `dsh web` 后端宿主进程驱动，无需保持前端浏览器页面打开，关闭浏览器标签页不影响触发与执行。若宿主进程退出、系统关机或整机进入深度睡眠，离线期间错过的触发点会遵循跳过策略处理而不回填补跑；若上一轮仍在运行则会顺延至下一个周期。若希望允许息屏的同时阻止整机空闲休眠，可在任务看板设置中开启跨平台“电源保护”选项。
 
 </details>
 
 <details>
-<summary><strong>是否可以仅使用主题皮肤或某个单一插件？</strong></summary>
+<summary><strong>如何通过手机 App 远程访问 DeepSeek Harness？必须在同一 Wi-Fi 下吗？</strong></summary>
 
-完全支持。若仅需要视觉定制，直接安装 `@linxin666/dsh-client-ui-skin-center` 即可；若仅需特定功能，参考“单独安装某个插件”章节直接安装对应 npm 包即可。
-
-</details>
-
-<details>
-<summary><strong>已安装全家桶的前提下，能否额外独立安装某个子插件？</strong></summary>
-
-可以。聚合包内部的插件注册标识均统一带有 `web-ui-` 前缀（例如 `web-ui-usage`），与独立包的原生标识（如 `usage`）相互独立，不会产生 loader entry 重复冲突。宿主服务对同类插件会自动去重。通常情况下安装全家桶即可满足完整需求，无需重复安装单个子包。
-
-</details>
-
-
-<details>
-<summary><strong>如何通过手机 App 远程访问 DeepSeek Harness？是否必须在同一 Wi-Fi 下？</strong></summary>
-
-手机远程访问由协议 v1 支撑，不要求必须处于同一 Wi-Fi。默认配置下插件已开启公网中继服务，在电脑端点击侧栏底部的二维码图标打开配对面板后，使用手机 App 扫码即可直接通过公网连接；亦可配置 Cloudflare 隧道。若希望在同一局域网内直连访问，需在插件配置中开启局域网转发并扫码配对。
+不需要处于同一 Wi-Fi。手机远程访问基于 `dsh-remote-bridge` 的协议 v1 WebSocket 通道（`/ios/v1`）：默认已开启公网中继，点击电脑端侧栏底部的二维码图标（「配对 iPhone」）扫码即可在公网环境下实时流式交互，亦可配置 Cloudflare 隧道或开启插件配置中的局域网转发。隧道或中继波动期间会自动重连，延迟差异主要来自广域网往返时延。
 
 </details>
 
 <details>
-<summary><strong>关闭浏览器或电脑休眠后，DeepSeek 的定时任务还会继续运行吗？</strong></summary>
+<summary><strong>梁神模式如何降低 Token 消耗并加速长程编程任务？</strong></summary>
 
-任务调度完全由 `dsh web` 后端宿主进程驱动，关闭浏览器标签页不影响定时任务的触发与执行。但如果整机进入深度睡眠或关机，宿主进程将暂停运行，离线期间错过的触发点会遵循跳过策略处理。若希望保持无人值守后台自动化，可在任务看板设置中开启“电源保护”选项，该选项会阻止系统因空闲进入休眠（允许显示器正常熄灭），确保定时任务准时触发。
+梁神模式（`dsh-liangshen`）通过极简单行 Persona 削减静态系统提示词，在启用 PTC 时将请求工具面收拢为单一 `run_code` 入口以代码方式并发编排工具，并通过按需工具族温和分页让高扇出工具仅在 `tool_activate` 激活后才进入当前上下文；可选 `idleReclaimSteps` 仅在激活边界或压缩边界延迟回收闲置命名空间，避免频繁改写工具 Schema 造成大模型前缀缓存失效。同时通过 `fact_register` 与 `[Working Context: ...]` 在最新对话窗口就近保留关键事实。
 
 </details>
 
 <details>
-<summary><strong>如何查看和监控 DeepSeek 及其他模型 API 的 Token 消耗与账户余额？</strong></summary>
+<summary><strong>实时浏览器视图能否直接操作我本机已登录的 Chrome / Edge？Cookie 会被复制吗？</strong></summary>
 
-安装使用统计插件后，在“设置 > 使用统计”面板中可查看按日汇总的输入、输出与缓存 Token 数量，支持按模型细分查看 30 天消费趋势。针对 DeepSeek 官方路由还提供峰谷分时计费估算；若配置了支持查询余额的供应商 API，插件可定时拉取当前账户剩余额度与重置周期。
+支持。`dsh-browser-view` 默认拉起隔离的无头 Chromium 沙箱，也支持开启 `realBrowserEnabled` 后通过本地回环 CDP（默认 `http://127.0.0.1:9222`）接管用户以非默认数据目录启动的真实 Chrome 或 Edge 实例。所有点击、输入与截图均在原浏览器进程中完成，绝不读取、导出或复制 Cookie 数据库。
+
+</details>
+
+<details>
+<summary><strong>智能体小队（Agent Squads）与内置多智能体有什么区别？</strong></summary>
+
+`dsh-agents` 将角色名册与团队编制持久化为宿主权威账本，每位成员可独立钉住名称、Agent 预设、沙箱权限、模型路由、思考强度与专属简报；既可随时单独点播某一成员开启会话，也可一键发起整队 Agent Teams 协同攻坚。当宿主挂载官方 `agentTeams` 运行时会自动对接协同，不重复造轮子。
+
+</details>
+
+<details>
+<summary><strong>试穿主题皮肤后如何还原？能否只安装单个插件或单独皮肤？</strong></summary>
+
+皮肤中心支持免落盘预览：点击试穿即刻生效预览，关闭预览面板或切换离开即恢复原貌，只有点击“应用”才会写入磁盘。如果不需要全家桶，可单独安装 `@linxin666/dsh-client-ui-skin-center` 或任意单个功能包；聚合包内置行统一带 `web-ui-` 前缀，与独立安装包共存时宿主会自动去重。
+
+</details>
+
+<details>
+<summary><strong>如何监控 DeepSeek 及其他大模型的 Token 消耗与余额？</strong></summary>
+
+安装 `dsh-usage` 后，可在“设置 → 使用统计”查看按日汇总的输入、输出与缓存 Token 消耗及 30 天按模型消费趋势；针对 DeepSeek 官方通道提供峰谷分时计费估算，对 Kimi、GLM、MiniMax、OpenCode Go、Codex / ChatGPT 等兼容供应商定时查询余额与编程套餐重置进度，每消耗 100 万 tokens 在 Token 银行铸造 1 枚可分享的“鲸元券”。
 
 </details>
 
@@ -408,7 +444,7 @@ dsh-web 针对主流操作系统、现代化浏览器及网络拓扑进行了深
 - 任务看板由后端 Host 进程统一调度，关闭前端标签页不影响任务执行；但若宿主进程停止或操作系统关机睡眠，处于离线期间的触发点将直接跳过不补跑。可选的电源保护仅阻止系统闲置睡眠，无法阻止用户主动合盖、手动休眠或电源切断，技术细节见 [dsh-task-board README](packages/dsh-task-board/README.zh.md)。
 - SSH 凭据（密码与私钥口令）保存在本地 `~/.dsh/dsh-ssh.json` 文件中（文件权限为 0600）；在网络中断重连时可能重新发送非幂等命令，终端输出保持原样返回不执行脱敏，安全规范见 [dsh-ssh README](packages/dsh-ssh/README.zh.md)。
 - 手机 App 流式交互经隧道或中继转发，广域网往返延迟叠加在每次更新上；固定域名中继比裸快速隧道多一跳，两者均可使用。
-- 从源码构建全仓需要 Node.js >= 22 与 pnpm 工具链，直接从 npm 安装不受此限制。
+- 从源码构建全仓需要 Node.js >= 24.9 与 pnpm 工具链，直接从 npm 安装不受此限制。
 
 ## 社区
 
@@ -423,12 +459,12 @@ dsh-web 针对主流操作系统、现代化浏览器及网络拓扑进行了深
 
 ### 关键词索引（Keywords & Topics）
 
-`DeepSeek` · `DeepSeek Harness` · `DSH` · `DeepSeek Web` · `DeepSeek Web UI` · `DeepSeek 网页版` · `DeepSeek 桌面客户端` · `DeepSeek Desktop` · `DeepSeek-V3` · `DeepSeek-R1` · `DeepSeek 插件` · `DeepSeek 扩展` · `DeepSeek 任务看板` · `DeepSeek 定时任务` · `DeepSeek Cron 自动化` · `DeepSeek 手机版` · `DeepSeek 远程控制` · `DeepSeek 手机 App` · `DeepSeek SSH 终端` · `DeepSeek 服务器运维` · `DeepSeek Token 统计` · `DeepSeek 余额查询` · `DeepSeek API 费用` · `Token 银行` · `DeepSeek 主题` · `DeepSeek 皮肤` · `DeepSeek 动态壁纸` · `Wallpaper Engine` · `DeepSeek 桌面宠物` · `DeepSeek 会话归档` · `多智能体协作` · `AI Agent 工作台` · `AI 编程助手` · `开源智能体`
+`DeepSeek` · `DeepSeek Harness` · `DSH` · `DeepSeek Web` · `DeepSeek Web UI` · `DeepSeek Web GUI` · `DeepSeek 网页版` · `DeepSeek 桌面客户端` · `DeepSeek Desktop` · `DeepSeek-V4.1` · `DeepSeek-V4.1-Flash` · `梁神模式` · `LiangShen Mode` · `Programmatic Tool Calling` · `PTC` · `智能体小队` · `Agent Squads` · `Agent Teams` · `实时浏览器视图` · `Live Browser View` · `CDP Browser Automation` · `DeepSeek 插件` · `DeepSeek 扩展` · `dsh-market.com` · `DeepSeek 创意工坊` · `DeepSeek 任务看板` · `DeepSeek 定时任务` · `DeepSeek Cron 自动化` · `DeepSeek 手机版` · `DeepSeek 远程控制` · `DeepSeek 手机 App` · `DeepSeek SSH 终端` · `DeepSeek 服务器运维` · `DeepSeek Token 统计` · `DeepSeek 余额查询` · `DeepSeek API 费用` · `Token 银行` · `DeepSeek 主题` · `DeepSeek 皮肤` · `DeepSeek 动态壁纸` · `Wallpaper Engine` · `DeepSeek 桌面宠物` · `DeepSeek 预设中心` · `DeepSeek 会话归档` · `MCP` · `多智能体协作` · `AI Agent 工作台` · `AI 编程助手` · `开源智能体`
 
 ### 友情链接
 
-- [LINUX DO](https://linux.do) —— 有理想的新社区。
-- [dshfind](https://dshfind.com) —— 面向 DeepSeek Harness 的学习与分享社区，聚合论文精读、插件超市与用户排名。
+- [LINUX DO](https://linux.do) — 有理想的技术社区。
+- [dshfind](https://dshfind.com) — 面向 DeepSeek Harness 的学习与分享社区，聚合论文精读、插件超市与用户排名。
 
 ## 商务合作
 
@@ -452,10 +488,10 @@ dsh-web 针对主流操作系统、现代化浏览器及网络拓扑进行了深
 
 **插件**
 
-- **dsh-task-board / dsh-task-board-github / dsh-pet / dsh-remote-bridge / dsh-remote-web-ui / dsh-web-settings / dsh-ssh / dsh-skill-explorer / dsh-market / dsh-plugin-manager / dsh-community-plugins / dsh-web-all / dsh-liangshen / dsh-update / dsh-session-id / dsh-usage / dsh-session-archive / dsh-i18n / dsh-diagrams** — 本仓库原创（zhu1090093659），Apache-2.0（zhu1090093659）
+- **dsh-task-board / dsh-task-board-github / dsh-task-board-remote / dsh-task-board-team / dsh-agents / dsh-browser-view / dsh-win-bash / dsh-pet / dsh-remote-bridge / dsh-remote-web-ui / dsh-web-settings / dsh-ssh / dsh-skill-explorer / dsh-market / dsh-plugin-manager / dsh-community-plugins / dsh-web-all / dsh-liangshen / dsh-session-id / dsh-usage / dsh-session-archive / dsh-i18n / dsh-diagrams** — 本仓库原创（zhu1090093659），Apache-2.0（zhu1090093659；`dsh-win-bash` 随包分发的 Git for Windows / MSYS2 运行时载荷许可证与来源清单见 [PROVENANCE.md](packages/dsh-win-bash/PROVENANCE.md)）
 - **dsh-diagrams** — 随包分发 [mermaid](https://github.com/mermaid-js/mermaid) 运行库（MIT）：构建时从 npm 的 `mermaid` 包复制到 `lib/assets/mermaid.min.js` 并由宿主路由伺服，仓库不提交任何第三方源码；本包自身代码为本仓库 Apache-2.0（zhu1090093659）
 - **dsh-ssh** — 依据 [badseal/ssh-skill](https://github.com/badseal/ssh-skill) 的能力清单实现；代码为本仓库 Apache-2.0（zhu1090093659），上游能力清单归属 badseal/ssh-skill
-- **社区插件索引** — 130+ 项外部插件，来源与版权由各作者声明，登记于 [community.json](https://github.com/zhu1090093659/dsh-community-plugins/blob/main/community.json)，可在「设置 → 社区插件」与 dsh-market.com 查看
+- **社区插件索引** — 139 项外部插件，来源与版权由各作者声明，登记于 [community.json](https://github.com/zhu1090093659/dsh-community-plugins/blob/main/community.json)，可在「设置 → 社区插件」与 dsh-market.com 查看
 
 **皮肤（第三方作者或第三方素材）**
 

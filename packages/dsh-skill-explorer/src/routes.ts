@@ -19,7 +19,7 @@ import { readFileSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
-import { isSkillExplorerAllowed } from './access.ts'
+import { isSkillExplorerAllowed, type HostConnectionService } from './access.ts'
 import { buildPayload, collectSkills, findProjectRoot, isSkillName, overwriteSkillFile, projectSkillRoot, trashSkillFile, userSkillRoot, writeSkillFile, type CollectOptions, type SkillEntry } from './collect.ts'
 import { parseFrontmatter, setFrontmatterField, stripFrontmatter } from './frontmatter.ts'
 import { readJsonBody, writeJson } from './http.ts'
@@ -69,6 +69,12 @@ export interface SkillRoutesDeps {
   activeSessionCwds(): string[]
   /** Logger. */
   logger: { warn(error: unknown): void }
+  /**
+   * Host connection service captured in a scope that injects its
+   * `connection.authentication` sub-service, read per request. Omitted means
+   * the route falls back to a bare lookup, exactly as before.
+   */
+  connection?: () => HostConnectionService | undefined
 }
 
 /** Default process cwd fallback (overridable in tests). */
@@ -116,6 +122,8 @@ function resolveImportSource(source: unknown): ImportSource | string {
  */
 export function makeRoutes(ctx: Context, deps: SkillRoutesDeps): WebRoute[] {
   const { dshHome, agentsHome, registry, activeSessionCwds, logger } = deps
+  /** This deployment's connection service, captured through its injected sub-service when available. */
+  const connection = (): HostConnectionService | undefined => deps.connection?.()
 
   /** Resolve the configured custom roots (degraded to [] when the resolver throws). */
   const resolveCustomSkillDirs = (): string[] => {
@@ -129,7 +137,7 @@ export function makeRoutes(ctx: Context, deps: SkillRoutesDeps): WebRoute[] {
 
   /** Guard helper: fence + method check. */
   const guard = (req: IncomingMessage, res: ServerResponse, method: string): boolean => {
-    if (!isSkillExplorerAllowed(ctx, req)) {
+    if (!isSkillExplorerAllowed(ctx, req, connection())) {
       writeJson(res, 403, { error: 'forbidden: loopback-only' })
       return false
     }
@@ -193,6 +201,52 @@ export function makeRoutes(ctx: Context, deps: SkillRoutesDeps): WebRoute[] {
   const findSkill = async (name: string, cwd: string): Promise<SkillEntry | undefined> => {
     const { skills } = await collectSkills(await collectOptions(cwd))
     return skills.find((candidate) => candidate.name === name)
+  }
+
+  /**
+   * Drop host and preset-scoped skill registry caches and signal the client
+   * slash-menu cache after any disk write commits (#2041). Never emits session
+   * events or touches session history.
+   */
+  const notifySkillCatalogChanged = (): void => {
+    const skillTargets = new Set<unknown>()
+    try {
+      const liveSkills = (ctx as unknown as {
+        get?(name: string, strict?: boolean): unknown
+      }).get?.('skills', false) ?? (ctx as unknown as { skills?: unknown }).skills ?? registry
+      if (liveSkills !== undefined && liveSkills !== null) skillTargets.add(liveSkills)
+    } catch {
+      // Cache lookup stays best-effort after the skill file mutation succeeded.
+    }
+    try {
+      const store = (ctx as unknown as {
+        reflect?: { store?: Record<symbol, { name?: string; value?: unknown }> }
+      }).reflect?.store
+      if (store !== undefined && store !== null) {
+        for (const sym of Object.getOwnPropertySymbols(store)) {
+          const entry = store[sym]
+          if (entry?.name === 'skills' && entry.value !== undefined && entry.value !== null) {
+            skillTargets.add(entry.value)
+          }
+        }
+      }
+    } catch {
+      // Preset-scoped cache discovery stays best-effort.
+    }
+    for (const target of skillTargets) {
+      try {
+        ;(target as { invalidateCache?(): void }).invalidateCache?.()
+      } catch {
+        // Cache invalidation stays best-effort after the skill file mutation succeeded.
+      }
+    }
+    try {
+      ;(ctx as unknown as {
+        emit?(event: string, payload: { reason: 'plugin' }): void
+      }).emit?.('plugin-manager/changed', { reason: 'plugin' })
+    } catch {
+      // Client refresh signals must never turn a committed write into a 500.
+    }
   }
 
   /**
@@ -309,7 +363,8 @@ export function makeRoutes(ctx: Context, deps: SkillRoutesDeps): WebRoute[] {
           const skill = await resolveScannedSkill(name, path, panelCwd(), res)
           if (skill === undefined) return
           // Disabled = disable-model-invocation: true; enabled = false.
-          const frontmatter = setFrontmatterField(skill.path, 'disable-model-invocation', enabled ? false : true)
+          const frontmatter = setFrontmatterField(skill.path, 'disable-model-invocation', !enabled)
+          notifySkillCatalogChanged()
           writeJson(res, 200, {
             name,
             enabled: frontmatter.disableModelInvocation !== true,
@@ -350,6 +405,7 @@ export function makeRoutes(ctx: Context, deps: SkillRoutesDeps): WebRoute[] {
             // while its record is still stored, and that record must remain
             // removable. Nothing is written when it is already absent.
             await setProviderSkillEnabled(dshHome, identity, true)
+            notifySkillCatalogChanged()
             writeJson(res, 200, { ok: true, name: identity.name, provider: identity.provider, disabled: false })
             return
           }
@@ -363,6 +419,7 @@ export function makeRoutes(ctx: Context, deps: SkillRoutesDeps): WebRoute[] {
             return
           }
           await setProviderSkillEnabled(dshHome, identity, false)
+          notifySkillCatalogChanged()
           writeJson(res, 200, { ok: true, name: identity.name, provider: identity.provider, disabled: true })
         } catch (error) {
           logger.warn(error)
@@ -411,6 +468,7 @@ export function makeRoutes(ctx: Context, deps: SkillRoutesDeps): WebRoute[] {
             ? userSkillRoot(dshHome)
             : projectSkillRoot(findProjectRoot(cwd))
           const target = await writeSkillFile(baseDir, name, description, typeof whenToUse === 'string' ? whenToUse : undefined, content)
+          notifySkillCatalogChanged()
           writeJson(res, 200, { ok: true, name, path: target })
         } catch (error) {
           if (error instanceof Error && /already exists/.test(error.message)) {
@@ -457,6 +515,7 @@ export function makeRoutes(ctx: Context, deps: SkillRoutesDeps): WebRoute[] {
           const baseDir = root === 'user' ? userSkillRoot(dshHome) : projectSkillRoot(findProjectRoot(cwd))
           const { skills } = await collectSkills(await collectOptions(workspace))
           const report = await importSkills({ baseDir, targetLevel, source: resolved, existing: skills })
+          notifySkillCatalogChanged()
           writeJson(res, 200, { ok: true, ...report })
         } catch (error) {
           // A malformed archive or an unreadable source directory is the
@@ -511,6 +570,7 @@ export function makeRoutes(ctx: Context, deps: SkillRoutesDeps): WebRoute[] {
           // edit never silently re-enables a disabled skill.
           const disabled = parseFrontmatter(readFileSync(skill.path, 'utf8')).disableModelInvocation === true
           const target = await overwriteSkillFile(skill.path, name, description.trim(), typeof whenToUse === 'string' ? whenToUse : undefined, content, disabled)
+          notifySkillCatalogChanged()
           writeJson(res, 200, { ok: true, name, path: target, disabled })
         } catch (error) {
           logger.warn(error)
@@ -545,6 +605,7 @@ export function makeRoutes(ctx: Context, deps: SkillRoutesDeps): WebRoute[] {
             return
           }
           const moved = await trashSkillFile(skill.path)
+          notifySkillCatalogChanged()
           writeJson(res, 200, { ok: true, name, moved })
         } catch (error) {
           logger.warn(error)
@@ -567,5 +628,8 @@ export function makeRoutes(ctx: Context, deps: SkillRoutesDeps): WebRoute[] {
       },
     },
   ]
-  return routes
+  // Skill explorer routes run their own guard (connection.admit/requestRejection,
+  // paired device cookie, or loopback) and must opt out of webServer's auth: 'required' default.
+  type AuthAwareRoute = (typeof routes)[number] & { readonly auth?: 'anonymous' | 'required' | 'deny' }
+  return routes.map((route): AuthAwareRoute => ({ ...route, auth: 'anonymous' }))
 }

@@ -67,7 +67,6 @@ function fakeController(options: { upload?: (file: File) => Promise<TaskAttachme
       revision: 1,
       scheduler: { timeZone: 'UTC' },
       power: { platform: 'linux', phase: 'unsupported', enabled: false, runningSessions: 0, armedSchedules: 0, sessionStateKnown: true },
-      goalRunEnabled: false,
       ...(options.attachmentLimits === undefined ? {} : { attachmentLimits: options.attachmentLimits }),
     },
   }
@@ -408,7 +407,7 @@ describe('the attachment field of the new-task dialog', () => {
   it('user unable to open the picker or stage a file while the form is submitting', async () => {
     // Given a new-task dialog whose upload never finishes
     let release: (() => void) | undefined
-    const { controller, createTaskConfirmed, uploadAttachment } = fakeController({
+    const { controller, uploadAttachment } = fakeController({
       upload: async () => await new Promise<TaskAttachment>((resolve) => {
         release = () => { resolve(stored) }
       }),

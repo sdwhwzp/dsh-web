@@ -1,10 +1,9 @@
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { REPO_ROOT, applySync, checkSync, copyEntries, headerFor, renderCopy, stripHeader } from './sync-shared.mjs'
+import { applySync, checkSync, copyEntries, headerFor, renderCopy, stripHeader } from './sync-shared.mjs'
 
 test('header/strip round-trips every file kind', () => {
   for (const file of ['settings-form.ts', 'PluginSettingsCard.tsx', 'settings-card.module.css', 'SegmentGroup.tsx', 'RangeBubble.tsx']) {
@@ -69,7 +68,11 @@ test('copies cover the settings trio for all consumers plus host and http helper
   // pair-access, loopback, http) and the package-root vitest setup.
   // dsh-diagrams adds the mount-once, loopback and pair-access copies its
   // vendor route needs.
-  // totals below are 134 / 76 / 44.
+  // dsh-update left the family (the package is deleted), taking its six copies
+  // with it: mount-once, client telemetry, loopback, http, the package-root
+  // vitest setup and the console-output capture. dsh-message-edit was deleted
+  // outright, taking its one client telemetry copy with it.
+  // totals below are 127 / 74 / 42.
   // dsh-browser-view's real-browser settings card adds seven client copies:
   // the card chrome, form primitives, stylesheet, entry fallback, card seat,
   // segmented control and slider bubble. dsh-task-board-team fills the board's
@@ -77,9 +80,9 @@ test('copies cover the settings trio for all consumers plus host and http helper
   // derivations (chrome, form primitives, stylesheet, segmented control, slider
   // bubble) and deliberately none of the entry-bound form fallback: its fields
   // are written through the board, not a family settings namespace.
-  assert.equal(entries.length, 134)
+  assert.equal(entries.length, 127)
   const clientTrio = entries.filter(entry => entry.target.includes('/src/client/'))
-  assert.equal(clientTrio.length, 76)
+  assert.equal(clientTrio.length, 74)
   const hostCopies = entries.filter(entry => entry.target.includes('/src/host/')
     || entry.target.includes('/src/dsh-home.ts')
     || entry.target.includes('/src/mount-once.ts')
@@ -87,7 +90,7 @@ test('copies cover the settings trio for all consumers plus host and http helper
     || entry.target.includes('/src/pair-access.ts')
     || entry.target.includes('/src/agent/')
     || entry.target.endsWith('/packages/dsh-task-board/src/http.ts'))
-  assert.equal(hostCopies.length, 44)
+  assert.equal(hostCopies.length, 42)
 })
 
 test('checkSync detects drift and applySync repairs it', async () => {

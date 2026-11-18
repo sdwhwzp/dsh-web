@@ -244,6 +244,7 @@ test('web-ui-all ships the opt-in family rows disabled by default', () => {
   }
   assert.ok(inactive.length > 0, 'aggregate.yml should declare inactive opt-in rows')
   assert.ok(inactive.includes('web-ui-agents'), 'the shared squad ledger requires administrator opt-in')
+  assert.ok(inactive.includes('web-ui-browser-view'), 'the Host-wide browser requires explicit opt-in')
   assert.ok(inactive.includes('web-ui-remote-bridge'), 'Host-owner remote pairing requires explicit opt-in')
   const patch = readFileSync(join(ROOT, 'packages/dsh-web-all/cordis.patch.yml'), 'utf8')
   for (const id of inactive) {

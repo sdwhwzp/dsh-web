@@ -7,41 +7,36 @@ English | [中文](README.zh.md)
   &nbsp;
   <img src="https://img.shields.io/npm/dm/@linxin666/dsh-web-all?style=flat-square" alt="Downloads">
   &nbsp;
-  <img src="https://img.shields.io/badge/DSH-%3E%3D0.2.2--rc.1-4c6ef5?style=flat-square&amp;labelColor=454a54" alt="DSH">
+  <img src="https://img.shields.io/badge/DSH-%3E%3D0.2.2--rc.3-4c6ef5?style=flat-square&amp;labelColor=454a54" alt="DSH">
   &nbsp;
   <img src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" alt="License">
 </p>
 
 <p align="center">
   <strong>All-in-One Plugin Bundle for DeepSeek Harness (DSH) Web GUI & Desktop Client</strong><br>
-  <em>Task Board · Mobile Remote · SSH Terminal · Session Archive · Usage Stats · Themes</em>
+  <em>Task Board · Agent Squads · Browser View · Mobile Remote · SSH · Usage Stats · Themes · Presets</em>
 </p>
 
-The official all-in-one aggregate plugin bundle for DeepSeek Harness (DSH) Web GUI and desktop client: install all family plugins with a single command (Task Board / Desktop Pet / Mobile Remote / Remote Bridge / SSH Ops / Session Archive / Skin Center / Settings / Community Plugins, as defined in `aggregate.yml`). The client compat layer is integrated directly (`src/client`) eliminating separate compat packages.
+The official all-in-one aggregate plugin bundle for DeepSeek Harness (DSH) Web GUI and desktop client: install the complete family plugin suite with one command (Task Board + GitHub/Team/Remote extensions, Agent Squads, LiangShen Mode, Live Browser View, Mobile Remote Bridge, SSH Terminal, Session Archive, Usage Stats, Skill Explorer, Mermaid Diagrams, Windows Bash, Russian i18n, Skin Center, Desktop Pet, Workshop, Preset Center, Community Plugins, and Settings, as declared in `aggregate.yml`). The client compat layer is integrated directly (`src/client`), eliminating separate compat npm packages.
 
+> Note: this bundle vendors no external third-party plugins.
 
+Deployments install `dsh-better-sidebar` separately. Persisted family rows may keep fields under `config`. Explicit fields beside `plugin` take precedence. With `clientOnly: true`, the deployment registers the browser module separately and supplies its authenticated Host API.
 
-Persisted family rows may keep their fields under `config`; explicit fields beside `plugin` override those saved values. `clientOnly: true` suppresses the legacy shell Host while the deployment separately registers the browser module and supplies its authenticated Host API. The separate updater row is disabled by default in this fork.
-
-The mobile shell keeps the native fullscreen right panel inside the viewport, including Files and Context; the host controls which tab is open.
+On mobile, the native fullscreen right panel stays within the viewport, including Files and Context. The Host controls the active tab. Native navigation drawers retain the Host's stacking order so settings dialogs stay reachable.
 
 ## What it is
 
-- **One install, everything on**: its dependencies pull in every sub-plugin package of the family (task board, pet, mobile remote, remote bridge, SSH, skins, settings, community plugins and the rest — `aggregate.yml` is the complete list), and this branch bundles no external npm plugin at all. `@mlgbnb/dsh-archive-manager` (the community archive manager: group by project, search and filter, preview conversations, restore and delete) is not bundled — its upstream build still imports the removed `@deepseek-ai/dsh-client-runtime` face.
+- **One install, everything on**: its dependencies pull in the 18 in-repository sub-plugin packages and the 4 satellite repository packages (`aggregate.yml` is the complete list), while bundling no external third-party npm plugins. `@mlgbnb/dsh-archive-manager` (the community archive manager) is not bundled because its upstream build still imports the removed `@deepseek-ai/dsh-client-runtime` surface.
 - **Aggregation carrier**: `cordis.patch.yml` aggregates the `insert` lines of each sub-plugin plus the external plugin rows, mounted through the dsh plugin profile mechanism. External profile bundles are expanded by the generator: their patch rows become importable aggregate rows, the bundle's own harness-row patches are preserved, and an external row marked `"inactive": true` gains trailing `disabled: true` overrides so nothing mounts until you opt in.
 - **Family rows mount the real packages**: each family row's `name` is the plugin's own npm package, so the official `dsh-client-modules` serves that package's browser half directly — enabling one panel downloads one panel, instead of one copy of every family UI (issue #1901: the old shape inlined 13 family clients into this package's `lib/client.js`, a single 2.9 MB file). Row ids stay `web-ui-*`, so per-row switches recorded in an existing profile keep applying, and the row's own `disabled` now decides the family at the loader — no browser-side gate is needed. Subpath row names an older profile recorded (`@linxin666/dsh-web-all/<family>`) still resolve to a compat shell export after the upgrade.
 - **Compat is the optional patch layer**: the `web-ui-compat` row now only ships compatibility patches — the `data-pane` / `data-dsh-frame` semantic hooks plugins and skins rely on, the responsive contract, and the boot splash — and no family plugin code. Keep it on when you need those patches; it can be switched off per row in the plugin manager.
 - **Its own icon in the plugin list**: the package ships `icon.svg` and declares it as the top-level `package.json.icon`, the display-metadata field the official Plugins list (Settings → Plugins) reads, so the installed card and detail page show the family whale in both themes instead of the default artwork. Every family package ships the same asset, so a standalone install of one shows it too. DSH 0.2.1 reads subpath metadata through exported resources instead of a nested package.json, so each aggregate family row exports `<family>/icon` plus localized `locale/*.json` metadata, displaying each family's own localized title and purpose description alongside the family icon.
-- **Host-only child**: the Windows private-shell plugin (`dsh-win-bash`, row `web-ui-win-bash`) ships no browser half and carries its own platform guard into the aggregate patch, so its row is disabled on every non-Windows host and costs nothing there. It also follows the LiangShen preset's declaration: with the `liangshen` row disabled, the tool registers nothing and logs why.
-- **Opt-in rows**: low-usage family plugins ship disabled by default in the aggregate (in this fork, SSH, skill-explorer, the updater and the Host-owner remote bridge — the `inactive` list in `aggregate.yml`; liangshen stays out of it, so the LiangShen mode lever is present on a fresh install). They never load and their settings entries stay hidden until you enable the row under Settings → Plugins → Plugin manager; the standalone packages are unaffected. Bundle rows can also ship a seed config that differs from the standalone default (the `patches` list); a settings edit wins once made.
+- **Host-only child**: the Windows private-shell plugin (`dsh-win-bash`, row `web-ui-win-bash`) ships no browser half and carries its own platform guard into the aggregate patch, so its row is disabled on every non-Windows host and costs nothing there. Its availability follows the platform guard and the shipped payload verification only: once that payload verifies, the tool registers on a supported Windows x64 host whether or not the LiangShen preset is enabled.
+- **Opt-in rows**: `aggregate.yml` disables SSH, Skill Explorer, Agents, Browser View, and the Host-owner Remote Bridge by default. Disabled rows and their settings entries stay hidden until enabled under Settings → Plugins → Plugin manager. These defaults apply to the aggregate. Settings edits take precedence over the seed configuration in `patches`.
 - **Per-row management**: every family plugin toggles individually — under Settings → Plugins → Plugin manager this package's row expands into a child list with one switch per family plugin, written to the profile override layer. A disabled row is skipped by the loader itself: it neither mounts nor serves its browser half to the page. A disabled child is never loaded while its code still updates with the bundle; install the standalone package when a plugin needs independent versioning (a standalone install wins over the aggregate row).
 
-- **Right panel**: install [dsh-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) separately when needed (`dsh plugin --profile web add dsh-better-sidebar@latest`); its own settings own its preferences.
-- **File downloads**: when a separately installed `dsh-better-sidebar` editor exposes a file path, the browser compatibility layer adds a download through the authenticated `/sidebar/file` route. It resolves the sidebar's current session when clicked and preserves an existing download action.
-
 ## Install
-
-Requires Harness `>=0.2.1-rc.2`. Private production deployments retain the accepted satellite artifacts listed in [deployment pins](../../private-satellite-patches/README.md), including the pet account-isolation changes.
 
 ### From npm (recommended)
 
@@ -62,7 +57,7 @@ dsh web
 ```sh
 git clone https://github.com/zhu1090093659/dsh-web.git
 cd dsh-web
-pnpm install && pnpm -r build
+pnpm run deps:install && pnpm build
 node scripts/link-profile.mjs
 dsh plugin --profile web add link:$(pwd)/packages/dsh-web-all
 ```
@@ -87,10 +82,8 @@ The group moved to a first-level `settings.section` registration in 0.1.18 and s
 
 See [issue #513](https://github.com/zhu1090093659/dsh-web/issues/513).
 
-For deployments that provide an authenticated Host API separately, a family row can set `config.clientOnly: true` alongside its `config.plugin` package name. The aggregate does not import or start that plugin’s shared Host. The deployment registers its browser module independently; the compatibility shell no longer bundles family browser modules. The deployment must supply every API needed by its UI; this option does not implement account isolation. An entirely disabled row still hides the UI.
-
 ## Known limitations
 
 - Every sub-plugin activates together. For only a subset, install that sub-plugin package directly.
-- Aggregate rows are namespaced `web-ui-*`, so the bundle can coexist with a standalone install of the same plugin: the loader no longer rejects the duplicate id, the host half runs once (the second source is a no-op), and the browser half is deduped by package name. Keeping both sources has no benefit; prefer one. When the bundle is the source, profile patch config rows must use the `web-ui-*` id (e.g. `web-ui-remote-web-ui` for the remote-web-ui `autoTunnel` row); standalone installs keep the plugin's own id. A bundled row's config carries the shell key `plugin` — the module the row loads — with the plugin's own fields beside it; the settings card writes that shape, and a hand-written override must keep `plugin` or the row mounts nothing.
+- Aggregate rows are namespaced `web-ui-*`, so the bundle can coexist with a standalone install of the same plugin: the loader no longer rejects the duplicate id, the host half runs once (the second source is a no-op), and the browser half is deduped by package name. Keeping both sources has no benefit; prefer one. When the bundle is the source, profile patch config rows must use the `web-ui-*` id (e.g. `web-ui-task-board` or `web-ui-ssh`); standalone installs keep the plugin's own id. A bundled row's config carries the shell key `plugin` — the module the row loads — with the plugin's own fields beside it; the settings card writes that shape, and a hand-written override must keep `plugin` or the row mounts nothing. Retired families (`remote-web-ui`, `update`, `git-graph`) remain registered as silent no-op tombstones so existing profiles migrate without load errors.
 - Dependencies on the `@deepseek-ai/*` SDK are pinned; compatibility follows the repository's release cadence.

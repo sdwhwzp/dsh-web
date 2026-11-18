@@ -5,35 +5,35 @@
 <p align="center">
   <img src="https://img.shields.io/npm/v/@linxin666/dsh-liangshen?style=flat-square" alt="Version">
   &nbsp;
-  <img src="https://img.shields.io/badge/DSH-%3E%3D0.2.2--rc.1-4c6ef5?style=flat-square&amp;labelColor=454a54" alt="DSH">
+  <img src="https://img.shields.io/badge/DSH-%3E%3D0.2.2--rc.3-4c6ef5?style=flat-square&amp;labelColor=454a54" alt="DSH">
   &nbsp;
   <img src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" alt="License">
 </p>
 
 <p align="center">
   <strong>DeepSeek Harness（DSH）官方 Web GUI 与桌面客户端极简 Agent 预设与高效代码工具传输引擎</strong><br>
-  <em>极简 Persona 系统提示词 · run_code 程序化工具传输 · MCP 工具温和分页 · 关键事实登记簿</em>
+  <em>极简 Persona 系统提示词 · run_code 程序化工具传输 · 按需工具族温和分页 · 关键事实登记簿</em>
 </p>
 
-把梁神模式做成 DSH 全家桶里的一键安装插件：Host 半区在激活时把内置 preset 直接声明给 harness 的 agent-preset registry（声明即启用），新建会话即可在预设选择器中选择「梁神模式」，浏览器半区还在新建会话页的模型选择器旁提供一台老虎机拨杆来开关该模式。该 preset 让系统提示词保持极简 persona——外加本模式的固定工作纪律与会话工作区目录——AGENTS.md 类工作区指令交由 harness 以自己的 user 角色消息送达；工具面则从第一条用户消息起作为持久 user 消息注入在用户消息之后——形状与 harness 注入 skill 目录一致，且只宣告该次请求实际开放的工具。wire 在整个会话中保持由 `presentation` 选定的同一种呈现（出厂默认 `presentation: 'ptc'`）：wire 收拢为唯一的 `run_code` 传输工具，其余工具经生成的 SDK 在程序内调用；未挂载 code runtime 的部署回退为原生呈现并一次性告警，而不是宣告一个该请求无法承载的传输工具。被分页扣留的匹配工具（默认 `mcp__*`）在激活前不可达：它们以命名空间摘要出现在目录里，`ptc` 下同时不出现在生成的 SDK 中——分页是注册表级限制，不只是 wire 过滤。`tool_activate` 把一个命名空间挂回整个可达面。全部通过官方 NPM SDK 实现，不修改 DSH 源码。
+把梁神模式做成 DSH 全家桶里的一键安装插件：Host 半区在激活时把内置 preset 直接声明给 harness 的 agent-preset registry（声明即启用），新建会话即可在预设选择器中选择「梁神模式」，浏览器半区还在新建会话页的模型选择器旁提供一台老虎机拨杆来开关该模式。该 preset 让系统提示词保持极简 persona——外加本模式的固定工作纪律与会话工作区目录——AGENTS.md 类工作区指令交由 harness 以自己的 user 角色消息送达；工具面则从第一条用户消息起作为持久 user 消息注入在用户消息之后——形状与 harness 注入 skill 目录一致，且只宣告该次请求实际开放的工具。wire 在整个会话中保持由 `presentation` 选定的同一种呈现（出厂默认 `presentation: 'ptc'`）：wire 收拢为唯一的 `run_code` 传输工具，其余工具经生成的 SDK 在程序内调用；未挂载 code runtime 的部署回退为原生呈现并一次性告警，而不是宣告一个该请求无法承载的传输工具。被按需分页扣留的匹配工具族（出厂默认 `['mcp__*', 'browser_*', 'task_board_*', 'team_*', 'squad*', 'ui_*', 'ssh_*']`，宿主内建工具全部常驻）在激活前不可达：它们以命名空间摘要出现在目录里，`ptc` 下同时不出现在生成的 SDK 中——分页是注册表级限制，不只是 wire 过滤。`tool_activate` 把一个命名空间挂回整个可达面，并配合关键事实登记簿守护长会话上下文。全部通过官方 NPM SDK 实现，不修改 DSH 源码。
 
 ## 原理
 
 DeepSeek V4.1 Flash 的后训练直接对齐其原生 DSML 工具调用面，官方脚手架横评中代码 Agent 基准上原生极简面领先于程序化（PTC）面（DeepSWE v1.1：72.6% 对 67.6%；Terminal-Bench 2.1：90.6% 对 85.8%）。而真实工程会话依赖 MCP 服务与插件生态——封闭的 4 工具极简面在物理上够不到它们，无边界平铺的全量清单又会把会话内容埋在工具定义之下。
 
-梁神模式因此在整个会话中保持由 `presentation` 选定的同一种呈现。出厂默认为 `ptc`：wire 收拢为唯一的 `run_code` 传输工具，其余工具经生成的 SDK 在程序内调用——静态上下文最省，但官方横评把该面排在原生面之后（原生面在 DeepSWE v1.1 与 Terminal-Bench 2.1 上均领先 PTC：72.6% 对 67.6%、90.6% 对 85.8%）；`native`（仅组装出的原生清单、无程序化传输）保留为一行切换的选项。官方 SDK 已删除 `both` 呈现，本插件不做兼容映射：旧配置里仍写着 `both` 的 profile 会被直接拒绝注册，迁移路径是把它改为 `ptc` 或 `native`。被分页模式匹配的外部工具（默认 `mcp__*`）先以命名空间摘要宣告，`tool_activate` 激活前既不在 wire 上、`ptc` 下也不在生成的 SDK 中（分页施加在程序分派所依据的注册表上），静态 Schema 面因此保持小巧。本模式不承诺基准领先，只保证「目录宣告的面」与「请求 wire 实际携带的面」永不矛盾。
+梁神模式因此在整个会话中保持由 `presentation` 选定的同一种呈现。出厂默认为 `ptc`：wire 收拢为唯一的 `run_code` 传输工具，其余工具经生成的 SDK 在程序内调用——静态上下文最省，但官方横评把该面排在原生面之后（原生面在 DeepSWE v1.1 与 Terminal-Bench 2.1 上均领先 PTC：72.6% 对 67.6%、90.6% 对 85.8%）；`native`（仅组装出的原生清单、无程序化传输）保留为一行切换的选项。官方 SDK 已删除 `both` 呈现，本插件不做兼容映射：旧配置里仍写着 `both` 的 profile 会被直接拒绝注册，迁移路径是把它改为 `ptc` 或 `native`。实测一个未分页的梁神系会话系统提示词达 104,945 字符，其中 PTC 的 `interface ToolArgsMap` 段占 73,675 字符（约 70%，最重的 `task_board_*` 约 5.6k tokens、`browser_*` 约 3k、`squads_*` 与 `squad_*` 合计约 2.2k）。被分页模式匹配的高扇出工具族（出厂默认 `['mcp__*', 'browser_*', 'task_board_*', 'team_*', 'squad*', 'ui_*', 'ssh_*']`，宿主内建工具全部常驻）因此先以命名空间摘要宣告，`tool_activate` 激活前既不在 wire 上、`ptc` 下也不在生成的 SDK 中（分页施加在程序分派所依据的注册表上），静态 Schema 面由此保持小巧。本模式不承诺基准领先，只保证「目录宣告的面」与「请求 wire 实际携带的面」永不矛盾。
 
 ## 工作机制
 
 1. `minimal-prompt` 把每次组装出的提示词收窄到 persona 一段——一行 persona、本模式的固定工作纪律（同一假设的思考推演不超过两轮，缺少事实时立即闭合思考并调用检查工具而非空想；思考只决定下一步具体操作，不预演完整代码实现；多处独立检查或搜索在单轮内并发发射多个工具调用；Shell 为无状态进程，跨调用目录不保留，子目录操作使用复合命令或显式 workdir；正确性一律在执行阶段以工具实际输出验证；YAGNI 与 PDCA；不写冗余注释）、以及一行从会话头读取的方位信息 `Your working directory is <cwd>.`——因此 harness identity、web surface、工具用法、文件引用与结构化输出等 section 默认不会到达模型；plan mode 的 `plan:policy` 保留，因为该 section 是 plan mode 唯一的执行依据（它的退出工具在任何模式下都保持注册）；
 2. AGENTS.md 类工作区指令经 `instructionSource` 送达模型：默认（`host`）下 preset 不追加任何自有段，也不改动宿主自己的送达，工作区指令以宿主的 user 角色消息抵达——一条持久基线，加上触碰目录后的增量、替换与移除；`system-prompt` 下它们直接进入系统提示词本身：组装时 `minimal-prompt` 读取 harness 的基线链（`$DSH_HOME/AGENTS.md`，再从项目根到会话 cwd 沿途的 `AGENTS.md` / `CLAUDE.md` 及其 `.local` 覆盖层），把内容作为一段 `workspace-instructions` 追加在稳定前缀之后，受字节预算约束——放不下时先省略最宽的文件、最后才截断最具体的文件；读取在每次组装时都发生，文件改动无需持久消息即可在下次请求生效，harness 自己的 agent-instructions 注入则被丢弃以免与提示词重复。工作区子目录动态规则后续将支持注册文件工具（含 `str_replace_editor`）及 `run_code` 内子调用触达的目录；不解析任意 bash/program 代码，不保证 shell 自行文件访问的自动发现；
-3. wire 在整个会话中保持由 `presentation` 选定的同一种呈现：`ptc`（出厂默认）把 wire 收拢为 `run_code`、其余工具经生成的 SDK 调用；`native` 携带组装出的原生清单；`ptc` 需要挂载的 code runtime；没有时插件不做声明，会话直接运行原生工具面。旧键 `ptcPresentation` 映射到 `ptc`/`native` 并发出弃用告警，已退役的 `anchorTools` 首回合收窄不再生效——设置它会收到告警；
+3. wire 在整个会话中保持由 `presentation` 选定的同一种呈现：`ptc`（出厂默认）把 wire 收拢为 `run_code`、其余工具经生成的 SDK 调用；`native` 携带组装出的原生清单；`ptc` 需要挂载的 code runtime；没有时无法挂载 PTC 执行器，会话直接运行原生工具面。旧键 `ptcPresentation` 映射到 `ptc`/`native` 并发出弃用告警，已退役的 `anchorTools` 首回合收窄不再生效——设置它会收到告警；
 4. `tool-catalog` 把工具清单作为持久 user 消息追加在用户消息之后，保留完整输入输出关键参数语义（`descriptionMaxLength: 200` 仅限制一行摘要长度）。插件为该预设挂载的每个宿主内置工具配有一行手写短描述：被策展的工具直接使用整行策展文，长度截断不会切掉说明工具用途的那句话，`descriptionMaxLength` 只作为未被策展工具的兜底。目录只宣告该次请求实际开放的工具——原生清单，或 `ptc` 下经 SDK 可达的投影——并在分页开启时为被扣留的命名空间附上一行摘要；`ptc` 下这些摘要代表真正不可达的命名空间——既不在该请求的 `tools:sdk` 段中，也不能在 `run_code` 程序内调用——直到 `tool_activate`；只在工具面变化、或已发布副本离开可见面（压缩、恢复）时重发；
-5. 温和分页出厂开启（`pagedToolPatterns: ['mcp__*']`）：匹配的 MCP 工具被扣留在 wire 与生成的 SDK 之外，以命名空间摘要出现在目录中，直到模型经 `tool_activate({ namespace })` 激活——激活的命名空间从下一个请求起重新可达，最多保持三个已激活的分页命名空间（激活第四个时将最久未用的逐回摘要状态）。激活状态从持久事件流重建，压缩与恢复均可还原；
-6. 最小版 working-context 行——plan-mode 状态、已激活的分页命名空间、进行中的 todo——只在其来源可读时注入到最新消息尾部，让当前状态落在模型的局部注意力窗口内；运行时上下文（sandbox 与 approval 快照）与 skill 目录按 Standard 模式正常注入；
-7. 目录把已激活分页家族的工具归在 `namespace `<名称>` (activated):` 标题之下，而不是把一个服务端的工具散落在字母序清单里；未被分页的工具仍保持扁平条目；
+5. 按需工具族温和分页出厂开启（`pagedToolPatterns: ['mcp__*', 'browser_*', 'task_board_*', 'team_*', 'squad*', 'ui_*', 'ssh_*']`）：MCP 桥接与六个挂载的插件工具族默认扣留在 wire、生成的 SDK 与 `run_code` 程序分派之外，在目录中以一行命名空间摘要宣告；宿主内建工具（shell、文件系统/read/write/edit/`str_replace_editor`、`glob`/`grep`、后台作业、`skill`、`ask_user_question`、`todo_write`、`web_search`、子代理委派、plan、goal、`fact_register`、`tool_activate` 与 MCP 资源读取工具）全部常驻。每个模式的字面头部决定 `patternNamespace` 如何推导命名空间：头部以 `__` 结尾时视为 MCP 桥接，取余下工具名的第一个 `__` 分段（`mcp__codegraph__codegraph_explore` -> `codegraph`）；其余头部直接命名插件工具族并去掉至多一个结尾 `_`（`task_board_*` -> `task_board`，`squad*` -> `squad`，使 `squads_*` 与 `squad_member_*` 归入同一命名空间）。调用 `tool_activate({ namespace })` 后，该命名空间从下一个请求起重新可达；同时最多保持三个活跃的分页命名空间（`maxActiveNamespaces`，默认 `3`），激活或对已激活命名空间内工具的非报错调用都会刷新新近度，激活第四个时将最近最少使用的逐回摘要状态，激活状态从持久会话事件流重建，压缩与恢复均可还原；可选 `idleReclaimSteps`（默认 `0` = 关闭）让连续 N 步没有成功激活或调用的命名空间过期，但过期只在应用点生效——下一次 `tool_activate` 激活或 `compaction/end` 压缩边界——这些时机请求的前缀本就要重建，因此收回不新增任何前缀缓存重建；应用前命名空间仍常驻可达，任何成功调用都会刷新新近度并取消过期；
+6. 最小版 working-context 行——plan-mode 状态、已激活的分页命名空间、进行中的 todo、以及关键事实登记簿——只在其来源可读时注入到最新消息尾部，让当前状态落在模型的局部注意力窗口内；运行时上下文（sandbox 与 approval 快照）与 skill 目录按 Standard 模式正常注入；
+7. 目录把已激活分页家族的工具归在 `namespace `<名称>` (activated):` 标题之下，而不是把同一工具族的工具散落在字母序清单里；未被分页的工具仍保持扁平条目；
 8. `maxResidentTokens`（默认 8000）估算常驻 wire 面并在超过时告警一次，列出最重的工具并把 `pagedToolPatterns` 指为处置手段。该阈值按 V4.1 的 KV 压缩重新校准（其 KV cache 为 V4-Flash 的 1/4，同样的 schema 负载只占 1/4 的稀疏索引槽位，阈值由 6000 上调至 8000），仍校准在出厂清单之上，用于发现真实增长而非出厂配置本身。该守卫从不截断：静默丢掉会话需要的工具，等于用可度量的上下文成本换取不可度量的能力损失。
-9. 关键事实登记簿（`fact_register`）让模型把用户硬性约束、已确认的架构决策、失败过的路径登记为一行短事实；登记簿从持久事件流折叠，随 `[Working Context: ...]` 行投射——每步都落在保证命中的局部注意力窗口内——以此对抗 V4.1 的长会话遗忘。
+9. 关键事实登记簿（`fact_register`）让模型把用户硬性约束、已确认的架构决策、失败过的路径登记为一行短事实；登记簿从持久事件流折叠，随 `[Working Context: ...]` 行投射——每步都落在保证命中的局部注意力窗口内——以此对抗 V4.1 的长会话遗忘。两种 wire 形态喂给同一份折叠：`ptc` 下该调用记为 `tool/ptc-dispatch`（对象形态的 arguments、自带的 `isError`），`native` 下记为 `tool/call`（JSON 字符串形态的 arguments），报错的 dispatch 一律不生效。
 
 ## 安全模型
 
@@ -66,8 +66,9 @@ DeepSeek V4.1 Flash 的后训练直接对齐其原生 DSML 工具调用面，官
 | `instructionSource` | `host` | 工作区指令送达模型的方式。`host`（默认）不追加任何自有段，也不改动宿主的 agent-instructions 注入，工作区指令以宿主自己的 user 角色消息送达：一条持久基线，加上触碰目录后的增量、替换与移除；`system-prompt` 在组装时读取 AGENTS.md 链并追加进系统提示词（harness 自己的注入被丢弃）；`hint` 把首次注入替换为一次性的、非命令式的参考文件提示，后续注入丢弃。 |
 | `instructionMaxBytes` | `65536` | 渲染后的 workspace-instructions 段的字节预算，仅在 `system-prompt` 模式下生效：最宽的文件先被省略，最具体的文件最后被截断。 |
 | `descriptionMaxLength` | `200` | 注入目录中单个工具一行摘要的长度上限，作用于所有未被策展表覆盖的工具；被策展的宿主内置工具直接使用整行手写短描述。完整关键参数语义保持完整。 |
-| `presentation` | `ptc` | 整个会话的 wire 呈现方式。`ptc`（出厂默认）把 wire 收拢为 `run_code`，其余工具经生成的 SDK 调用；`native` 保持组装出的原生清单。插件在 agent scope 一出现时就通过 `agent.ctx.tools.presentAs` 声明该取值，组合同时挂载官方 `@deepseek-ai/dsh-tool-executor-ptc` 行执行 PTC 程序。切换到 `native` 会停用该执行器行，使呈现声明与实际执行保持同一模式。部署没有 PTC runtime、宿主拒绝声明、或 scope 拿不到该 API 时保持原生面并告警一次。已删除的 `both` 取值不被接受：旧 profile 写明它会在注册时被拒绝，请迁移为 `ptc` 或 `native`。 |
-| `pagedToolPatterns` | `['mcp__*']` | 出厂开启温和分页：命中的 MCP 工具被扣留在 wire 与生成的 SDK 之外，直到模型通过 `tool_activate({ namespace })` 激活其命名空间。被扣留的命名空间在目录中以一行摘要出现。最多同时保持三个已激活的分页命名空间，激活状态从持久事件流重建。 |
+| `presentation` | `ptc` | 整个会话的 wire 呈现方式。`ptc`（出厂默认）把 wire 收拢为 `run_code`，其余工具经生成的 SDK 调用；`native` 保持组装出的原生清单。设置覆盖层把该取值写进组合：`ptc` 时保留官方 `@deepseek-ai/dsh-tool-executor-ptc` 行并借此执行 PTC 程序，`native` 时停用该行——**那一行就是 wire**（0.2.2 已移除按 scope 的 `agent.ctx.tools.presentAs` 声明）。部署没有 PTC runtime 时保持原生面。已删除的 `both` 取值不被接受：旧 profile 写明它会在注册时被拒绝，请迁移为 `ptc` 或 `native`。 |
+| `pagedToolPatterns` | `['mcp__*', 'browser_*', 'task_board_*', 'team_*', 'squad*', 'ui_*', 'ssh_*']` | 出厂开启按需温和分页：每项为不含 `*` 的非空字面头部加单个结尾 `*`（裸 `*` 会被拒绝）。命中的 MCP 与插件工具被扣留在 wire 与生成的 SDK 之外，直到模型经 `tool_activate({ namespace })` 激活其命名空间，期间在目录中以一行摘要出现，宿主内建工具全部常驻。以 `__` 结尾的头部取余下工具名的第一个 `__` 段作为命名空间（MCP server）；其余头部去掉至多一个结尾 `_`（`task_board_*` -> `task_board`，`squad*` -> `squad`）。同时最多保持三个活跃的分页命名空间（`maxActiveNamespaces`，默认 `3`，`>= 1` 的整数），LRU 新近度与激活状态均从持久事件流重建。 |
+| `idleReclaimSteps` | `0` | 延迟空闲收回的步数阈值（`>= 0` 的整数），与 `pagedToolPatterns` 一样三行同源写入 `tool-catalog`、`tool-activate`、`working-context`。`0`（出厂）保持激活后常驻至 LRU 驱逐；正整数 N 让连续 N 步无成功激活或调用的命名空间过期，过期只在下一次激活或压缩边界应用——这些时机前缀缓存本就要重建，因此不新增缓存重建；应用前仍常驻可达，再次调用即续命。过期判定同样从持久事件流重放（`step/start` 计步），无步数证据的日志不收回。 |
 | `maxResidentTokens` | `8000` | 常驻 wire 面的估算 token 上限（按序列化 schema 约四字符一 token），按 V4.1 的 KV 压缩重新校准后仍高于出厂清单，用于发现真实增长而非出厂配置本身。超过时告警一次、列出最重的工具并指向 `pagedToolPatterns`；不会截断工具清单。 |
 | `ptcPresentation` | （已退役） | 旧别名：`true` 映射为 `presentation: 'ptc'`，`false` 映射为 `'native'`，两者都伴随弃用告警。 |
 | `anchorTools` | （已退役） | 首回合锚定收窄已移除；设置该键会收到告警，且不再收窄 wire。 |
@@ -94,9 +95,10 @@ dsh plugin --profile web remove @linxin666/dsh-liangshen
 
 - `instructionSource: host` 下第一份 header 的 `system` 应恰好是 persona 块（极简 persona、工作纪律清单、工作区目录行 `Your working directory is <cwd>.`）加上 plan mode 开启时的策略段——AGENTS.md 链则以宿主自己的 user 角色消息抵达；`instructionSource: system-prompt` 下 `system` 改为多出一段 `workspace-instructions`；
 - 每份 header 在整个会话中保持同一种呈现：默认 `presentation: 'ptc'` 下 wire 收拢为 `run_code`，任何回合边界都不会再展开 wire；
-- 放行的消息里应有一条来自 `liangshen-tool-catalog` 的 `plugin` 消息，位于用户消息之后，按参数签名恰好列出该次请求开放的工具；被分页扣留的工具以一行命名空间摘要出现；
+- 放行的消息里应有一条来自 `liangshen-tool-catalog` 的 `plugin` 消息，位于用户消息之后，按参数签名恰好列出该次请求常驻开放的宿主内建工具；被分页扣留的 MCP 服务与插件工具族（`browser`、`task_board`、`team`、`squad`、`ui`、`ssh`）以一行摘要出现在 `<inactive_namespaces>` 下；
 - `ptc` 下未激活的命名空间既不出现在该请求的 `tools:sdk` 段中，也不能在 `run_code` 程序内调用——**从第一个请求起**成立，而不是晚一个请求；
-- `tool_activate({ namespace })` 成功后，该命名空间的工具从下一个请求起进入 wire，且同时激活的分页命名空间不超过三个；
+- `tool_activate({ namespace })` 成功后（例如 `"codegraph"`、`"task_board"` 或 `"squad"`），该命名空间的工具从下一个请求起进入 wire 与生成的 SDK，归在 `namespace `<名称>` (activated):` 标题之下，且同时激活的分页命名空间不超过三个（激活第四个会把最近最少使用的逐回摘要状态）；
+- 开启 `idleReclaimSteps` 后，空闲过期的命名空间在下一次激活或压缩边界回到 `<inactive_namespaces>` 摘要态（与 LRU 驱逐完全一致），`tool_activate` 的结果会点名该次激活顺带收回的命名空间；默认 `0` 时以上各条逐字节不变；
 - 压缩之后目录会重发一次，形式为替换清单，分页激活状态从持久事件流重建，呈现模式保持不变；
 - 文件写入受宿主文件沙箱策略约束，不存在裸本地文件系统绕过。
 
@@ -117,10 +119,12 @@ dsh plugin --profile web remove @linxin666/dsh-liangshen
 | --- | --- | --- |
 | `enabled` | `true` | 总开关：关闭后不声明预设、也不发公告。 |
 | `announceToAgent` | `false` | 按需开启：开启后向 agent 系统提示注入本插件公告。默认关闭，保持系统提示词干净。 |
-| `presentation` | `ptc` | 本插件所声明 preset 的 wire 呈现。取值写进 `tool-catalog` 行，而该行通过 `agent.ctx.tools.presentAs` 的声明**就是** wire：`ptc` 收拢为 `run_code`，`native` 保持组装出的原生清单，目录文本描述的就是该声明产生的面。Host 提交改动后立即重新声明 preset，此后新建的会话即采用新值；已开始的会话保持其已声明的组合。已删除的 `both` 取值在注册时被拒绝——旧 profile 请迁移为 `ptc` 或 `native`。 |
-| `dispatcher` | `true` | 身份开关：开启时（出厂默认）所声明的 preset 在 persona 之后追加调度者规则段——复杂度分诊（L0/L1 直接执行，L2 走完整流程）、区分两代 Agent Teams 的 R0.5 兼容性闸门（legacy 运行期带 spawn_teammate 并顶替协调工具，现行运行期只是在原生子代理之上加一块共享任务板）、L2 任务先澄清访谈再规划、Lead & Dispatch 身份与按「耦合度 × 并行收益」三选一的执行拓扑（Lead-Core / Hybrid / Fan-out）、R9 计划模式管线（计划模式是用户的开关：已经在该模式里就只读探索、写计划、经 `exit_plan_mode` 提交；不在就照常规划后执行，不向用户索要这个模式）、派发子代理并逐层审查与验收，以及落在 `todo_write` 的任务跟踪——其后是本地英文补充：访谈类新增内容，加上让任务看板停在做跟踪的表面、而不是派发路径的那一条，以及让登记的事实保持为锚点、而不是当前状态的那一条。这个块在本仓维护：2026-10-18 重新抽取，2026-11-02 按 0.55.0 同步，2026-11-03 再按 0.56.0 及该包尚未发布的 Agent Teams 改动同步一次（二十五条反模式；R1 的三套执行拓扑；Lead & Dispatch 身份；R2 补上 Harness 0.2.2 起显式路由可能仍受父路由限制；R8 改为相对 R1 授权的计划内直执来定义；R6 补上 Lead-Core / Hybrid 主干上「先修后交付」；R0.5 按现行内置 team 重写——它对原生子代理只多加一块共享任务板，且该任务板始终是 R5 任务书之下的记账面；R2 的 allowlist 三态；R8 被撤回的空 allowlist 兜底；R6 记录化的重派次数、不罚 hand_back、以及界面的 Before/After 证据门；R7 每轮扫描即将升级或过期的项，以及删除测试；R5 的 [Limits] 规则——每个上限都写明它约束什么、单位、上限值、以及是否累计，外加 [Compact Delta Brief] 的精简任务书默认形态；R0 的「按影响而非按工作量停手」；常设子代理契约、报告协议与主控专用工具清单；以及 R9——按「计划模式是用户的开关」做了适配：本部署没有 enter_plan_mode 行，调度者也不主动向用户索要它）；行文按上游那套精简写法处理——每条规则一句判定，正文从约 35,000 字符压到 24,600 字符，而每一条更正与新增都保留；更正就地应用，而不是作为一条自相矛盾的第二份副本追加；`DISPATCHER_RULES_PROVENANCE` 逐条记录每一次更正与每一处新增，并带上它来自的上游提交；`DISPATCHER_RULES_PROVENANCE.omissions` 记录本预设有意不带的两条上游内容，它们各自指向本预设没挂的工具（`dispatch_ledger` 工具，以及 `enter_plan_mode` / `leave_plan_mode` 两行）；`node tools/check-dispatcher-rules.mjs` 对已安装的来源包报告漂移。关闭后回到仅含工作纪律的极简 persona。它与 `presentation` 正交：`presentation` 决定工具面，`dispatcher` 决定身份与流程纪律。 |
+| `presentation` | `ptc` | 本插件所声明 preset 的 wire 呈现。取值写进 `tool-catalog` 行并驱动组合：它启用的 `@deepseek-ai/dsh-tool-executor-ptc` 行**就是** wire，`ptc` 因此收拢为 `run_code`、`native` 保持原生清单，目录文本描述的就是该组合产生的面。Host 提交改动后立即重新声明 preset，此后新建的会话即采用新值；已开始的会话保持其已声明的组合。已删除的 `both` 取值在注册时被拒绝——旧 profile 请迁移为 `ptc` 或 `native`。 |
+| `dispatcher` | `true` | 身份开关：开启时（出厂默认）所声明的 preset 在 persona 之后追加调度者规则段——复杂度分诊（L0/L1 直接执行；L2 分 L2-Clear 直接写计划后执行与 L2-Governed 走澄清访谈与计划审批）、共享任务板只是记账、不是第二个调度者（R0.5 兼容性闸门已随上游在 0.72.0 删除——新 harness 已整体移除旧代 Agent Teams 运行期，判据恒为缺席，与代次无关的任务板契约抽为常驻段保留）、L2 任务先澄清访谈再规划、Lead & Dispatch 身份与按「耦合度 × 并行收益」三选一的执行拓扑（Lead-Core / Hybrid / Fan-out）、R9 计划模式管线（计划模式是用户的开关：已经在该模式里就只读探索、写计划、经 `exit_plan_mode` 提交；不在就照常规划后执行，不向用户索要这个模式）、派发子代理并逐层审查与验收，以及落在 `todo_write` 的任务跟踪——其后是本地英文补充：访谈类新增内容，加上让任务看板停在做跟踪的表面、而不是派发路径的那一条，以及让登记的事实保持为锚点、而不是当前状态的那一条。这个块在本仓维护：2026-10-18 重新抽取，2026-11-02 按 0.55.0 同步，2026-11-03 再按 0.56.0 及该包尚未发布的 Agent Teams 改动同步一次，2026-11-13 又按 0.72.0 同步一次（二十三条反模式；删除 R0.5 闸门并把任务板契约留为常驻段；R0 补 L2-Clear / L2-Governed 分档与 [Execution Economy] 的「每步最多两次无进展就换招」闸门；G4 要求先检索外部先例（GitHub 文档与仓库、官方文档、论文、规范）再问用户；R1 的三套执行拓扑；Lead & Dispatch 身份；R2 补上 Harness 0.2.2 起显式路由可能仍受父路由限制；R8 改为相对 R1 授权的计划内直执来定义；R6 补上 Lead-Core / Hybrid 主干上「先修后交付」；R2 的 allowlist 三态；R8 被撤回的空 allowlist 兜底；R6 记录化的重派次数、不罚 hand_back、以及只对回归风险的界面改动要求 Before/After（纯文案、纯逻辑或新增改动不需要，无可靠 Before 时 After 加说明即可）；R7 每轮扫描即将升级或过期的项，以及删除测试；R5 的 [Limits] 规则——每个上限都写明它约束什么、单位、上限值、以及是否累计，外加 [Compact Delta Brief] 的精简任务书默认形态；R0 的「按影响而非按工作量停手」；常设子代理契约、报告协议与主控专用工具清单；以及 R9——按「计划模式是用户的开关」做了适配：本部署没有 enter_plan_mode 行，调度者也不主动向用户索要它）；行文按上游那套精简写法处理——每条规则一句判定，正文从约 35,000 字符压到约 22,200 字符，而每一条更正与新增都保留；更正就地应用，而不是作为一条自相矛盾的第二份副本追加；`DISPATCHER_RULES_PROVENANCE` 逐条记录每一次更正与每一处新增，并带上它来自的上游提交；`DISPATCHER_RULES_PROVENANCE.omissions` 记录本预设有意不带的两条上游内容，它们各自指向本预设没挂的工具（`dispatch_ledger` 工具，以及 `enter_plan_mode` / `leave_plan_mode` 两行），`DISPATCHER_RULES_PROVENANCE.removals` 记录上游已删除、本地随之移除的 R0.5 闸门；`node tools/check-dispatcher-rules.mjs` 对已安装的来源包报告漂移。关闭后回到仅含工作纪律的极简 persona。它与 `presentation` 正交：`presentation` 决定工具面，`dispatcher` 决定身份与流程纪律。 |
+| `pagedToolPatterns` | `''` | 按需工具族（插件设置卡片中的「按需工具族」文本字段）：逗号分隔的前缀模式，每项为不含 `*` 的非空字面头部加单个结尾 `*`（例如 `mcp__*, browser_*, task_board_*`）。`parsePagedToolPatterns` 去空白、跳过空项后把解析出的数组同时写入所声明 preset 的 `tool-catalog`、`tool-activate` 与 `working-context` 三行（三行都按各自的 `pagedToolPatterns` 重放同一份会话日志，必须保持同源，否则目录的驱逐限制、`tool_activate` 的激活判定与 working-context 的状态投影会发生分叉，导致被扣留的命名空间无法再被重新激活）。留空或重置时不写覆盖项，继承 preset 出厂的 7 项清单（`['mcp__*', 'browser_*', 'task_board_*', 'team_*', 'squad*', 'ui_*', 'ssh_*']`）；在设置卡片中，任一条目格式非法时草稿保持未写入状态，Host 侧收到含非法条目的文本时同样忽略并沿用出厂清单。 |
+| `idleReclaimSteps` | `0` | 空闲收回步数（插件设置卡片中的「空闲收回步数」数字字段）：非负整数，经覆盖层同时写入所声明 preset 的 `tool-catalog`、`tool-activate` 与 `working-context` 三行（三行按同一阈值重放会话日志，必须同源，否则目录的扣留、`tool_activate` 的判定与 working-context 的投影会对「哪些命名空间仍活跃」发生分叉）。`0` 或留空/重置继承出厂的「不收回」；负数或小数在设置卡片中保持草稿未写入，Host schema 以 `min(0)` 拒绝。收回是延迟的：过期只在下一次激活或压缩边界应用，不新增前缀缓存重建。 |
 
-各字段都可在 Web 设置界面（插件配置）或 profile patch（`dsh plugin` / `cordis.patch.yml`）中编辑。0.1.7 的设置契约下，插件自身的 Config 就是它的设置页：Host 为每个 profile entry 生成一张表单（entry id 为 `liangshen`，聚合安装下为生成的 `web-ui-liangshen` 行），每个字段都声明为 `volatile()`，因此写入被提交进运行中的插件实例，而不是重挂该行。塑造 preset 的 presentation 字段再经声明抵达会话：插件把已提交的取值应用到 `presets/liangshen/agent.cordis.yml` 的对应行并重新声明 preset，因此真正被会话运行的是设置界面的取值，而不是包内文件。组合里没有的行或键绝不会被凭空写入——覆写只会收窄出厂配置。改动对之后新建的会话生效；已开始的会话保持其已声明的组合，因为 registry 拒绝重组已开始的会话。
+各字段都可在 Web 设置界面（插件配置）或 profile patch（`dsh plugin` / `cordis.patch.yml`）中编辑。0.1.7 的设置契约下，插件自身的 Config 就是它的设置页：Host 为每个 profile entry 生成一张表单（entry id 为 `liangshen`，聚合安装下为生成的 `web-ui-liangshen` 行），每个字段都声明为 `volatile()`，因此写入被提交进运行中的插件实例，而不是重挂该行。塑造 preset 的字段（`presentation`、`dispatcher`、`pagedToolPatterns` 与 `idleReclaimSteps`）再经声明抵达会话：插件把已提交的取值应用到 `presets/liangshen/agent.cordis.yml` 的对应行并重新声明 preset，因此真正被会话运行的是设置界面的取值，而不是包内文件。组合里没有的行或键绝不会被凭空写入——覆写只会收窄出厂配置。改动对之后新建的会话生效；已开始的会话保持其已声明的组合，因为 registry 拒绝重组已开始的会话。
 
 ## 行为与限制
 
@@ -131,13 +135,13 @@ dsh plugin --profile web remove @linxin666/dsh-liangshen
 - 未观测到 prompt 组装的步不注入任何内容——目录绝不会由过期视图推测；
 - 若组合中不存在任何被接受的 persona section 名（`deployment:persona-prefix`、`deployment:persona`、`persona`），过滤器会保留组装结果并只告警一次，而不是发出空系统提示词；
 - plan mode 通过其 `plan:policy` 段支持；置 `keepPlanPolicy: false` 后该模式仍有工具，但失去约束它的策略文本；
-- 被分页扣留的工具（出厂模式 `mcp__*`）在模型经 `tool_activate` 激活其命名空间之前不进 wire、也不进生成的 SDK；同时最多三个分页命名空间保持激活，激活第四个会把最近最少使用的逐回摘要状态，激活状态在压缩与恢复后从持久事件流重建。`ptc` 下分页同时作用于作用域的工具注册表，未激活的命名空间在 `run_code` 程序内同样不可达；
+- 被分页扣留的工具（出厂模式 `['mcp__*', 'browser_*', 'task_board_*', 'team_*', 'squad*', 'ui_*', 'ssh_*']`，宿主内建工具全部常驻）在模型经 `tool_activate({ namespace })` 激活其命名空间（`__` 结尾头部取余下首个 `__` 段作为 MCP 服务名，其余头部去掉至多一个结尾 `_` 作为插件工具族名）之前不进 wire；同时最多三个分页命名空间保持激活，激活或调用已激活命名空间内的工具都会刷新新近度，激活第四个会把最近最少使用的逐回摘要状态，激活状态在压缩与恢复后从持久事件流重建。`ptc` 下分页同时限制作用域的工具注册表，未激活的命名空间既不进 `tools:sdk`，在 `run_code` 程序内同样不可达；可选 `idleReclaimSteps`（默认 `0` = 关闭）开启延迟空闲收回：连续 N 步无成功激活或调用的命名空间过期，但只在下一次激活或压缩边界应用，不新增前缀缓存重建；应用前仍常驻可达，成功调用即续命，过期与收回同样从持久事件流重放；
 - working-context 行只在其来源（plan-mode 状态、已激活的分页命名空间、进行中的 todo）可读时注入，否则省略；
 - 工具结果超过 4096 字符即被修剪，保留 2048 字符头部与 1024 字符尾部（守护稀疏索引槽位的同时保住错误尾部与退出码），避免超大输出挤占上下文；
-- `run_code` 需要挂载的 PTC runtime（随包发布的 web 与 headless 组合以 `ptc-runtime` 行挂载 `@deepseek-ai/dsh-ptc-runtime-node`）；没有时 `ptc` 不做声明，会话运行原生工具面；
+- `run_code` 需要挂载的 PTC runtime（随包发布的 web 与 headless 组合以 `ptc-runtime` 行挂载 `@deepseek-ai/dsh-ptc-runtime-node`）；没有时无法挂载 PTC 执行器，会话运行原生工具面；
 - spawn 委派行已开启子 agent 模型选择（`modelSelection: true` 与 `modelDiscovery: true`），因此设置界面的子智能体模型选择开关在本预设下生效：模型在 `subagent` 上看到 `provider` / `model` / `reasoning_effort` 参数与 `list_subagent_models` 发现工具，显式路由会按会话的允许清单校验（没有已记录的策略时退回父会话当前路由）；该行同时保留拆分前的写法 `modelSelectionSettings: true`：`devDependencies` 里钉的 SDK 只认这一个键，而本仓库运行所对的 harness checkout 已不再声明它，两代各读自己认识的键，另一个保持惰性；
 - 同一组合 scope 内只允许一行委派工具开启发现：上游 `modelDiscovery` 以固定工具名在该行所合入的 scope 中注册 `list_subagent_models`，而注册表拒绝同一 scope 内同名工具的第二次注册，因此第二个开启行会让整个会话创建失败而不是多出一份能力。fork 行因此不带它（官方 Standard、PTC、Cordis 预设同样如此，且它们连路由字段也不开），组合测试按结构统计发现工具的所有者；
-- `subagent-routes` 行是子路由守卫。一旦会话记录了允许路由清单，本行所管辖的每次委派都必须落到已授权路由上：`subagent` 上显式的 `provider`/`model` 对，或 `subagent_fork`（以及任何创建 teammate 的工具）上调用方自己的路由——后者的继承路由正是因为工具无法自选才需要校验。拒绝时会列出可用路由；在只继承的工具上点名路由会作为越权重路由被拒；没挂路由字段的工具不索要它给不出的参数，而是按子代理将要继承的路由校验。守卫对任何读不到的事实一律放行（未记录策略、无会话注册表、无注册表探针），因此答不出来的宿主保持 harness 原本的委派行为；行上的 `enabled: false` 可整体关闭；
+- `subagent-routes` 行是子路由守卫。一旦会话记录了允许路由清单，本行所管辖的每次委派都必须落到已授权路由上：`subagent` 上显式的 `provider`/`model` 对，或 `subagent_fork` 上调用方自己的路由——后者的继承路由正是因为工具无法自选才需要校验。拒绝时会列出可用路由；在只继承的工具上点名路由会作为越权重路由被拒；没挂路由字段的工具不索要它给不出的参数，而是按子代理将要继承的路由校验。守卫对任何读不到的事实一律放行（未记录策略、无会话注册表、无注册表探针），因此答不出来的宿主保持 harness 原本的委派行为；行上的 `enabled: false` 可整体关闭；
 - `dispatch-guard` 行是调度者规则的执行期对应物。被委派的调用方调用 `ask_user_question`、`create_goal`、`update_goal`、`exit_plan_mode` 会被 `DELEGATED_CALLER` 拒绝（冻结清单上另外三个工具本部署没有挂载，保留在名单里是为了让规则在工具面变动后依然成立）；它还有在跑的子代理时，纯等待的 `bash` / `pwsh` / `win_bash` 会被 `ACTIVE_CHILD_SLEEP_FORBIDDEN` 拒绝——结束那一轮的是完成通知，不是计时器。带真实工作的复合命令与任何 `run_in_background` 调用都不拦。本行只走 `ctx.tools.guard()` 一条接缝，工具声明面不动，按前缀计费的线路不会因为它重建缓存；任何读不到的事实一律放行（无守卫接缝、无会话血缘、无存活根集合、无子代清单），因此答不出来的宿主保持 harness 原本的行为；行上的 `enabled: false` 可整体关闭；
 - 清单不发布 `workflow` 工具，而 workflow 引擎仍为 `ralph` 保留挂载；
 - shell 挂载上游标准 Stdio 栈，POSIX 注册 `bash`，win32 注册 `pwsh`——每个宿主恰好挂一个 shell 工具，带简短功能描述标题卡片与确定性退出码；
@@ -145,7 +149,7 @@ dsh plugin --profile web remove @linxin666/dsh-liangshen
 - preset 与 shell 访问具有相同信任等级，安装前可自行审阅 `presets/liangshen/`；
 - 插件不发起网络请求，也不增加遥测；
 - 不要在已经产生内容的会话中途切换 preset；
-- 需要 DSH 0.2.2-rc.1+（preset 机制、`system-prompt/assemble` 瀑布、persona 的 `prefix` schema，以及 PTC 呈现 API）。
+- 需要 DSH 0.2.2-rc.3+（preset 机制、`system-prompt/assemble` 瀑布、persona 的 `prefix` schema，以及 PTC 呈现 API）。
 
 ## 许可
 

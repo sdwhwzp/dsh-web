@@ -16,6 +16,12 @@ import {
   planModeState,
   renderWorkingContext,
 } from '../presets/liangshen/working-context.mjs'
+import { foldFactLedger, renderLedgerField } from '../presets/liangshen/fact-ledger.mjs'
+import {
+  DEFAULT_MAX_ACTIVE_NAMESPACES,
+  DEFAULT_PAGED_TOOL_PATTERNS,
+  replayActivations,
+} from '../presets/liangshen/paging.mjs'
 
 type Listener = (first: any, second: any, third: any) => Promise<any>
 
@@ -58,6 +64,27 @@ function activation(namespace: string, callId: string) {
     { type: 'tool/call', data: { callId, name: 'tool_activate', arguments: JSON.stringify({ namespace }) } },
     { type: 'tool/result', data: { message: { source: { callId }, content: [{ type: 'text', text: 'ok' }] } } },
   ]
+}
+
+/** One fact_register call as the `native` wire records it: JSON-string arguments. */
+function factCall(args: Record<string, unknown>) {
+  return { type: 'tool/call', data: { callId: 'call_fact', name: 'fact_register', arguments: JSON.stringify(args) } }
+}
+
+/** One fact_register dispatch as the `ptc` wire records it: object arguments. */
+function factDispatch(args: Record<string, unknown>, isError = false) {
+  return {
+    type: 'tool/ptc-dispatch',
+    data: {
+      rootCallId: 'call_root',
+      parentCallId: 'call_root',
+      subCallId: 'call_root:ptc:1',
+      name: 'fact_register',
+      arguments: args,
+      isError,
+      content: [{ type: 'text', text: isError ? 'failed' : 'Pinned' }],
+    },
+  }
 }
 
 describe('liangshen-working-context', () => {
@@ -111,6 +138,111 @@ describe('liangshen-working-context', () => {
       { type: 'todo/write', data: { todos: [{ content: 'Fix auth', status: 'in_progress' }] } },
     ])
     expect(line).toBe('[Working Context: plan mode: on | active namespaces: github | in progress: Fix auth]')
+  })
+
+  test('operator gets the same line from the single-pass fold as from the standalone folds', () => {
+    // Given interleaved events: a plan-mode switch, successful activations on both
+    // wire shapes, a failed activation, todos cleared and rewritten, and pins plus
+    // a revocation, with a non-object plan/mode event in between.
+    const events = [
+      { type: 'plan/mode', data: { active: true } },
+      ...activation('github', 'c1'),
+      { type: 'tool/call', data: { callId: 'c2', name: 'tool_activate', arguments: JSON.stringify({ namespace: 'ssh' }) } },
+      { type: 'tool/result', data: { message: { source: { callId: 'c2' }, content: [{ type: 'text', text: 'failed' }], isError: true } } },
+      factCall({ fact: 'User prefers tabs', tag: 'style' }),
+      { type: 'todo/write', data: { todos: [{ content: 'Wire the fold', status: 'in_progress' }] } },
+      factDispatch({ fact: 'Auth decided: JWT', tag: 'auth' }),
+      { type: 'tool/ptc-dispatch', data: { name: 'tool_activate', arguments: { namespace: 'ui' }, isError: false } },
+      { type: 'turn/start' },
+      { type: 'todo/write', data: { todos: [{ content: 'Ship the fold', status: 'in_progress' }, { content: 'Done', status: 'completed' }] } },
+      factDispatch({ revoke: 'style' }),
+      { type: 'plan/mode', data: {} },
+    ]
+
+    // When the line renders, Then it is exactly what the standalone folds compose,
+    // and the failed activation never took effect on the way.
+    const line = renderWorkingContext(events, {
+      pagedToolPatterns: DEFAULT_PAGED_TOOL_PATTERNS,
+      maxActiveNamespaces: DEFAULT_MAX_ACTIVE_NAMESPACES,
+    })
+    const plan = planModeState(events)
+    const { active } = replayActivations(events, DEFAULT_MAX_ACTIVE_NAMESPACES, DEFAULT_PAGED_TOOL_PATTERNS)
+    const titles = inProgressTodos(events)
+    const ledger = renderLedgerField(foldFactLedger(events))
+    const composed = [
+      `plan mode: ${plan.active ? 'on' : 'off'}`,
+      `active namespaces: ${[...active].sort().join(', ')}`,
+      `in progress: ${titles.join('; ')}`,
+      ledger,
+    ]
+    expect(line).toBe(`[Working Context: ${composed.join(' | ')}]`)
+    expect(active).toEqual(['github', 'ui'])
+    expect(line).toContain('key facts: Auth decided: JWT [auth]')
+    expect(line).not.toContain('ssh')
+  })
+
+  test('operator gets an untouched step when the session log cannot be read', async () => {
+    // Given a session whose event source throws whenever it is read,
+    // When a step is prepared, Then the read folds to nothing, the step still
+    // reaches the model, and no line is injected for a log that was not read.
+    const harness = register()
+    const agent = {
+      session: {
+        snapshotEvents: () => { throw new Error('session log unavailable') },
+      },
+    }
+    const result = await preStep(harness, agent)
+    expect(result.messages.map((message: any) => message.id)).toEqual(['user'])
+  })
+
+  test('operator still gets the todo and fact fields from a log without any activation', () => {
+    // Given a log that never recorded an activation but carries a todo and a pin,
+    // When the line renders, Then those fields render and no namespace field does:
+    // the skipped activation replay cannot cost the other fields.
+    const line = renderWorkingContext([
+      { type: 'todo/write', data: { todos: [{ content: 'Fold once', status: 'in_progress' }] } },
+      factCall({ fact: 'Build uses pnpm', tag: 'build' }),
+      { type: 'tool/ptc-dispatch', data: { name: 'bash', arguments: { command: 'ls' }, isError: false } },
+    ])
+    expect(line).toBe('[Working Context: in progress: Fold once | key facts: Build uses pnpm [build]]')
+  })
+
+  test('operator sees a ptc-pinned key fact on the working-context line', () => {
+    // Given a pin the runtime recorded as a ptc dispatch beside a plan-mode event.
+    const events = [
+      { type: 'plan/mode', data: { active: true } },
+      factDispatch({ fact: 'User requires strict TypeScript', tag: 'constraints' }),
+    ]
+    // When the line renders, Then the register is one of its fields, tag inline.
+    expect(renderWorkingContext(events))
+      .toBe('[Working Context: plan mode: on | key facts: User requires strict TypeScript [constraints]]')
+  })
+
+  test('operator sees key facts from both wires folded onto one line', () => {
+    // Given a native pin, a ptc pin, and a ptc revocation of the native fact's tag.
+    const events = [
+      factCall({ fact: 'User prefers tabs', tag: 'constraints' }),
+      factDispatch({ fact: 'Auth decided: JWT', tag: 'auth' }),
+      factDispatch({ revoke: 'constraints' }),
+    ]
+    // When the line renders, Then only the surviving fact is projected.
+    expect(renderWorkingContext(events)).toBe('[Working Context: key facts: Auth decided: JWT [auth]]')
+  })
+
+  test('operator does not see a failed ptc fact dispatch on the line', () => {
+    // Given a ptc pin that reported an error and nothing else to say.
+    const events = [factDispatch({ fact: 'never pinned' }, true)]
+    // When the line renders, Then no field has anything to say and nothing is injected.
+    expect(renderWorkingContext(events)).toBeUndefined()
+  })
+
+  test('operator gets the ptc-pinned fact in the injected working-context message', async () => {
+    // Given a session whose log carries one pin recorded over the ptc wire.
+    const harness = register()
+    const agent = agentOf([factDispatch({ fact: 'Build uses pnpm', tag: 'build' })])
+    // When the pre-step hook runs, Then the durable message carries the fact.
+    const result = await preStep(harness, agent)
+    expect(contextOf(result.messages).content[0].text).toBe('[Working Context: key facts: Build uses pnpm [build]]')
   })
 
   test('clips long titles and collapses the rest', () => {

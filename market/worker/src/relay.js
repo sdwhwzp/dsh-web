@@ -16,6 +16,7 @@
  * still gets the offline page.
  */
 
+import { normalizeWireEncoding } from './relay-encoding.js'
 import { relayFailure } from './relay-failure.js'
 import {
   RATE_LIMIT_RETENTION_MS,
@@ -112,7 +113,7 @@ function isAllowedTarget(target) {
  * the request is rejected, so retries cannot outrun the window.
  * @returns a prepared statement list prefix implementing the check.
  */
-function rateLimitStatements(env, bucket, max) {
+function rateLimitStatements(env, bucket, _max) {
   const windowStart = Math.floor(Date.now() / REGISTER_WINDOW_MS) * REGISTER_WINDOW_MS
   return {
     windowStart,
@@ -356,7 +357,11 @@ async function fetchThroughBridge(request, env, id, pathname) {
   // object hands the connector's own headers through, and the tunneled instance
   // sends no Cache-Control on its content-hashed build assets, so without this
   // a phone re-fetches the whole shell on every load through the bridge too.
-  return withImmutableAssetCache(response, pathname, request.method)
+  // The hop hands on identity bytes exactly as it does on the quick path: the
+  // connector asks its own upstream for `identity` (so a bridged body is plain
+  // by construction), and this function still peels whatever a host that
+  // ignores that request sends (issues #2030 and #2052).
+  return await normalizeWireEncoding(withImmutableAssetCache(response, pathname, request.method))
 }
 
 /** The same headers without the bridge attach marker. */
@@ -444,7 +449,10 @@ export async function handleRelayProxy(request, env, id) {
     return relayFailure('instance-offline', { message: 'the instance tunnel did not answer' })
   }
   const shaped = withImmutableAssetCache(response, target.pathname, request.method)
-  return transport === 'bridge' ? withFallbackMark(shaped) : shaped
+  // The origin gzips whatever `accept-encoding` a request carried and does not
+  // always declare it, so the hop hands on plain bytes before the edge can
+  // compress an already-compressed body (issue #2030).
+  return await normalizeWireEncoding(transport === 'bridge' ? withFallbackMark(shaped) : shaped)
 }
 
 /** Dispatch for relay traffic: returns a Response, or undefined when the

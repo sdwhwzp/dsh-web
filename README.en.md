@@ -2,7 +2,7 @@
 
 [中文](README.md) | English
 
-dsh-web is an all-in-one modular plugin ecosystem and AI agent workbench for DeepSeek Harness (DSH) Web GUI, DeepSeek Web UI, and the official DeepSeek Desktop client. Built for DeepSeek-V3 and DeepSeek-R1 reasoning models, it equips developers and power users with autonomous task automation boards (cron background scheduling), mobile phone app remote access, web-based SSH terminal operations and Linux cluster management, full session search and archive management, token usage and API cost monitoring (including Token Bank), and a unified workshop for themes, skins, and desktop pets. Users can install the complete plugin bundle into an existing `dsh web` instance via the official profile mechanism, or install and run it directly in the official DeepSeek Harness desktop client.
+dsh-web is an all-in-one modular plugin ecosystem and AI agent workbench for DeepSeek Harness (DSH) Web GUI, DeepSeek Web UI, and the official DeepSeek Desktop client (covering 21 in-repository family packages and 4 satellite packages, 25 public `@linxin666/dsh-*` npm modules in total). Built for frontier reasoning and coding models including the DeepSeek V4.1 series and multi-provider ecosystems, it equips developers and power users with autonomous task automation boards (autonomous parent subtask dispatch and cron background scheduling), LiangShen Mode (minimal persona, PTC programmatic tool transport, and zero-cache-invalidation on-demand paging), Agent Squads (reusable member rosters and whole-squad Agent Teams runs), Live Browser View (right-docked CDP screencast and web automation), mobile phone app remote access, web-based SSH terminal operations and Linux cluster management, full session search and archive management, token usage and API cost monitoring (including Token Bank), and a unified workshop for themes, skins, and desktop pets (`dsh-market.com`). Users can install the complete plugin bundle into an existing `dsh web` instance via the official profile mechanism, or install and run it directly in the official DeepSeek Harness desktop client.
 
 <p align="center">
   <img src="docs/dsh-web-banner.png" alt="dsh-web — Modular Plugin Ecosystem & Themes for DeepSeek Harness (DSH) Web GUI (Task Board, Mobile Remote, Web SSH, Token Tracker, Themes & Skins)" width="100%">
@@ -23,14 +23,14 @@ dsh-web is an all-in-one modular plugin ecosystem and AI agent workbench for Dee
   &nbsp;
   <a href="https://dsh-market.com"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fdsh-market.com%2Fapi%2Ftelemetry%2Fbadge%2Fusers&style=flat-square&label=users" alt="users"></a>
   &nbsp;
-  <a href="https://www.npmjs.com/package/@deepseek-ai/dsh"><img src="https://img.shields.io/badge/DSH-%3E%3D0.2.2--rc.1-4c6ef5?style=flat-square&amp;labelColor=454a54" alt="DSH"></a>
+  <a href="https://www.npmjs.com/package/@deepseek-ai/dsh"><img src="https://img.shields.io/badge/DSH-%3E%3D0.2.2--rc.3-4c6ef5?style=flat-square&amp;labelColor=454a54" alt="DSH"></a>
   &nbsp;
   <img src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" alt="License">
 </p>
 
 <p align="center">
   <strong>DeepSeek Harness (DSH) Web Plugin Ecosystem · Modular AI Agent Workspace</strong><br>
-  <em>All-in-One Web GUI · Task Automation Board · Mobile Phone App Remote Access · Web SSH DevOps · Token Cost Tracker · Themes & Skins Workshop</em>
+  <em>All-in-One Web GUI · Task Automation Board · LiangShen Mode · Agent Squads · Live Browser View · Mobile Phone App Remote Access · Web SSH DevOps · Token Cost Tracker · Themes & Skins Workshop</em>
 </p>
 
 <div align="center">
@@ -44,17 +44,18 @@ dsh-web is an all-in-one modular plugin ecosystem and AI agent workbench for Dee
 Stock DeepSeek Harness Web delivers fundamental chat interactions and tool execution capabilities. However, production workflows often require concurrent task scheduling, persistent background runs, remote collaboration, and developer-oriented tooling.
 
 dsh-web mounts directly into `dsh web` via official profiles without modifying DSH core source code, providing a comprehensive modular extension suite:
-- **Developer Operations & Collaboration Plugins**: Long-running autonomous task boards (multi-agent cascade/Teams orchestration, adversarial judge verification, and cron scheduling), LiangShen Mode (minimal persona, programmatic tool transport, dispatcher discipline), mobile phone app remote access, SSH terminal operations and file transfers, full session archive management, and model capability declarations;
+- **Developer Operations & Collaboration Plugins**: Long-running autonomous task boards (autonomous parent subtask dispatch and scheduled execution), LiangShen Mode (minimal persona, PTC programmatic tool transport, and agile dispatcher discipline), Agent Squads (reusable member rosters and whole-squad Agent Teams collaboration), Live Browser View (right-docked CDP screencast and 11 browser tools), mobile phone app remote access, SSH terminal and cluster operations, full session archive management, and message branch editing;
 - **Decoupled Visual Themes & Assets**: Functional plugins and visual assets remain strictly separated. The skin loader handles stylesheet and dynamic effect rendering, while themes and animated desktop pets can be installed on demand from the [DSH Workshop](#workshop-dsh-marketcom);
 - **Bundled or Pick-and-Choose**: Install everything with one command via `@linxin666/dsh-web-all`, or install individual plugins independently. The aggregate pre-integrates every family plugin - see the [plugin bundle installation and configuration guide](packages/dsh-web-all/README.md).
 
-![DeepSeek Harness Web GUI workspace powered by dsh-web modular plugin ecosystem (supporting DeepSeek-V3 and DeepSeek-R1)](docs/screenshots/13-hero-main.png)
+![DeepSeek Harness Web GUI workspace powered by dsh-web modular plugin ecosystem (Task Board, LiangShen Mode, Agent Squads, and Themes)](docs/screenshots/13-hero-main.png)
 
 | Core Capability | Stock dsh web | dsh-web Modular Ecosystem Advantage |
 | --- | --- | --- |
-| Agent Presets & Disciplines | Stock presets only (Standard / Minimal, etc.), heavy context overhead | Stock presets + Workshop presets + LiangShen Mode (minimal persona, PTC program transport, gentle MCP paging, fact register, composer slot lever) |
-| Custom Model Capabilities | No visual configuration for model attributes | Visual declarations for multimodal vision image inputs and DeepSeek-R1 reasoning effort tiers, with instant provider toggles |
-| Autonomous Task Board | None | Host-authoritative 5-column board + multi-agent tree cascade/native Teams orchestration + double-blind judge quality gate + offline cron scheduling & sleep inhibition + GitHub Issue-to-PR automation + 8 model-callable tools |
+| Agent Presets & Disciplines | Stock presets only (Standard / Minimal, etc.), heavy context overhead | Stock presets + Workshop presets + LiangShen Mode (minimal persona, PTC program transport, on-demand tool-family paging, fact register, composer slot lever) |
+| Agent Squads & Team Orchestration | Ephemeral single-session subagent calls only | Reusable squad and member definitions (preset/permission/model/effort/system-prompt brief) + whole-squad Agent Teams runs with live state projection + 10 `squads_*` / `squad_member_*` model tools |
+| Live Browser View & Web Automation | No visual agent-driven browser viewport | Right-docked CDP live screencast tab + isolated Chromium by default or real signed-in browser attach + 11 `browser_*` interaction and lossless region-screenshot tools |
+| Autonomous Task Board | None | Host-authoritative Schema v7 5-column board + subtask trees with autonomous parent dispatch + multimodal card attachments + offline cron/one-shot scheduling & sleep inhibition + GitHub / Team Hub / mobile remote extensions + 8 model-callable tools |
 | Mobile Phone App Remote Access | Localhost browser only | Instant QR pairing for native phone apps, protocol v1 WebSocket streaming, public relay/tunnels & LAN ingress |
 | Remote Server Operations | None | Web-based SSH terminal (xterm.js), SFTP file transfer, tunnels & cluster commands |
 | Token Usage & Cost Monitor | None | Daily token consumption breakdowns, multi-provider balance tracking, plan quota reset monitoring & Token Bank |
@@ -65,8 +66,10 @@ dsh-web mounts directly into `dsh web` via official profiles without modifying D
 
 | User Goal & Scenario | Recommended Solution & Capability | Entry Point |
 | --- | --- | --- |
-| Build 24/7 autonomous background AI engineering pipelines, scheduled code audits, multi-agent team orchestration, automatic GitHub issue-to-PR resolution, or goal-driven delivery | Task Board: host background scheduling, multi-agent cascade/Teams orchestration, adversarial judge verification, automated GitHub PR workflows, and sleep inhibition | [Task board and cron execution](packages/dsh-task-board/README.md) |
-| Maximize coding efficiency and minimize context waste with compact prompts, programmatic tool calling (PTC), and strict dispatcher discipline | LiangShen Mode: Minimal persona, run_code program transport, gentle MCP paging, fact register, and composer lever | [LiangShen Mode Preset & PTC](packages/dsh-liangshen/README.md) |
+| Build 24/7 autonomous background AI engineering pipelines, scheduled code audits, subtask trees with autonomous parent dispatch, or automatic GitHub issue-to-PR resolution | Task Board: host background scheduling, subtask trees & autonomous parent dispatch, GitHub / Team Hub / mobile remote extensions, and sleep inhibition | [Task board and cron execution](packages/dsh-task-board/README.md) |
+| Maximize coding efficiency and minimize context waste with compact prompts, programmatic tool calling (PTC), and strict dispatcher discipline | LiangShen Mode: Minimal persona, run_code program transport, on-demand tool-family paging, fact register, and composer lever | [LiangShen Mode Preset & PTC](packages/dsh-liangshen/README.md) |
+| Assemble reusable specialist AI members and agent squads to launch individual member sessions or whole-squad Agent Teams runs | Agent Squads: reusable member definitions (preset/permission/model/effort/brief), whole-squad runs with live state projection, and 10 model tools | [Agent Squads & Team Runs](packages/dsh-agents/README.md) |
+| Watch an agent-driven Chromium live beside the chat to run web UI tests, inspect DOM snapshots, or attach to a signed-in browser | Live Browser View: right-docked CDP screencast, isolated Chromium or real-browser attach, and 11 interaction & lossless region-screenshot tools | [Live Browser View & CDP Control](packages/dsh-browser-view/README.md) |
 | Remote access and control of DeepSeek Harness from mobile phone apps via protocol v1 | Mobile App Remote Access: protocol v1 WebSocket, session streaming, ingress gateway & WAN/LAN ingress | [Mobile App Remote Access](packages/dsh-remote-bridge/README.md) |
 | Delegate Linux server DevOps, SFTP file transfers, SSH terminal interactions, or incident response to AI agents | SSH Remote Ops: web terminal (xterm.js), visual SFTP transfers, port forwarding tunnels, cluster commands | [SSH terminal, file transfer, and tunnels](packages/dsh-ssh/README.md) |
 | Monitor DeepSeek API and LLM token usage metrics, query provider account balances, and track subscription quotas | Usage Statistics: daily token breakdown, balance queries, bill estimation & Token Bank | [Usage statistics and Token Bank](packages/dsh-usage/README.md) |
@@ -87,58 +90,79 @@ The official desktop client shares the `~/.dsh` data directory with `dsh web` an
 
 ## Workshop (dsh-market.com)
 
-The [DSH Workshop](https://dsh-market.com) is a unified hub for themes, pets, plugins, and community Agent presets. Entries are ranked by verified device likes; themes provide live interactive previews, and plugins offer copy-ready install commands. The classic Blue Fantasy theme is bundled with the skin center plugin; additional themes and pets can be previewed, inspected, and installed on demand. In the Web GUI, the "Workshop" settings tab lets you browse the catalog directly: skins and pets install straight into the DSH home directory for immediate use, while community presets install to an inactive local library and activate under "Settings → Agent Presets".
+The [DSH Workshop](https://dsh-market.com) is a unified hub for themes, pets, plugins, and community Agent presets, currently hosting 66 skins (including Wallpaper Engine live backgrounds), 12 interactive desktop pets, 139 community plugin entries, and 33 community Agent presets. Entries are ranked by verified device likes; themes provide live interactive previews, and plugins offer copy-ready install commands. The classic Blue Fantasy theme is bundled with the skin center plugin; additional themes and pets can be previewed, inspected, and installed on demand. In the Web GUI, the "Workshop" settings tab lets you browse the catalog directly: skins and pets install straight into the DSH home directory for immediate use, while community presets install to an inactive local library and activate under "Settings → Agent Presets".
 
 ![DeepSeek Harness Workshop (dsh-market.com) — Themes, skins, desktop pets, and plugin marketplace](docs/screenshots/31-market-home.png)
 
-The site is built directly from this repository: static pages are generated by `scripts/market-build` from authoritative manifests (`skin.json`, `pet.json`, and `community.json`), while interactive features like anonymous voting run on Cloudflare Workers edge functions with D1 persistence (one vote per device). Changes deploy automatically on push to `main`.
+The site is built directly from this repository: static pages are generated by `scripts/market-build` from authoritative manifests (`skin.json`, `pet.json`, `community.json`, and `presets/`), while interactive features like anonymous voting run on Cloudflare Workers edge functions with D1 persistence (one vote per device, protected by Turnstile). Changes deploy automatically when market-related paths land on `dev`.
 
 The Workshop provides an open, transparent space for community creators to share their work and for users to discover vetted extensions.
 
 ## Feature Plugins
 
-### Task Board（Task Board · Enterprise Autonomous Execution Engine & Multi-Agent Pipelines）
+### Task Board (Enterprise Autonomous Execution Engine & Multi-Agent Pipelines)
 
-Open from the "Task Board" icon in the sidebar. More than a visual card interface, the Task Board is the **host-authoritative background autonomous execution and multi-agent scheduling engine** for the DeepSeek Harness official Web GUI and desktop client. Tasks are tracked through a 5-column lifecycle (Backlog, Todo, In Progress, Done, Failed) backed by an atomic Schema v6 transaction ledger, delivering end-to-end automation from requirement decomposition and team orchestration to adversarial verification and external deliverables:
+Open from the "Task Board" icon in the sidebar (see [dsh-task-board README](packages/dsh-task-board/README.md)). More than a visual card interface, the Task Board is the **host-authoritative background autonomous execution and multi-agent scheduling engine** for the DeepSeek Harness official Web GUI and desktop client. Tasks are tracked through a 5-column lifecycle (Backlog, Todo, In Progress, Done, Failed) with project scoping, AI paste parsing, and multimodal card attachments (up to 8 image or file attachments per card, verified by SHA256 against the official attachment store; images queue as multimodal prompt parts and files inject as read-only host paths), backed by an atomic Schema v7 transaction ledger that delivers end-to-end automation from requirement decomposition and autonomous parent dispatch to external deliverables:
 
-- **Host-Authoritative Execution & 24/7 Offline Automation**: Unlike fragile client-side boards that break when browser tabs close, all card transitions, cron triggers, and execution tracking run under the DSH Host background daemon as the single source of truth. The browser is purely an asynchronous viewport: closing tabs, locking screens, or dropping connections does not interrupt autonomous agent execution or atomic disk settlement. Built-in cross-platform sleep inhibition (macOS `caffeinate`, Windows `ES_SYSTEM_REQUIRED`, Linux `systemd-inhibit`) powers down screens while preventing host idle sleep for reliable 24/7 background operation.
-- **Subtask Cascades & Native Agent Teams Orchestration**: Complex engineering goals decompose into hierarchical subtask trees (1–3 configurable depth levels with cycle detection). **Cascade Execution** triggers concurrent independent agent sessions through a rate-governed admission queue (runLaunchWidth), skipping already-settled items and aggregating tree status. **Native Agent Teams Mode** taps directly into official team services, launching a Team Lead session that dynamically spawns dedicated teammates per subtask with inter-agent tool coordination.
-- **Double-Blind Adversarial Judge Verification (No False Completion)**: Solves the pervasive AI coding pitfall where agents claim success without making valid edits. When an agent invokes `update_goal(complete)`, the Host intercepts the call and dispatches an independent Judge Model (with customizable models and reasoning tiers). Verification applies strict coding criteria, a 0.65 threshold, two-round A/B position swapping, and compares the session trajectory against real filesystem workspace diffs (added/deleted lines and files). Diagnosed defects are returned for self-repair; executions failing twice are marked failed.
-- **Automated GitHub Issue-to-PR Engineering Loop**: Paired with the official extension (`dsh-client-ui-task-board-github`), the board establishes real-time bidirectional synchronization with GitHub repository Issues and Pull Requests. Remote issues automatically ingest into the board, dispatching agents to diagnose bugs, patch code, and run tests. Upon verified completion, the system automatically opens a linked GitHub Pull Request and auto-closes the issue once merged, creating an autonomous 24/7 software engineering pipeline.
-- **Context Continuity: Session Reuse & Freeze Handover**: Tasks can arm the native `/goal` engine for multi-round autonomous iterations, or enable session reuse to preserve active conversation context across recurring runs. Sessions can also freeze via the `<<<FREEZE` protocol into structured snapshots (goals, progress, next steps) with pinned workspace/preset/permission triplets, letting incoming agents seamlessly take over with built-in prompt injection defense and provenance audits.
+- **Host-Authoritative Execution & 24/7 Offline Automation**: Unlike fragile client-side boards that break when browser tabs close, all card transitions, scheduled triggers, and execution tracking run under the DSH Host background daemon as the single source of truth. Supports both recurring 5-field cron expressions (bound to an IANA time zone with an optional `maxRuns` execution cap) and one-shot (`once`) future schedules; the browser is purely an asynchronous viewport, so closing tabs, locking screens, or dropping connections does not interrupt autonomous agent execution or atomic disk settlement. Built-in cross-platform sleep inhibition (macOS `caffeinate`, Windows `ES_SYSTEM_REQUIRED`, Linux `systemd-inhibit`) powers down screens while preventing host idle sleep for reliable 24/7 background operation.
+- **Subtask Trees & Autonomous Parent Dispatch**: Complex engineering goals decompose into 1–3 levels of hierarchical subtasks (with built-in cycle and depth guards). Running any card opens **only one** session for that card itself—the Host never spawns separate sessions per subtask. When a card has unfinished descendants, the Host automatically runs that execution under the `liangshen` (LiangShen Mode) dispatcher preset and injects the unfinished subtask roster into the launch prompt: the parent session reads each subtask via `task_board_get`, dispatches them via `subagent` in dependency order (parallelizing independent subtasks), and backfills each subtask's verdict via `task_board_manage({ action: 'record-external-outcome' })` before finishing (with idempotent Host fallback settlement for any remaining descendants). When multiple cards trigger simultaneously, a rate-governed admission queue (`runLaunchWidth`, 1–16, default 3) controls concurrent session creation.
+- **GitHub Issues, Cloud Team Hub & Mobile Remote Extensions**: Connects seamlessly to three companion extensions over the provider contract: [dsh-client-ui-task-board-github](packages/dsh-task-board-github/README.md) synchronizes GitHub repository Issues and Pull Requests bidirectionally, ingesting remote issues for agents to diagnose, patch, test, open linked PRs, and auto-close issues upon merge; [dsh-client-ui-task-board-team](packages/dsh-task-board-team/README.md) binds local `dsh-agents` members to cloud `team-hub` issues with lease-backed claiming, decision question routing, bidirectional comments (`team_comment`), and review rework; [dsh-task-board-remote](packages/dsh-task-board-remote/README.md) mounts the `board.v1` surface onto the remote bridge extension seam so paired phones read and write the exact same host ledger.
+- **Context Continuity: Session Reuse & Freeze Handover**: Tasks can enable session reuse to preserve active conversation context across recurring runs. Sessions can also freeze via the `<<<FREEZE` protocol into structured snapshots (goals, progress, next steps) with pinned workspace/preset/permission triplets, letting incoming agents seamlessly take over with built-in prompt injection defense and provenance audits.
 - **Enterprise Permission Gates & Token Spend Limits**: Cards pin workspaces, agent presets, sandbox permissions, models, and reasoning tiers (failing closed on invalid bindings). High-risk permissions above the session baseline require manual approval via the **Permission Gate** in the Web UI before execution or cron scheduling is permitted. Configurable daily token spend limits (`spendBudgetTokens`) safeguard against runaway loops and unexpected API costs.
-- **Model-Callable Agent Tool Surface & External Sync**: Exposes 8 native model tools (`task_board_list`, `task_board_get`, `task_board_create`, `task_board_update`, `task_board_set_parent`, `task_board_run`, `task_board_manage`, `task_board_schedule`), empowering conversation agents to inspect boards, split subtasks, orchestrate teams, and arm cron rules autonomously. External work completed in tools like Claude Code or Codex can also register authoritative outcomes via `record-external-outcome`.
+- **Model-Callable Agent Tool Surface & External Sync**: Exposes 8 native model tools (`task_board_list`, `task_board_get`, `task_board_create`, `task_board_update`, `task_board_set_parent`, `task_board_run`, `task_board_manage`, `task_board_schedule`), empowering conversation agents to inspect boards, split subtasks, orchestrate pipelines, and arm schedules autonomously. External work completed in tools like Claude Code or Codex can also register authoritative outcomes via `record-external-outcome`.
 
 | Multi-Column Board & Agent Collaboration | Background Scheduling & Configuration |
 | --- | --- |
 | ![DeepSeek Harness Task Board — AI agent multi-column task scheduling and lifecycle](docs/screenshots/09-task-board.png) | ![DeepSeek Task Details & Scheduled Execution — Agent configuration, cron scheduling, and run history](docs/screenshots/10-task-board-detail-cron.png) |
 
-### LiangShen Mode（LiangShen Mode · Minimal Persona, PTC Runtime & Dispatcher Engine）
+### LiangShen Mode (Minimal Persona, PTC Runtime & Dispatcher Engine)
 
-Toggle via the dedicated slot-machine lever in the composer on new-session screens, or select from "Settings > Agent Presets". LiangShen Mode (`dsh-liangshen`) is a killer preset and runtime engine rebuilt specifically for **maximum reasoning efficiency, minimal static context overhead, and rigorous engineering discipline**. Addressing common LLM pitfalls in complex programming — such as bloated system instructions, tool schemas flooding context windows, verbose rambling reasoning loops ("I need to..."), and degradation across long conversations — LiangShen Mode combines an action-driven minimal prompt, Programmatic Tool Calling (PTC), gentle MCP paging, and working-context fact registers to deliver an exceptionally sharp coding experience:
+Toggle via the dedicated slot-machine lever in the composer on new-session screens, or select from "Settings > Agent Presets". LiangShen Mode (`dsh-liangshen`) is a killer preset and runtime engine rebuilt specifically for **maximum reasoning efficiency, minimal static context overhead, and rigorous engineering discipline**. Addressing common LLM pitfalls in complex programming — such as bloated system instructions, tool schemas flooding context windows, verbose rambling reasoning loops ("I need to..."), and degradation across long conversations — LiangShen Mode combines an action-driven minimal prompt, Programmatic Tool Calling (PTC), on-demand tool-family paging, and working-context fact registers to deliver an exceptionally sharp coding experience:
 
 - **Minimal Persona & Action-Driven Working Discipline (Zero Prompt Waste)**: Strips away standard boilerplate instructions, condensing system prompts to a single-line persona and combat-tested engineering disciplines. Enforces reflection circuit-breaking (abort speculation after two reasoning passes without new evidence and immediately inspect via native tools), action orientation (thinking decides the immediate next operation rather than pre-rehearsing code), parallel exploration (dispatch multiple independent tool checks concurrently in one turn), YAGNI and PDCA cycles (validate single assumptions with zero redundant comments), and bounded convergence (converge within 2–3 inspection turns to answer or edit). This keeps the model's full attention focused strictly on your codebase.
 - **Programmatic Tool Calling (PTC Transport)**: Replaces the heavyweight practice of serializing hundreds of JSON schemas on every API turn. By default, the wire collapses to a single `run_code` execution endpoint; all remaining tools are accessed programmatically via generated strongly typed SDKs running inside an isolated worker sandbox. The static transmission footprint remains microscopic regardless of tool count; models can dispatch concurrent calls via `Promise.all` and filter, slice, or aggregate large tool outputs inside the sandbox before returning concise summaries to context. For scenarios better suited to direct invocation, a one-click toggle restores the assembled Native tool roster in plugin settings.
-- **Gentle Tool Paging & LRU Dynamic Activation (Gentle MCP Paging)**: Prevents dozens of connected MCP servers and extensions from overwhelming the context window. High-fan-out tool families (defaulting to `mcp__*`) remain paged out of the wire and SDK declarations on startup, presented only as compact namespace summaries. When the model needs a tool, it autonomously invokes `tool_activate({ namespace })` to mount that namespace on the fly. An LRU cache maintains up to 3 active namespaces simultaneously, automatically evicting stale ones, and safely restores state across session compactions and resumes.
+- **On-Demand Tool-Family Paging & Zero-Invalidation Deferred Reclaim (Gentle Tool Paging)**: Prevents connected MCP servers and high-fan-out plugin families from overwhelming the context window. Matched tool families (defaulting to `['mcp__*', 'browser_*', 'task_board_*', 'team_*', 'squad*', 'ui_*', 'ssh_*']` while all host builtins stay resident, customizable via "On-demand tool families" in plugin settings) remain paged out of the wire and SDK declarations on startup, presented only as compact namespace summaries. When the model needs a family, it autonomously invokes `tool_activate({ namespace })` to mount that namespace on the fly. An LRU cache maintains up to 3 active namespaces simultaneously (refreshing recency on activation or tool call), and optional `idleReclaimSteps` (default `0`, disabled) defers evicting idle namespaces strictly to activation touches or compaction/end boundaries so prompt prefix caches never invalidate mid-conversation, rebuilding state across compactions and resumes.
 - **Key Fact Register & Near-Horizon Context Projection (Fact Register)**: Prevents long-horizon context forgetting where models lose track of initial constraints or previously diagnosed failures. The preset exposes a dedicated `fact_register` tool, allowing models to record immutable requirements, confirmed architectural choices, and disproven paths as concise single-line facts (up to 160 characters each, capped at 12 entries). Recorded facts ride the `[Working Context: ...]` line projected directly above the latest user turn, ensuring persistent visibility within the local attention window.
 - **Native Dispatcher Architecture & Triage Discipline (Dispatcher Identity)**: Ships with a built-in Dispatcher ruleset, enabling the agent to orchestrate complex engineering workflows like a technical lead. Features structured complexity triage (L0/L1 tasks execute directly; L2 multi-step initiatives require clarification interviews -> planning -> parallel subagent delegation -> two-tier acceptance verification); bounds interviews to a strict budget (maximum 4 questions per round, 3 rounds total, ordered by blast radius with assumption defaults); and maintains project state reliably within `todo_write`.
 - **Composer Slot Lever & Jackpot Particle Effects (Interactive Lever)**: Integrates an interactive vintage slot-machine lever directly beside the model selector in the chat composer on new sessions. Pulling the lever down (via dragging, clicking, or keyboard trigger) arms LiangShen Mode with celebratory jackpot visual effects (particle burst, shockwave rings, sparks, and an Easter-egg banner); pushing it up seamlessly restores your previous default preset. The lever adapts dynamically to active skin themes and gracefully steps aside once a conversation begins.
 
 For detailed architecture, benchmark evaluations, and configuration options, see the [dsh-liangshen README](packages/dsh-liangshen/README.md).
 
-### Mobile Phone App Remote Access（Mobile Remote · Native Phone App Access）
+### Agent Squads (Reusable Member Roster & Whole-Squad Runs)
 
-After installing `@linxin666/dsh-remote-bridge` in your profile and restarting the server, click the QR code icon at the bottom of the sidebar (accessible label "Pair an iPhone") to open the pairing panel. Scan the QR code with the mobile phone app to start using it immediately.
+Open from the "Agents" entry in the sidebar. Agent Squads (`dsh-agents`) turns reusable specialist AI roles and team rosters into a host-authoritative ledger: each squad organizes an ordered list of members that can be launched individually on demand or mobilized together as a whole-squad Agent Teams run:
+
+- **Reusable Squad & Member Definitions**: Squads configure a name, description, optional pinned workspace, and Lead preset; each member independently pins a display name, Agent preset (such as LiangShen Mode or research squad presets), sandbox permission, model route, reasoning effort tier, and member brief. The member brief joins only that member session's system prompt, never polluting the first user message or ordinary chat sessions.
+- **Whole-Squad Agent Teams Runs & Live Projection**: Launch an entire squad in one action—the squad roster and goal reach the `<squad name> / Lead` session through the `team:squad` system-prompt context, and the Lead spawns dedicated teammates from each member's pinned preset, permission, and model route (failing closed on any unresolvable pin). The UI subscribes directly to the `agentTeam` session projection (`stateVersion` 4) in the shared session store to render Lead and teammate roles, phases, and startup errors in real time without polling.
+- **10 Model-Facing Management & Launch Tools**: Registers `squads_list`, `squads_read`, `squads_create`, `squads_update`, `squads_delete`, `squad_member_add`, `squad_member_update`, `squad_member_remove`, `squads_run_member`, and `squads_run_squad` across all host sessions, enabling agents to assemble squads, launch individual member sessions, or start whole-squad runs in process (with `confirm: true` required on destructive operations).
+- **Atomic Ledger Persistence & Runtime Coexistence**: Definitions and the newest 200 run records persist at `$DSH_HOME/dsh-agents/ledger.json` via fsynced temp files plus atomic rename under `ledger.json.lock` (corrupt ledgers are preserved byte-identical without overwriting); when the host already serves an official `agentTeams` runtime, the package yields its internal team runtime and reuses the official projection.
+
+For full contracts, tool specifications, and security boundaries, see the [dsh-agents README](packages/dsh-agents/README.md).
+
+### Live Browser View (Right-Docked CDP Screencast & Web Automation)
+
+Open from the right-sidebar tab strip or the guide capsule inside a conversation. Live Browser View (`dsh-browser-view`) gives the agent a host-driven Chromium browser watched live from a right-docked tab beside the chat, closing the loop on frontend verification, visual QA, and interactive web automation:
+
+- **Right-Docked CDP Screencast & Keep-Mounted View**: Registers a dedicated `browser-view` right-sidebar tab type (coexisting cleanly alongside the stock `browser` tab), streaming CDP `Page.startScreencast` frames, active URL, title, and the agent's latest action summary over a single WebSocket; switching tab chips keeps the view mounted without dropping the socket, streaming frames only when the page changes.
+- **Isolated Chromium by Default & Real Browser Attach**: Launches a headless Chromium with a throwaway profile directory and random debugging port by default (pinned 1280x800 viewport, automatically minting a memory-only launch ticket when navigating to this host's own DSH Web GUI challenge); enabling `realBrowserEnabled` attaches over loopback CDP (default `http://127.0.0.1:9222`) to a Chrome or Edge instance started with a non-default `--user-data-dir`, operating directly with existing sign-ins without copying or exporting cookies.
+- **11 Agent Browser Tools**: Provides `browser_navigate`, `browser_click`, `browser_type`, `browser_press`, `browser_scroll`, `browser_snapshot`, `browser_screenshot`, `browser_console`, `browser_network`, `browser_tabs`, and `browser_close`; `browser_snapshot` returns a depth-first numbered (`ref`) DOM tree with bounding boxes for deterministic clicking and typing, backed by per-tab console and network ring buffers.
+- **Lossless Region Screenshots & Transcript Evidence**: `browser_screenshot` captures lossless PNGs by default and attaches them directly to the conversation transcript via the host attachment service; passing `clip: { x, y, width, height }` in the same coordinate space as `browser_snapshot` renders a targeted region at 2x scale by default (1x/2x/3x supported) for crisp visual token inspection, failing loudly on out-of-bounds clips or connection errors rather than silently degrading.
+
+For configuration details, real-browser launch flags, and security model, see the [dsh-browser-view README](packages/dsh-browser-view/README.md).
+
+### Mobile Phone App Remote Access (Native Phone App Access)
+
+After installing [`@linxin666/dsh-remote-bridge`](packages/dsh-remote-bridge/README.md) in your profile and restarting the server, click the QR code icon at the bottom of the sidebar (accessible label "Pair an iPhone") to open the pairing panel. Scan the QR code with the mobile phone app to start using it immediately.
 
 The pairing panel is protected by a loopback security gate on `/remote-bridge/pair/token` and can only be accessed from a browser running on localhost (remote access returns 403). Pairing codes are single-use credentials valid for 30 seconds; clicking "New code" voids the previous code. The QR code encodes a document containing the address and token (URL format `wss://<origin>/ios/v1?token=...`), allowing the mobile app to acquire both the host address and authentication token in one scan.
 
-The network protocol surface exposes only one WebSocket endpoint at `/ios/v1`. Both tunnels and the LAN forwarder route exclusively to an ingress gate that forwards this path, keeping Web GUI routes inaccessible from the public internet. Host dial addresses resolve in order from live runtime state (relay lease or running tunnel), to the `DSH_REMOTE_PUBLIC_BASE_URL` environment variable, to the active LAN forwarding address when listening. By default, public access is available out of the box (relay is enabled by default, tunnels are off, and LAN forwarding is off); for direct local network access, enable LAN forwarding in the plugin settings. The legacy browser remote control plugin `dsh-remote-web-ui` has retired, and its ingress capabilities have migrated into this package.
+The network protocol surface exposes only one WebSocket endpoint at `/ios/v1`. Both tunnels and the LAN forwarder route exclusively to an ingress gate that forwards this path, keeping Web GUI routes inaccessible from the public internet. Host dial addresses resolve in order from live runtime state (relay lease or running tunnel), to the `DSH_REMOTE_PUBLIC_BASE_URL` environment variable, to the active LAN forwarding address when listening. By default, public access is available out of the box (relay is enabled by default, tunnels are off, and LAN forwarding is off); for direct local network access, enable LAN forwarding in the plugin settings.
 
 [The iOS app is in beta. Come talk to us on Discord](https://discord.gg/nBy28kjun).
 
-### SSH Remote Ops（SSH Remote Ops · Web Terminal, SFTP Transfer & Cluster Commands）
+### SSH Remote Ops (Web Terminal, SFTP Transfer & Cluster Commands)
 
-Open the remote operations panel from the "SSH" sidebar icon. Supports key-based and password authentication, and imports existing host definitions from `~/.ssh/config` with one click; configurations persist securely in `~/.dsh/dsh-ssh.json`. Available capabilities include:
+Open the remote operations panel from the "SSH" sidebar icon (see [dsh-ssh README](packages/dsh-ssh/README.md)). Supports key-based and password authentication, and imports existing host definitions from `~/.ssh/config` with one click; configurations persist securely in `~/.dsh/dsh-ssh.json`. Available capabilities include:
 
 - **Web Terminal**: Full-featured interactive terminal powered by xterm.js with real-time output and responsive window resizing;
 - **File Transfer**: Built-in SFTP file manager with visual upload and download progress bars and directory browsing;
@@ -146,7 +170,7 @@ Open the remote operations panel from the "SSH" sidebar icon. Supports key-based
 - **Cluster Execution**: Concurrently dispatch commands across multiple servers filtered by alias, environment, or tags;
 - **Agent Integration**: AI agents share host configurations with the panel; simply instruct the agent in chat to inspect remote servers and run diagnostics.
 
-### Usage Statistics（Usage Statistics · Token Metrics, Balance Monitoring & Token Bank）
+### Usage Statistics (Token Metrics, Balance Monitoring & Token Bank)
 
 Monitor token consumption, provider balances, and subscription quotas under "Settings > Usage Statistics" with automated refresh and manual query options.
 
@@ -159,7 +183,7 @@ Tracking starts upon initial plugin activation without backfilling historical se
 
 ![DeepSeek Token Usage Tracker & Token Bank — API expenditure tracking and bill estimation](docs/screenshots/35-usage-token-bank.webp)
 
-### Session Archive Manager（Session Archive · Full-Text Search, Batch Archiving & Lifecycle）
+### Session Archive Manager (Full-Text Search, Batch Archiving & Lifecycle)
 
 The session archive manager (`dsh-session-archive`) provides centralized governance over growing numbers of short-lived and persistent conversation logs:
 
@@ -169,15 +193,19 @@ The session archive manager (`dsh-session-archive`) provides centralized governa
 
 Permanent deletions cannot be undone, and all operational routes bind strictly to the local loopback interface. See [dsh-session-archive README](packages/dsh-session-archive/README.md).
 
-### More Plugins（更多插件）
+### More Plugins
 
-- **Skill Explorer** (`dsh-client-ui-skill-explorer`): Inspect and manage loaded agent skills grouped by origin, featuring keyword filtering across names and descriptions, workspace scoping, and activation toggling.
-- **Plugin Manager** (`dsh-client-ui-plugin-manager`): Install plugins from npm or git repositories via official host interfaces, inspect statuses, and adjust configuration settings.
-- **Plugin Self-Update** (`dsh-update`, not in the bundle, install it separately): Automatically detects new releases on npm and provides release notes with one-click in-place upgrades right from the sidebar footer.
-- **Task Board GitHub Sync** (`dsh-client-ui-task-board-github`): Seamlessly connects GitHub Issues with task board cards, enabling autonomous AI Agent bug triage and automated PR delivery.
-- **Session ID Helper** (`dsh-client-ui-session-id`): Quick sidebar-footer access to copy full session IDs and search across active/archived sessions with zero host overhead.
-- **Internationalization Pack** (`dsh-i18n`): Registers Russian (Русский) localization and centrally carries multilingual dictionaries for all family plugin namespaces.
-- **External archive manager** (external plugin [@mlgbnb/dsh-archive-manager](https://github.com/z953218350/dsh-archive-manager)): not installed. Its build imports the removed `@deepseek-ai/dsh-client-runtime` face; session archiving is provided by the built-in Session Archive Manager above.
+- **Mermaid Diagram Rendering** ([`@linxin666/dsh-client-ui-diagrams`](packages/dsh-diagrams/README.md)): Renders fenced `mermaid` code blocks in place as SVG diagrams across chat transcripts and document previews, automatically redrawing on theme switches with two-stage SVG sanitization.
+- **Windows Persistent Bash** ([`@linxin666/dsh-win-bash`](packages/dsh-win-bash/README.md)): Provides Windows x64 sessions with a SHA256-verified and integrity-checked vendored MinGit persistent `win_bash` process per session, preserving working directories and environment variables across calls while stripping terminal escape sequences.
+- **Task Board GitHub Sync** ([`@linxin666/dsh-client-ui-task-board-github`](packages/dsh-task-board-github/README.md)): Connects GitHub Issues and Pull Requests bidirectionally with task board cards, driving autonomous AI agent bug triage and automated PR delivery.
+- **Task Board Team Collaboration** ([`@linxin666/dsh-client-ui-task-board-team`](packages/dsh-task-board-team/README.md)): Binds local `dsh-agents` members to cloud `team-hub` issues with lease-backed claiming, question routing, `team_comment` threads, and review rework.
+- **Task Board Remote Surface** ([`@linxin666/dsh-task-board-remote`](packages/dsh-task-board-remote/README.md)): Mounts the task board capability surface (`board.v1`) onto the `dsh-remote-bridge` extension seam so paired phones read and write the same host ledger.
+- **Skill Explorer** ([`@linxin666/dsh-client-ui-skill-explorer`](packages/dsh-skill-explorer/README.md)): Inspect and manage loaded agent skills grouped by origin, featuring keyword filtering across names and descriptions, workspace scoping, creation, and activation toggling.
+- **Plugin Manager (Updates & Toggles)** ([`@linxin666/dsh-client-ui-plugin-manager`](packages/dsh-plugin-manager/README.md)): Extends the official Plugins page with registry update checking, DSH runtime minimum version gating, one-click upgrades, keyword search and pagination (20 items/page) across built-in plugins, and visual toggle switches.
+- **Workshop Client & Preferences Panel**: Includes the [**Workshop Client**](packages/dsh-market/README.md) (`@linxin666/dsh-client-ui-market`, browsing and installing skins, pets, plugins, and presets in the GUI) and the [**Preferences Panel**](packages/dsh-web-settings/README.md) (`@linxin666/dsh-client-ui-web-ui-settings`, hosting family plugin switches and configuration forms).
+- **Session ID Helper** ([`@linxin666/dsh-client-ui-session-id`](packages/dsh-session-id/README.md)): Quick sidebar-footer access to copy full session IDs and search across sessions with zero host overhead.
+- **Russian Language Pack** ([`@linxin666/dsh-i18n`](packages/dsh-i18n/README.md)): Centrally carries Russian (`ru`) localization dictionaries for all family plugin namespaces.
+- **External archive manager** ([`@mlgbnb/dsh-archive-manager`](https://github.com/z953218350/dsh-archive-manager)): The aggregate excludes this package because its build imports the removed `@deepseek-ai/dsh-client-runtime` face. The built-in Session Archive Manager provides session archiving.
 
 ### Skins
 
@@ -190,7 +218,7 @@ The classic Blue Fantasy theme serves as the built-in default skin: rich indigo 
 ### System Requirements
 
 - DeepSeek Harness installed with `dsh web` functioning properly.
-- npm installations have no extra requirements; building from the source repository requires Node.js >= 22 and pnpm.
+- npm installations have no extra requirements; building from the source repository requires Node.js >= 24.9 and pnpm.
 
 ### Get Started in 3 Steps (npm, Recommended)
 
@@ -218,16 +246,16 @@ This approach is equivalent to installing the npm aggregate package. Use either 
 
 ### Install from the Repository (Development)
 
-For plugin development and debugging, build from source using Node.js >= 22 and pnpm:
+For plugin development and debugging, build from source using Node.js >= 24.9 and pnpm:
 
 ```sh
 # 1. Clone the repository
 git clone https://github.com/zhu1090093659/dsh-web.git
 cd dsh-web
 
-# 2. Install dependencies and build all packages
-pnpm install
-pnpm -r build
+# 2. Install dependencies (automatically pins @deepseek-ai SDK to host tree) and build all packages
+pnpm run deps:install
+pnpm build
 
 # 3. Link packages into the web profile (linking sub-packages before the aggregate is recommended)
 node scripts/link-profile.mjs
@@ -244,46 +272,62 @@ dsh web
 Install individual components independently if you prefer not to use the complete bundle:
 
 ```sh
-dsh plugin --profile web add @linxin666/dsh-client-ui-task-board@latest              # Task Board
+dsh plugin --profile web add @linxin666/dsh-client-ui-task-board@latest            # Task Board
 dsh plugin --profile web add @linxin666/dsh-liangshen@latest                       # LiangShen Mode (Minimal Preset & PTC)
-dsh plugin --profile web add @linxin666/dsh-client-ui-task-board-github@latest      # Task board GitHub Issues sync extension
-dsh plugin --profile web add @linxin666/dsh-ssh@latest                             # SSH Remote Ops
-dsh plugin --profile web add @linxin666/dsh-usage@latest                           # Usage Statistics
-dsh plugin --profile web add @linxin666/dsh-pet@latest                             # Desktop Pet
+dsh plugin --profile web add @linxin666/dsh-agents@latest                          # Agent Squads (Reusable Roster & Squad Runs)
+dsh plugin --profile web add @linxin666/dsh-client-ui-browser-view@latest          # Live Browser View (Right-Docked CDP Screencast)
+dsh plugin --profile web add @linxin666/dsh-remote-bridge@latest                   # Mobile App Remote Access (Protocol v1 Bridge)
+dsh plugin --profile web add @linxin666/dsh-client-ui-task-board-github@latest     # Task Board GitHub Issues Sync Extension
+dsh plugin --profile web add @linxin666/dsh-client-ui-task-board-team@latest       # Task Board Cloud Team Hub Extension
+dsh plugin --profile web add @linxin666/dsh-task-board-remote@latest               # Task Board Mobile Remote Surface Extension
+dsh plugin --profile web add @linxin666/dsh-ssh@latest                             # SSH Remote Ops (Terminal & Cluster)
+dsh plugin --profile web add @linxin666/dsh-usage@latest                           # Usage Statistics & Token Bank
 dsh plugin --profile web add @linxin666/dsh-session-archive@latest                 # Session Archive Manager
-dsh plugin --profile web add @linxin666/dsh-update@latest                          # Plugin Self-Update (not in the bundle)
-dsh plugin --profile web add @linxin666/dsh-client-ui-session-id@latest            # Session ID Helper
+dsh plugin --profile web add @linxin666/dsh-client-ui-diagrams@latest              # Mermaid In-Place Diagram Renderer
+dsh plugin --profile web add @linxin666/dsh-win-bash@latest                        # Windows Persistent Private Bash
+dsh plugin --profile web add @linxin666/dsh-client-ui-skin-center@latest           # Skin Center
+dsh plugin --profile web add @linxin666/dsh-pet@latest                             # Desktop Pet
+dsh plugin --profile web add @linxin666/dsh-client-ui-market@latest                # Workshop Client
+dsh plugin --profile web add @linxin666/dsh-client-ui-preset-center@latest         # Preset Center
+dsh plugin --profile web add @linxin666/dsh-client-ui-plugin-manager@latest        # Plugin Manager (Updates & Toggles)
 dsh plugin --profile web add @linxin666/dsh-client-ui-skill-explorer@latest        # Skill Explorer
-dsh plugin --profile web add @linxin666/dsh-i18n@latest                            # Internationalization Pack
+dsh plugin --profile web add @linxin666/dsh-client-ui-web-ui-settings@latest       # Preferences Panel
+dsh plugin --profile web add @linxin666/dsh-client-ui-session-id@latest            # Session ID Helper
+dsh plugin --profile web add @linxin666/dsh-i18n@latest                            # Russian Language Pack
 ```
 
 <details>
 <summary><strong>Full npm Package Directory</strong></summary>
 
-All plugins are published under the `@linxin666/dsh-*` npm scope:
+All plugins are published under the `@linxin666/dsh-*` npm scope (covering all 21 in-repository family packages under `packages/` and 4 satellite repository packages, 25 packages in total):
 
-| Package Name | Description |
-| --- | --- |
-| [@linxin666/dsh-web-all](https://www.npmjs.com/package/@linxin666/dsh-web-all) | Aggregate bundle: complete suite of feature plugins and skin center |
-| [@linxin666/dsh-client-ui-task-board](https://www.npmjs.com/package/@linxin666/dsh-client-ui-task-board) | Task board: host-authoritative autonomous execution, multi-agent cascade/Teams orchestration, judge verification & cron scheduling |
-| [@linxin666/dsh-client-ui-task-board-github](https://www.npmjs.com/package/@linxin666/dsh-client-ui-task-board-github) | Task board extension: GitHub Issues sync, on by default and switchable off in settings |
-| [@linxin666/dsh-liangshen](https://www.npmjs.com/package/@linxin666/dsh-liangshen) | LiangShen Mode: Minimal system prompt, PTC tool dispatch, MCP paging, and dispatcher discipline |
-| [@linxin666/dsh-remote-bridge](https://www.npmjs.com/package/@linxin666/dsh-remote-bridge) | Mobile app remote access: protocol v1 host adaptor, native client WebSocket, ingress gate & WAN/LAN ingress |
-| [@linxin666/dsh-ssh](https://www.npmjs.com/package/@linxin666/dsh-ssh) | SSH operations: web terminal, SFTP transfers, tunnels, and cluster commands |
-| [@linxin666/dsh-usage](https://www.npmjs.com/package/@linxin666/dsh-usage) | Usage statistics: token consumption, balances, plan tracking, and Token Bank |
-| [@linxin666/dsh-pet](https://www.npmjs.com/package/@linxin666/dsh-pet) | Desktop pet: registry-driven interactive floating companions |
-| [@linxin666/dsh-client-ui-skin-center](https://www.npmjs.com/package/@linxin666/dsh-client-ui-skin-center) | Skin center: runtime engine for themes and dynamic backgrounds |
-| [@linxin666/dsh-client-ui-market](https://www.npmjs.com/package/@linxin666/dsh-client-ui-market) | Workshop client: one-click installation for skins, pets, and presets |
-| [@linxin666/dsh-client-ui-preset-center](https://www.npmjs.com/package/@linxin666/dsh-client-ui-preset-center) | Preset center: community Agent preset repository management |
-| [@linxin666/dsh-client-ui-plugin-manager](https://www.npmjs.com/package/@linxin666/dsh-client-ui-plugin-manager) | Plugin manager: install, toggle, and configure extensions |
-| [@linxin666/dsh-client-ui-skill-explorer](https://www.npmjs.com/package/@linxin666/dsh-client-ui-skill-explorer) | Skill explorer: browse, search, and manage registered agent skills |
-| [@linxin666/dsh-client-ui-diagrams](https://www.npmjs.com/package/@linxin666/dsh-client-ui-diagrams) | Diagrams: render mermaid fences in the chat and the document preview |
-| [@linxin666/dsh-session-archive](https://www.npmjs.com/package/@linxin666/dsh-session-archive) | Session archive: search, batch restore, and cascade pruning |
-| [@linxin666/dsh-client-ui-community-plugins](https://www.npmjs.com/package/@linxin666/dsh-client-ui-community-plugins) | Community plugin source: authoritative index powering the Workshop |
-| [@linxin666/dsh-client-ui-web-ui-settings](https://www.npmjs.com/package/@linxin666/dsh-client-ui-web-ui-settings) | Preferences panel: global settings and UI configurations |
-| [@linxin666/dsh-update](https://www.npmjs.com/package/@linxin666/dsh-update) | Plugin Self-Update (not in the bundle, install it separately): Release detection, changelog panel, and one-click in-place upgrades |
-| [@linxin666/dsh-client-ui-session-id](https://www.npmjs.com/package/@linxin666/dsh-client-ui-session-id) | Session ID Helper: Sidebar panel for quick full session ID viewing and copy |
-| [@linxin666/dsh-i18n](https://www.npmjs.com/package/@linxin666/dsh-i18n) | Internationalization Pack: Russian localization and multilingual dictionary provider |
+| Package Name | Docs | Description |
+| --- | --- | --- |
+| [@linxin666/dsh-web-all](https://www.npmjs.com/package/@linxin666/dsh-web-all) | [README](packages/dsh-web-all/README.md) | Aggregate bundle: one-command installation of all feature plugins, skin center, desktop pet, and preset center |
+| [@linxin666/dsh-client-ui-task-board](https://www.npmjs.com/package/@linxin666/dsh-client-ui-task-board) | [README](packages/dsh-task-board/README.md) | Task board: host-authoritative Schema v7 5-column ledger, subtask trees with autonomous parent dispatch, multimodal card attachments & cron/one-shot scheduling |
+| [@linxin666/dsh-client-ui-task-board-github](https://www.npmjs.com/package/@linxin666/dsh-client-ui-task-board-github) | [README](packages/dsh-task-board-github/README.md) | Task board extension: bidirectional GitHub Issues and PR synchronization with automated PR creation |
+| [@linxin666/dsh-client-ui-task-board-team](https://www.npmjs.com/package/@linxin666/dsh-client-ui-task-board-team) | [README](packages/dsh-task-board-team/README.md) | Task board extension: binds local `dsh-agents` members to cloud `team-hub` issues with lease claiming, question routing, comments, and rework |
+| [@linxin666/dsh-task-board-remote](https://www.npmjs.com/package/@linxin666/dsh-task-board-remote) | [README](packages/dsh-task-board-remote/README.md) | Task board remote surface: mounts `board.v1` onto `dsh-remote-bridge` so paired phones read and write the same host ledger |
+| [@linxin666/dsh-liangshen](https://www.npmjs.com/package/@linxin666/dsh-liangshen) | [README](packages/dsh-liangshen/README.md) | LiangShen Mode: minimal system prompt, PTC programmatic tool transport, on-demand tool-family paging, fact register, dispatcher discipline & composer slot lever |
+| [@linxin666/dsh-agents](https://www.npmjs.com/package/@linxin666/dsh-agents) | [README](packages/dsh-agents/README.md) | Agent squads: reusable squad and member definitions, whole-squad Agent Teams runs with live projection, and 10 model-facing tools |
+| [@linxin666/dsh-client-ui-browser-view](https://www.npmjs.com/package/@linxin666/dsh-client-ui-browser-view) | [README](packages/dsh-browser-view/README.md) | Live browser view: right-docked CDP screencast tab, isolated Chromium or real signed-in browser attach, and 11 interaction & lossless region-screenshot tools |
+| [@linxin666/dsh-remote-bridge](https://www.npmjs.com/package/@linxin666/dsh-remote-bridge) | [README](packages/dsh-remote-bridge/README.md) | Mobile app remote access: protocol v1 host adaptor, native client WebSocket, ingress gate & public relay/tunnel/LAN ingress |
+| [@linxin666/dsh-ssh](https://www.npmjs.com/package/@linxin666/dsh-ssh) | [README](packages/dsh-ssh/README.md) | SSH operations: web terminal, SFTP transfers, port-forward tunnels, cluster execution, and 6 `ssh_*` agent tools |
+| [@linxin666/dsh-usage](https://www.npmjs.com/package/@linxin666/dsh-usage) | [README](packages/dsh-usage/README.md) | Usage statistics: daily token consumption breakdown, provider balance alerts, coding-plan quota tracking, and Token Bank |
+| [@linxin666/dsh-session-archive](https://www.npmjs.com/package/@linxin666/dsh-session-archive) | [README](packages/dsh-session-archive/README.md) | Session archive manager: multi-filter session search, batch archive/restore, cascade physical pruning, and automated lifecycle policies |
+| [@linxin666/dsh-client-ui-diagrams](https://www.npmjs.com/package/@linxin666/dsh-client-ui-diagrams) | [README](packages/dsh-diagrams/README.md) | Diagrams: renders fenced `mermaid` code blocks in place as SVG across chat transcripts and document previews |
+| [@linxin666/dsh-win-bash](https://www.npmjs.com/package/@linxin666/dsh-win-bash) | [README](packages/dsh-win-bash/README.md) | Windows persistent private bash: SHA256-verified vendored MinGit persistent `win_bash` process per session for Windows x64 sessions |
+| [@linxin666/dsh-client-ui-market](https://www.npmjs.com/package/@linxin666/dsh-client-ui-market) | [README](packages/dsh-market/README.md) | Workshop client: browse and install skins, desktop pets, plugins, and community presets with one click |
+| [@linxin666/dsh-client-ui-plugin-manager](https://www.npmjs.com/package/@linxin666/dsh-client-ui-plugin-manager) | [README](packages/dsh-plugin-manager/README.md) | Plugin manager: registry update checking, DSH runtime minimum version gating, one-click upgrades, and visual plugin settings |
+| [@linxin666/dsh-client-ui-skill-explorer](https://www.npmjs.com/package/@linxin666/dsh-client-ui-skill-explorer) | [README](packages/dsh-skill-explorer/README.md) | Skill explorer: browse, search, toggle, create, and manage loaded agent skills by origin |
+| [@linxin666/dsh-client-ui-web-ui-settings](https://www.npmjs.com/package/@linxin666/dsh-client-ui-web-ui-settings) | [README](packages/dsh-web-settings/README.md) | Preferences panel: first-level settings section hosting family plugin switches and configuration forms |
+| [@linxin666/dsh-client-ui-session-id](https://www.npmjs.com/package/@linxin666/dsh-client-ui-session-id) | [README](packages/dsh-session-id/README.md) | Session ID Helper: sidebar-foot panel for searching and copying full session IDs with one click |
+| [@linxin666/dsh-i18n](https://www.npmjs.com/package/@linxin666/dsh-i18n) | [README](packages/dsh-i18n/README.md) | Russian Language Pack: centrally carries Russian (`ru`) dictionaries for every family plugin namespace |
+| [@linxin666/dsh-remote-web-ui](https://www.npmjs.com/package/@linxin666/dsh-remote-web-ui) | [README](packages/dsh-remote-web-ui/README.md) | Cross-device browser remote access (deprecated, superseded by dsh-remote-bridge; do not enable relay concurrently with remote-bridge) |
+| [@linxin666/dsh-client-ui-skin-center](https://www.npmjs.com/package/@linxin666/dsh-client-ui-skin-center) | [dsh-skins](https://github.com/zhu1090093659/dsh-skins) | Skin center (satellite repo): theme and Wallpaper Engine dynamic background runtime engine, bundling Blue Fantasy |
+| [@linxin666/dsh-pet](https://www.npmjs.com/package/@linxin666/dsh-pet) | [dsh-pet](https://github.com/zhu1090093659/dsh-pet) | Desktop pet (satellite repo): registry-driven interactive floating companions with usage bubble notifications |
+| [@linxin666/dsh-client-ui-preset-center](https://www.npmjs.com/package/@linxin666/dsh-client-ui-preset-center) | [dsh-presets](https://github.com/zhu1090093659/dsh-presets) | Preset center (satellite repo): local library management and activation for Workshop community Agent presets |
+| [@linxin666/dsh-client-ui-community-plugins](https://www.npmjs.com/package/@linxin666/dsh-client-ui-community-plugins) | [dsh-community-plugins](https://github.com/zhu1090093659/dsh-community-plugins) | Community plugin index (satellite repo): authoritative community plugin catalog powering the Workshop and settings |
 
 </details>
 
@@ -334,72 +378,64 @@ dsh-web is engineered for seamless operation across diverse operating systems, c
 | Operating Systems | macOS (Apple Silicon M-series & Intel), Windows 10/11 (including WSL2), Linux (Ubuntu, Debian, Fedora, Arch, CentOS, etc.) |
 | Browsers & Devices | Desktop Chrome, Edge, Safari, Firefox; Mobile iOS Safari, Android Chrome, and modern mobile browsers |
 | Network Topologies | Localhost (127.0.0.1), Local Area Network (LAN), Secure WAN Tunnels (Cloudflare Tunnel, Tailscale, FRP, Nginx reverse proxies) |
-| LLM Provider Matrix | DeepSeek official routes & reasoning models, OpenAI, Anthropic Claude, Google Gemini, Kimi, GLM, MiniMax, Ollama local models, SiliconFlow, etc. |
-| Runtime Prerequisites | npm installation requires no extra developer tools; building from source requires Node.js >= 22 and pnpm >= 9 |
+| LLM Provider Matrix | DeepSeek official routes & V4.1 series models, Anthropic Claude, Google Gemini, OpenAI, Kimi (Moonshot), GLM, MiniMax, Ollama local & cloud models, SiliconFlow, etc. |
+| Runtime Prerequisites | npm installation requires no extra developer tools; building from source requires Node.js >= 24.9 and pnpm >= 9 |
 
 ## FAQ
 
 <details>
 <summary><strong>Why do sidebar icons not show up after restarting?</strong></summary>
 
-Verify that the package was added with the `--profile web` parameter and run `dsh --profile web --dump-config` to inspect active configuration layers. Simply refreshing the web browser is insufficient; the backend `dsh web` process must be fully restarted.
+Verify that the package was added with `--profile web` and run `dsh --profile web --dump-config` to inspect active configuration layers. Simply refreshing the web browser is insufficient; the backend `dsh web` server or official DeepSeek Harness Desktop process must be restarted cleanly.
 
 </details>
 
 <details>
-<summary><strong>Why did a scheduled task miss its execution window?</strong></summary>
+<summary><strong>Will scheduled tasks continue running after closing the browser or when the computer sleeps?</strong></summary>
 
-Scheduling runs directly on the `dsh web` host daemon without requiring browser tabs to stay open. If the host process exits or the system enters sleep, missed triggers are skipped rather than backfilled; overlapping runs will defer to the next matching interval. Enable task board power protection to keep the machine awake during unattended schedules.
-
-</details>
-
-<details>
-<summary><strong>Why does mobile pairing fail to stream real-time updates?</strong></summary>
-
-The mobile app communicates with the host through the protocol v1 WebSocket channel. During tunnel or relay disruptions, streaming updates pause and will automatically reconnect once the network recovers; pacing differences are primarily caused by wide-area round-trip latency.
+Scheduling runs directly on the `dsh web` backend host daemon without requiring browser tabs to stay open, so closing browser tabs never interrupts running tasks. If the host process exits, shuts down, or enters deep sleep, missed intervals follow a skip-without-backfill policy, and overlapping triggers defer to the next cycle. Enable cross-platform "Power Management" in Task Board settings to keep the host awake during unattended runs while allowing displays to turn off.
 
 </details>
 
 <details>
-<summary><strong>How do I revert a theme preview?</strong></summary>
+<summary><strong>How do I access DeepSeek Harness from a mobile phone app? Does it require the same Wi-Fi?</strong></summary>
 
-The skin center includes zero-disk previewing: preview changes apply instantly in memory and revert upon closing the preview panel. Themes persist to disk only when you click "Apply".
-
-</details>
-
-<details>
-<summary><strong>Can I install only the themes or a single plugin?</strong></summary>
-
-Yes. Install `@linxin666/dsh-client-ui-skin-center` for themes alone, or install any single package using the package names in the "Install a Single Plugin" section.
+Same Wi-Fi is not required. Mobile access uses `dsh-remote-bridge` protocol v1 WebSocket (`/ios/v1`) with public relay enabled by default: click the QR code icon ("Pair an iPhone") at the bottom of the desktop sidebar and scan with the iOS app to connect over the internet. Cloudflare Tunnels or LAN forwarding can also be enabled in plugin settings; transient WAN interruptions reconnect automatically.
 
 </details>
 
 <details>
-<summary><strong>Can individual plugins be installed alongside the aggregate bundle?</strong></summary>
+<summary><strong>How does LiangShen Mode reduce token usage and speed up coding sessions?</strong></summary>
 
-Yes. Aggregate bundle entries use the `web-ui-` ID prefix (such as `web-ui-usage`), avoiding duplicate loader ID collisions with standalone packages. The host automatically deduplicates instances. Generally, the aggregate package alone fulfills all needs.
-
-</details>
-
-
-<details>
-<summary><strong>How do I access DeepSeek Harness from a mobile phone app? Does it require the same local network?</strong></summary>
-
-Mobile remote access is powered by protocol v1 and does not require sharing the same Wi-Fi network. By default, the plugin enables public relay access; click the QR code icon at the bottom of the desktop sidebar to open the pairing panel, then scan the QR code with the mobile phone app to connect over the internet. Cloudflare Tunnels can also be configured. To connect directly over a local network, enable LAN forwarding in the plugin settings before scanning the QR code.
+LiangShen Mode (`dsh-liangshen`) trims static instructions to a single-line persona, collapses wire tool schemas to a single `run_code` entry when PTC is enabled so tools run programmatically with `Promise.all`, and pages heavy MCP/plugin families behind `tool_activate`. Optional `idleReclaimSteps` only reclaims idle namespaces on activation or compaction boundaries so prompt prefix caches stay warm, while `fact_register` keeps critical rules visible near the latest turn.
 
 </details>
 
 <details>
-<summary><strong>Will scheduled tasks continue to execute after closing the browser or when the computer enters sleep mode?</strong></summary>
+<summary><strong>Can Live Browser View control my already signed-in Chrome or Edge without copying cookies?</strong></summary>
 
-Task scheduling runs directly within the `dsh web` host daemon on the server machine, so closing browser tabs will not interrupt pending or running tasks. However, if the machine enters deep sleep or is powered down, the host process pauses and missed scheduled triggers will follow the skip policy rather than backfilling. To ensure unattended 24/7 background execution, enable the optional "Power Management" setting in the Task Board configuration to keep the system awake while allowing screens to power off.
+Yes. Alongside its default isolated headless Chromium sandbox, `dsh-browser-view` supports enabling `realBrowserEnabled` to attach over loopback CDP (default `http://127.0.0.1:9222`) to a Chrome or Edge instance launched with a non-default `--user-data-dir`. Clicks, inputs, and PNG screenshots act inside that running browser directly without copying or exporting cookie databases.
 
 </details>
 
 <details>
-<summary><strong>How can I monitor token consumption and check account balances across different LLM providers?</strong></summary>
+<summary><strong>How does Agent Squads differ from built-in subagents?</strong></summary>
 
-With the Usage Statistics plugin installed, open "Settings > Usage Statistics" to view daily breakdowns of input, output, and cached tokens, alongside 30-day expenditure trends per model. When using DeepSeek official endpoints, the panel provides off-peak pricing and billing estimates; for compatible third-party providers, the plugin periodically queries remaining account balances and plan reset intervals.
+`dsh-agents` persists reusable specialist rosters in a host-authoritative ledger where each member pins its own name, Agent preset, sandbox permissions, model route, reasoning effort, and brief. You can launch an individual member session on demand or mobilize an entire squad as a whole-squad Agent Teams run; when the host provides native `agentTeams`, it coordinates seamlessly without duplicating runtimes.
+
+</details>
+
+<details>
+<summary><strong>How do I revert a theme preview, or install only skins or single plugins?</strong></summary>
+
+The skin center supports zero-disk try-on: previews apply immediately in memory and revert when you close or leave the panel; themes persist to disk only when you click "Apply". If you only want themes or specific features, install `@linxin666/dsh-client-ui-skin-center` or any standalone package under "Install a Single Plugin". Aggregate rows carry a `web-ui-` ID prefix and automatically deduplicate with standalone installs.
+
+</details>
+
+<details>
+<summary><strong>How can I monitor DeepSeek and third-party LLM token consumption, balances, and quota resets?</strong></summary>
+
+With `dsh-usage` installed, open "Settings > Usage Statistics" to view daily input, output, and cache token breakdowns and 30-day per-model trends. DeepSeek official endpoints include off-peak billing estimates; compatible third-party providers (Kimi, GLM, MiniMax, OpenCode Go, Codex / ChatGPT) show account balances and coding-plan reset schedules, minting 1 shareable Token Bank Whale Voucher per 1,000,000 tokens.
 
 </details>
 
@@ -408,7 +444,7 @@ With the Usage Statistics plugin installed, open "Settings > Usage Statistics" t
 - Task board scheduling runs on the backend host; closing browser tabs will not interrupt tasks, but stopping the host process or putting the machine to sleep will skip missed schedules without backfilling. Optional power management prevents idle sleep only and cannot bypass manual sleep, lid closure, or power shutdown (see [dsh-task-board README](packages/dsh-task-board/README.md)).
 - SSH credentials (passwords and private key passphrases) persist locally in `~/.dsh/dsh-ssh.json` with 0600 permissions; reconnecting during connection drops may replay non-idempotent commands, and remote outputs return without sanitization (see [dsh-ssh README](packages/dsh-ssh/README.md)).
 - Mobile app streaming is relayed through a tunnel or the stable-hostname relay, adding wide-area round-trip latency to each update; the relay costs one hop more than a bare quick tunnel, and both are available.
-- Full repository builds require Node.js >= 22 and pnpm; standard npm installations have no developer tool prerequisites.
+- Full repository builds require Node.js >= 24.9 and pnpm; standard npm installations have no developer tool prerequisites.
 
 ## Community
 
@@ -423,12 +459,12 @@ You can also join our [Discord community](https://discord.gg/6v4gm9u4S), or subm
 
 ### Keywords and Topics Index
 
-`DeepSeek` · `DeepSeek Harness` · `DSH` · `DeepSeek Web` · `DeepSeek Web UI` · `DeepSeek Web GUI` · `DeepSeek Desktop Client` · `DeepSeek Desktop` · `DeepSeek-V3` · `DeepSeek-R1` · `DeepSeek Plugins` · `DeepSeek Extensions` · `DeepSeek Task Board` · `DeepSeek Cron Scheduling` · `DeepSeek Autonomous Automation` · `DeepSeek Mobile Remote` · `DeepSeek Phone Access` · `DeepSeek Mobile App` · `DeepSeek SSH Terminal` · `DeepSeek Server DevOps` · `DeepSeek Token Tracker` · `DeepSeek API Cost Monitor` · `Token Bank` · `DeepSeek Themes` · `DeepSeek Skins` · `DeepSeek Live Wallpapers` · `Wallpaper Engine` · `DeepSeek Desktop Pet` · `DeepSeek Session Archive` · `Multi-Agent Collaboration` · `AI Agent Workspace` · `AI Coding Assistant` · `Open Source AI Agent`
+`DeepSeek` · `DeepSeek Harness` · `DSH` · `DeepSeek Web` · `DeepSeek Web UI` · `DeepSeek Web GUI` · `DeepSeek Desktop Client` · `DeepSeek Desktop` · `DeepSeek-V4.1` · `DeepSeek-V4.1-Flash` · `LiangShen Mode` · `Programmatic Tool Calling` · `PTC` · `Agent Squads` · `Agent Teams` · `Live Browser View` · `CDP Browser Automation` · `DeepSeek Plugins` · `DeepSeek Extensions` · `dsh-market.com` · `DSH Workshop` · `DeepSeek Task Board` · `DeepSeek Cron Scheduling` · `DeepSeek Autonomous Automation` · `DeepSeek Mobile Remote` · `DeepSeek Phone Access` · `DeepSeek Mobile App` · `DeepSeek SSH Terminal` · `DeepSeek Server DevOps` · `DeepSeek Token Tracker` · `DeepSeek API Cost Monitor` · `Token Bank` · `DeepSeek Themes` · `DeepSeek Skins` · `DeepSeek Live Wallpapers` · `Wallpaper Engine` · `DeepSeek Desktop Pet` · `DeepSeek Preset Center` · `DeepSeek Session Archive` · `MCP` · `Multi-Agent Collaboration` · `AI Agent Workspace` · `AI Coding Assistant` · `Open Source AI Agent`
 
 ### Friendly Links
 
-- [LINUX DO](https://linux.do) —— An earnest community for modern developers.
-- [dshfind](https://dshfind.com) —— Learning and discovery hub for DSH: paper deep-dives, plugin directory, and community leaderboards.
+- [LINUX DO](https://linux.do) — An earnest community for modern developers.
+- [dshfind](https://dshfind.com) — Learning and discovery hub for DSH: paper deep-dives, plugin directory, and community leaderboards.
 
 ## Business Cooperation
 
@@ -452,10 +488,10 @@ Licensed under [Apache-2.0](LICENSE). Imported third-party code must retain orig
 
 **Plugins**
 
-- **dsh-task-board / dsh-task-board-github / dsh-pet / dsh-remote-bridge / dsh-remote-web-ui / dsh-web-settings / dsh-ssh / dsh-skill-explorer / dsh-market / dsh-plugin-manager / dsh-community-plugins / dsh-web-all / dsh-liangshen / dsh-update / dsh-session-id / dsh-usage / dsh-session-archive / dsh-i18n / dsh-diagrams** — authored by zhu1090093659, Apache-2.0 (zhu1090093659)
+- **dsh-task-board / dsh-task-board-github / dsh-task-board-remote / dsh-task-board-team / dsh-agents / dsh-browser-view / dsh-win-bash / dsh-pet / dsh-remote-bridge / dsh-remote-web-ui / dsh-web-settings / dsh-ssh / dsh-skill-explorer / dsh-market / dsh-plugin-manager / dsh-community-plugins / dsh-web-all / dsh-liangshen / dsh-session-id / dsh-usage / dsh-session-archive / dsh-i18n / dsh-diagrams** — authored by zhu1090093659, Apache-2.0 (zhu1090093659; upstream licenses and provenance for the Git for Windows / MSYS2 runtime payload redistributed in `dsh-win-bash` are documented in [PROVENANCE.md](packages/dsh-win-bash/PROVENANCE.md))
 - **dsh-diagrams** — ships the [mermaid](https://github.com/mermaid-js/mermaid) runtime (MIT): the build copies it from the npm `mermaid` package into `lib/assets/mermaid.min.js`, served by the host route; no third-party source is committed. The package's own code is this repository's Apache-2.0 (zhu1090093659)
 - **dsh-ssh** — implemented against the capability list of [badseal/ssh-skill](https://github.com/badseal/ssh-skill); code is this repository's Apache-2.0 (zhu1090093659), the upstream capability list belongs to badseal/ssh-skill
-- **Community plugin index** — 130+ external plugins with sources and licenses declared by their authors, registered in [community.json](https://github.com/zhu1090093659/dsh-community-plugins/blob/main/community.json), browsable in Settings → Community Plugins and on dsh-market.com
+- **Community plugin index** — 139 external plugins with sources and licenses declared by their authors, registered in [community.json](https://github.com/zhu1090093659/dsh-community-plugins/blob/main/community.json), browsable in Settings → Community Plugins and on dsh-market.com
 
 **Skins (third-party authors or artwork)**
 

@@ -1,10 +1,10 @@
 /**
  * paging — pure helpers for the LiangShen preset's gentle tool paging.
  *
- * Paging keeps high-fan-out tool families (MCP servers and similar plugins)
- * off the wire until the session actually needs them: a tool whose name
- * matches one of the configured prefix patterns is PAGED, everything else is
- * RESIDENT and stays on the wire. A paged tool returns to the wire once its
+ * Paging keeps high-fan-out tool families (MCP servers and plugin tool
+ * families) off the wire until the session actually needs them: a tool whose
+ * name matches one of the configured prefix patterns is PAGED, everything else
+ * is RESIDENT and stays on the wire. A paged tool returns to the wire once its
  * namespace is activated through the `tool_activate` tool.
  *
  * The activation state is derived from the durable session event stream, never
@@ -16,13 +16,41 @@
  * Least-recently-used eviction keeps at most MAX active namespaces: activating
  * beyond the cap evicts the namespace whose latest activation or use is the
  * oldest, returning its tools to the paged summary.
+ *
+ * Deferred idle reclaim (optional, `idleReclaimSteps`, default 0 = off): a
+ * namespace with no successful activation or use for N steps is expired, but
+ * the fold removes it only at a moment the request's prompt prefix changes
+ * anyway — the next activation touch, or a `compaction/end` boundary. Until
+ * then it stays resident and reachable, and any successful call into it
+ * refreshes its recency and cancels the expiry. The deferral is the cache
+ * contract (issue #2066): the applied active set, and therefore the withheld
+ * names and the `tools:sdk` section rendered from them, changes only where it
+ * already changes without reclaim, plus compaction boundaries whose history
+ * rewrite already cold-starts the prefix cache — never one extra rebuild.
+ *
+ * SHARED DURABLE-LOG HELPERS: the same replay reads one session log in every
+ * projection row of this preset, so the readers live here once — the tolerant
+ * event source ({@link sessionEvents}), the message text and visibility rules
+ * ({@link textOf}, {@link latestVisiblePluginMessage}), the step-message
+ * reconciliation every durable plugin message goes through
+ * ({@link reconcileStepMessage}), and the failed-call index both the activation
+ * replay and the working-context fold collect ({@link erroredCallId}).
  */
 
-/** The default paging pattern: every MCP-bridged tool (`mcp__<server>__<fn>`). */
-export const DEFAULT_PAGED_TOOL_PATTERNS = ['mcp__*']
+/**
+ * The default paging patterns: the MCP bridge (`mcp__<server>__<fn>`, one
+ * namespace per server) plus the plugin tool families this preset mounts and
+ * would otherwise carry resident for the whole session — the browser view, the
+ * task board, the team issue channel, the squad roster, the client presentation
+ * tool and the SSH host tools.
+ */
+export const DEFAULT_PAGED_TOOL_PATTERNS = ['mcp__*', 'browser_*', 'task_board_*', 'team_*', 'squad*', 'ui_*', 'ssh_*']
 
 /** The LRU cap on simultaneously active paged namespaces. */
 export const DEFAULT_MAX_ACTIVE_NAMESPACES = 3
+
+/** Idle-step threshold of the deferred reclaim; 0 keeps every activation resident (the shipped behavior). */
+export const DEFAULT_IDLE_RECLAIM_STEPS = 0
 
 /** The activation tool this preset registers. */
 export const TOOL_ACTIVATE_NAME = 'tool_activate'
@@ -38,7 +66,9 @@ export function integerAtLeast(plugin, value, field, minimum, fallback) {
 
 /**
  * Validate the pagedToolPatterns config: an array of prefix globs, each a
- * non-empty literal prefix ending in exactly one trailing `*`.
+ * non-empty literal head ending in exactly one trailing `*`. A head-less `*`
+ * is refused rather than accepted and inert: the family derivation reads the
+ * head, so a bare wildcard would claim every tool and page none of them.
  */
 export function validatePagedToolPatterns(plugin, value, fallback = DEFAULT_PAGED_TOOL_PATTERNS) {
   if (value === undefined) return fallback
@@ -49,7 +79,7 @@ export function validatePagedToolPatterns(plugin, value, fallback = DEFAULT_PAGE
     if (typeof entry !== 'string' || entry.trim() === '') {
       throw new TypeError(`${plugin}: pagedToolPatterns entries must be non-empty strings`)
     }
-    if (!entry.endsWith('*') || entry.slice(0, -1).includes('*')) {
+    if (!entry.endsWith('*') || entry.slice(0, -1).includes('*') || entry.slice(0, -1).trim() === '') {
       throw new TypeError(`${plugin}: pagedToolPatterns entries must be prefix patterns ending in one trailing "*"`)
     }
     return entry
@@ -58,10 +88,17 @@ export function validatePagedToolPatterns(plugin, value, fallback = DEFAULT_PAGE
 
 /**
  * The namespace one tool name belongs to under one pattern, or undefined when
- * the pattern does not match. The prefix strips the pattern's literal head and
- * the namespace is the first `__`-delimited segment of the remainder
- * (`mcp__codegraph__codegraph_explore` under `mcp__*` is `codegraph`); a
- * remainder without `__` is the namespace as a whole.
+ * the pattern does not match. The pattern's own head decides how the namespace
+ * is derived:
+ * - a head ending in `__` is an MCP bridge, whose namespace lives in the tool
+ *   name: the first `__`-delimited segment of the remainder
+ *   (`mcp__codegraph__codegraph_explore` under `mcp__*` is `codegraph`);
+ * - any other head names the family literally, with one trailing `_` dropped
+ *   (`task_board_*` is `task_board`, `squad*` is `squad`), so a plugin whose
+ *   tools share a literal prefix shares one namespace — and `squad*` covers
+ *   `squads_*` and `squad_member_*` alike.
+ * An empty remainder, or a head that leaves no family name at all, means the
+ * tool is not paged.
  */
 export function patternNamespace(name, pattern) {
   if (typeof name !== 'string' || typeof pattern !== 'string' || !pattern.endsWith('*')) return undefined
@@ -69,7 +106,9 @@ export function patternNamespace(name, pattern) {
   if (!name.startsWith(prefix)) return undefined
   const rest = name.slice(prefix.length)
   if (rest === '') return undefined
-  const namespace = rest.split('__')[0]
+  const namespace = prefix.endsWith('__')
+    ? rest.split('__')[0]
+    : prefix.endsWith('_') ? prefix.slice(0, -1) : prefix
   return namespace === '' ? undefined : namespace
 }
 
@@ -170,6 +209,135 @@ export function resultIsError(data) {
 }
 
 /**
+ * The callId one event reports as failed, or undefined when it reports no
+ * failure at all.
+ *
+ * The activation replay skips a failed call because it never took effect, and
+ * the working-context projection collects the same index inside the single pass
+ * it is already making over the log. One definition of "this call failed" keeps
+ * a failure from meaning two different things in the two folds.
+ * @param event - one durable session event.
+ * @returns the failed call's id as a string, or undefined.
+ */
+export function erroredCallId(event) {
+  if (event?.type !== 'tool/result' || !resultIsError(event.data)) return undefined
+  const callId = event.data?.message?.source?.callId ?? event.data?.callId
+  return callId === undefined ? undefined : String(callId)
+}
+
+/** The failed callIds of one log, as the activation replay reads them. */
+function failedCallIdsOf(events) {
+  const errored = new Set()
+  for (const event of events) {
+    const callId = erroredCallId(event)
+    if (callId !== undefined) errored.add(callId)
+  }
+  return errored
+}
+
+/**
+ * The paging fold: one state machine both the replay and the activation
+ * projection run, so the page of the next assembly and the report of this
+ * activation can never disagree.
+ *
+ * With `idleReclaimSteps` 0 (the shipped default) the fold is exactly the
+ * historical LRU replay: activations and successful uses touch the recency
+ * list, and only the capacity evicts. With a positive threshold the fold also
+ * records the step of the latest successful activation or use of each
+ * namespace (`step/start` events advance the counter) and removes expired
+ * namespaces at the two application points — an activation touch and
+ * `compaction/end` — never at the idle detection itself, an ordinary use, a
+ * turn boundary, or a resume. A log without `step/start` events never
+ * reclaims: no step evidence, no expiry.
+ */
+function pagingFold(capacity, patterns, idleReclaimSteps, errored) {
+  const active = []
+  const evicted = []
+  const reclaimed = []
+  const lastUse = new Map()
+  let step = 0
+
+  const reclaimExpired = () => {
+    if (idleReclaimSteps <= 0) return
+    for (let index = 0; index < active.length;) {
+      const namespace = active[index]
+      const used = lastUse.get(namespace)
+      if (used !== undefined && step - used >= idleReclaimSteps) {
+        reclaimed.push(namespace)
+        active.splice(index, 1)
+      } else {
+        index += 1
+      }
+    }
+  }
+  const reorder = (namespace) => {
+    const index = active.indexOf(namespace)
+    if (index >= 0) active.splice(index, 1)
+    active.push(namespace)
+  }
+  const activate = (namespace) => {
+    // The activation refreshes its own recency first, so reclaiming the OTHER
+    // expired namespaces can never remove the one being activated, and the
+    // capacity reclaim frees may spare an LRU eviction.
+    lastUse.set(namespace, step)
+    reclaimExpired()
+    reorder(namespace)
+    while (active.length > capacity) evicted.push(active.shift())
+  }
+  const use = (namespace) => {
+    // A use only refreshes recency. Applying reclaim here would move the
+    // prompt prefix on an ordinary call — the extra rebuild the deferral
+    // exists to prevent.
+    lastUse.set(namespace, step)
+    reorder(namespace)
+  }
+  const applyEvent = (event) => {
+    if (event?.type === 'step/start') {
+      step += 1
+      return
+    }
+    if (event?.type === 'compaction/end') {
+      reclaimExpired()
+      return
+    }
+    // Under the `ptc` presentation the wire carries `run_code` alone, so the model
+    // reaches EVERY tool from inside a program and the harness records each call as
+    // a `tool/ptc-dispatch` event — never as a top-level `tool/call`. Reading only
+    // `tool/call` therefore found no activation at all: every activation reported
+    // success, the page never lifted, and the same namespace could be activated
+    // again for ever. Both event shapes feed the same recency list, in the order
+    // the session recorded them, and the dispatch branch repeats BOTH rules the
+    // top-level branch applies: an activation activates, and any other call into
+    // an already-active family refreshes it. Without the second rule the LRU
+    // silently degraded to activation order — the only shape a real tool call
+    // takes under the default presentation refreshed nothing.
+    if (event?.type === 'tool/ptc-dispatch') {
+      const dispatch = event.data
+      if (dispatch?.isError === true) return
+      if (dispatch?.name === TOOL_ACTIVATE_NAME) {
+        const namespace = callArguments(dispatch)?.namespace
+        if (typeof namespace === 'string' && namespace !== '') activate(namespace)
+        return
+      }
+      const namespace = namespaceOf(dispatch?.name, patterns)
+      if (namespace !== undefined && active.includes(namespace)) use(namespace)
+      return
+    }
+    if (event?.type !== 'tool/call') return
+    const data = event.data
+    if (data?.callId !== undefined && errored.has(String(data.callId))) return
+    if (data?.name === TOOL_ACTIVATE_NAME) {
+      const namespace = callArguments(data)?.namespace
+      if (typeof namespace === 'string' && namespace !== '') activate(namespace)
+      return
+    }
+    const namespace = namespaceOf(data?.name, patterns)
+    if (namespace !== undefined && active.includes(namespace)) use(namespace)
+  }
+  return { active, evicted, reclaimed, activate, applyEvent }
+}
+
+/**
  * Replay the durable session event stream into the active namespace set.
  *
  * Events are the source of truth: a `tool_activate` call whose result did not
@@ -178,51 +346,152 @@ export function resultIsError(data) {
  * Activating beyond the capacity evicts the least recently used namespace.
  * Returns the active namespaces oldest-first and every evicted namespace in
  * eviction order.
+ *
+ * @param events - the durable log to replay.
+ * @param capacity - how many namespaces stay active at once.
+ * @param patterns - the paging patterns that name a tool's namespace.
+ * @param failedCallIds - the failed callIds when the caller already folded them
+ *   ({@link erroredCallId}); omitted, this replay collects them itself.
+ * @param idleReclaimSteps - idle steps after which a namespace expires; 0 (the
+ *   default) keeps the historical resident-until-evicted behavior. Expiry is
+ *   applied only at activation touches and `compaction/end` boundaries.
  */
-export function replayActivations(events, capacity = DEFAULT_MAX_ACTIVE_NAMESPACES, patterns = DEFAULT_PAGED_TOOL_PATTERNS) {
+export function replayActivations(events, capacity = DEFAULT_MAX_ACTIVE_NAMESPACES, patterns = DEFAULT_PAGED_TOOL_PATTERNS, failedCallIds, idleReclaimSteps = DEFAULT_IDLE_RECLAIM_STEPS) {
   const list = Array.isArray(events) ? events : []
-  const errored = new Set()
-  for (const event of list) {
-    if (event?.type !== 'tool/result') continue
-    const callId = event.data?.message?.source?.callId ?? event.data?.callId
-    if (callId !== undefined && resultIsError(event.data)) errored.add(String(callId))
-  }
+  const errored = failedCallIds instanceof Set ? failedCallIds : failedCallIdsOf(list)
+  const fold = pagingFold(capacity, patterns, idleReclaimSteps, errored)
+  for (const event of list) fold.applyEvent(event)
+  return { active: fold.active, evicted: fold.evicted }
+}
 
-  const active = []
-  const evicted = []
-  const touch = (namespace) => {
-    const index = active.indexOf(namespace)
-    if (index >= 0) active.splice(index, 1)
-    active.push(namespace)
-    while (active.length > capacity) evicted.push(active.shift())
+/**
+ * Project one activation about to be recorded: fold the log as it stands, then
+ * apply the activation transition the next replay applies once the call lands
+ * in the stream. The activation tool reports from this projection, so its
+ * eviction/reclaim report and the page of the next assembly are one fact.
+ *
+ * @param events - the durable log, excluding the call being projected.
+ * @param capacity - how many namespaces stay active at once.
+ * @param patterns - the paging patterns that name a tool's namespace.
+ * @param namespace - the namespace this activation targets.
+ * @param idleReclaimSteps - the deferred-reclaim threshold, as the replay reads it.
+ * @param failedCallIds - the failed callIds when the caller already folded them.
+ * @returns wasActive (the target already resident before this call), the
+ *   post-activation active set oldest-first, and the namespaces THIS activation
+ *   evicted (LRU) or reclaimed (applied expiry), in removal order.
+ */
+export function projectActivation(events, capacity, patterns, namespace, idleReclaimSteps = DEFAULT_IDLE_RECLAIM_STEPS, failedCallIds) {
+  const list = Array.isArray(events) ? events : []
+  const errored = failedCallIds instanceof Set ? failedCallIds : failedCallIdsOf(list)
+  const fold = pagingFold(capacity, patterns, idleReclaimSteps, errored)
+  for (const event of list) fold.applyEvent(event)
+  const wasActive = fold.active.includes(namespace)
+  const evictedBefore = fold.evicted.length
+  const reclaimedBefore = fold.reclaimed.length
+  fold.activate(namespace)
+  return {
+    wasActive,
+    active: fold.active,
+    evicted: fold.evicted.slice(evictedBefore),
+    reclaimed: fold.reclaimed.slice(reclaimedBefore),
   }
-  for (const event of list) {
-    // Under the `ptc` presentation the wire carries `run_code` alone, so the model
-    // reaches `tool_activate` from inside a program and the harness records that as
-    // a `tool/ptc-dispatch` event — never as a top-level `tool/call`. Reading only
-    // `tool/call` therefore found no activation at all: every activation reported
-    // success, the page never lifted, and the same namespace could be activated
-    // again for ever. Both event shapes feed the same recency list, in the order
-    // the session recorded them.
-    if (event?.type === 'tool/ptc-dispatch') {
-      const dispatch = event.data
-      if (dispatch?.name !== TOOL_ACTIVATE_NAME || dispatch?.isError === true) continue
-      const namespace = callArguments(dispatch)?.namespace
-      if (typeof namespace === 'string' && namespace !== '') touch(namespace)
-      continue
+}
+
+/**
+ * The durable events of one session, tolerating both shapes a host exposes and
+ * an unreadable log.
+ *
+ * An event source that throws, or a session that exposes none, contributes an
+ * empty log: every projection in this preset is a fold over what is readable,
+ * and a step that cannot read the log still has to run — a resume that hits a
+ * broken snapshot loses the derived state for one step, not the request.
+ * @param session - Session-like record.
+ * @returns the session's events, never undefined.
+ */
+export function sessionEvents(session) {
+  if (Array.isArray(session?.events)) return session.events
+  if (typeof session?.snapshotEvents === 'function') {
+    try {
+      const snapshot = session.snapshotEvents()
+      if (Array.isArray(snapshot)) return snapshot
+    } catch {
+      // Unreadable log: fall through to the empty one.
     }
-    if (event?.type !== 'tool/call') continue
-    const data = event.data
-    if (data?.callId !== undefined && errored.has(String(data.callId))) continue
-    if (data?.name === TOOL_ACTIVATE_NAME) {
-      const namespace = callArguments(data)?.namespace
-      if (typeof namespace === 'string' && namespace !== '') touch(namespace)
-      continue
-    }
-    const namespace = namespaceOf(data?.name, patterns)
-    if (namespace !== undefined && active.includes(namespace)) touch(namespace)
   }
-  return { active, evicted }
+  return []
+}
+
+/** The text one message contributes, joined across its text blocks. */
+export function textOf(message) {
+  const blocks = Array.isArray(message?.content) ? message.content : []
+  return blocks
+    .filter(block => block?.type === 'text' && typeof block.text === 'string')
+    .map(block => block.text)
+    .join('\n')
+}
+
+/**
+ * The latest copy of one plugin's durable message that is still on the visible
+ * surface, plus whether the log carries one at all.
+ *
+ * Two facts a republishing decision needs, and they are different facts: a
+ * message the log holds is "published" even when a compaction shadowed it, and
+ * that is exactly the case where the copy has to travel again. Visibility is a
+ * position check against the live surface, so an array of nodes answers it with
+ * one scan instead of a Set built on every step.
+ * @param agent - agent scope whose session log and surface are read.
+ * @param matcher - predicate matching one durable message record.
+ * @returns the published flag plus the visible text, absent when none is visible.
+ */
+export function latestVisiblePluginMessage(agent, matcher) {
+  const session = agent?.session
+  if (typeof matcher !== 'function') return { published: false }
+  const events = sessionEvents(session)
+  const nodes = session?.surface?.nodes
+  let published = false
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index]
+    if (event?.type !== 'user/message' || !matcher(event.data)) continue
+    published = true
+    const visible = !Array.isArray(nodes) || typeof event.seq !== 'number' || nodes.lastIndexOf(event.seq) !== -1
+    if (visible) return { published, text: textOf(event.data) }
+  }
+  return { published }
+}
+
+/**
+ * Reconcile one plugin's durable step message against the decision a step just
+ * built: publish it when its text changed, keep an already-current copy in the
+ * admitted batch, and drop a stale copy when the published one is still on the
+ * visible surface.
+ *
+ * Three states decide the outcome, and the order they are read in is the
+ * behavior: the text this step wants, the text the log already shows, and the
+ * copy the harness put in the batch. A message is never published twice and
+ * never left twice.
+ *
+ * @param decision - the step decision the hook received.
+ * @param history - the visible published state, as the reader above returns it.
+ * @param candidate - the text this step wants on the wire, or undefined when the
+ *   step has nothing to say.
+ * @param createMessage - builds the durable message for this step; returning
+ *   nothing means this step has nothing to publish.
+ * @param isMatch - predicate recognizing this plugin's message.
+ * @returns the decision to hand back, unchanged when nothing moved.
+ */
+export function reconcileStepMessage(decision, history, candidate, createMessage, isMatch) {
+  const messages = Array.isArray(decision?.messages) ? decision.messages : undefined
+  if (messages === undefined || typeof isMatch !== 'function') return decision
+  const existing = messages.find(isMatch)
+  const drop = () => (existing === undefined
+    ? decision
+    : { ...decision, messages: messages.filter(message => message.id !== existing.id) })
+  if (candidate === undefined || history?.text === candidate) return drop()
+  if (existing !== undefined && textOf(existing) === candidate) return decision
+  const message = typeof createMessage === 'function' ? createMessage() : undefined
+  if (message === undefined || message === null) return drop()
+  if (existing === undefined) return { ...decision, messages: [...messages, message] }
+  return { ...decision, messages: messages.map(item => (item.id === existing.id ? message : item)) }
 }
 
 /**

@@ -84,11 +84,6 @@
     - id: web-ui-session-archive
       name: '@linxin666/dsh-session-archive'
 
-# from ../dsh-message-edit
-- insert:
-    - id: web-ui-message-edit
-      name: '@linxin666/dsh-client-ui-message-edit'
-
 # from ../dsh-win-bash
 - insert:
     - id: web-ui-win-bash
@@ -113,6 +108,8 @@
 # inactive by default (opt-in rows): these ship disabled; each is enabled per row in the
 # plugin manager, whose enable writes a user-layer "disabled: false" override that wins.
 - id: web-ui-agents
+  disabled: true
+- id: web-ui-browser-view
   disabled: true
 - id: web-ui-remote-bridge
   disabled: true

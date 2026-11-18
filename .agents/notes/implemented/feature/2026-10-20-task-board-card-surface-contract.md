@@ -20,17 +20,17 @@ Status and result badges read one filled slot per outcome: warn is the rest stat
 
 ### Disclosure
 
-Folding is one behaviour with one contract. A region row owns `aria-expanded`, an `aria-controls` id, `data-open`, the chevron, a one-line summary of what the closed region holds, a paired enter and exit animation (`dshTbRowsIn` / `dshTbRowsOut` on one easing and one duration pair, with reduced motion collapsing to opacity alone), an unmount only after the exit leg completes, and focus returned to the row when the body holding focus closes. The panel's folds, the dialog's regions, the execution log and the acceptance report all ride that one pair; the file declares one `@keyframes` pair.
+Folding is one behaviour with one contract. A region row owns `aria-expanded`, an `aria-controls` id, `data-open`, the chevron, a one-line summary of what the closed region holds, a paired enter and exit animation (`dshTbRowsIn` / `dshTbRowsOut` on one easing and one duration pair, with reduced motion collapsing to opacity alone), an unmount only after the exit leg completes, and focus returned to the row when the body holding focus closes. The panel's folds, the dialog's regions, and the execution log all ride that one pair (as did the former acceptance report before its [2026-11-11 removal](../simplification/2026-11-11-remove-task-board-goal-run-and-acceptance.md)); the file declares one `@keyframes` pair.
 
 ### Reading order and rhythm
 
-The panel is two tracks at a viewport of 1024px or wider — content on the left, how this run will run on the right — and one column in the same order below that. Workspace, preset, permission, model and reasoning effort stay visible; the four card-level switches fold into one "Advanced" row whose closed summary echoes the switches that are on. Scheduled runs and execution history are one fold row each, their summaries naming the state, and history lists five runs until it is expanded. Status moves are one menu, and the footer holds one primary, one ghost and one danger action with the created stamp between the primary and the danger.
+The panel is two tracks at a viewport of 1024px or wider — content on the left, how this run will run on the right — and one column in the same order below that. Workspace, preset, permission, model and reasoning effort stay visible; session reuse folds into one "Run Mode" row (`detail.settings.run`, unified from the initial "Advanced" title when the former `/goal` and skip-acceptance switches were removed in [2026-11-11](../simplification/2026-11-11-remove-task-board-goal-run-and-acceptance.md)) whose closed summary echoes whether it is on. Scheduled runs and execution history are one fold row each, their summaries naming the state, and history lists five runs until it is expanded. Status moves are one menu, and the footer holds one primary, one ghost and one danger action with the created stamp between the primary and the danger.
 
 Consecutive folds form a group (`.detailFolds`, 8px) rather than joining the 16px section rhythm, so a fold row is 30px and the pitch between two folds is 38px against 58px before the change.
 
 ## Testing
 
-`tests/responsive-css.spec.ts` parses the declarations and asserts each budget: the detail region's size set equals {12px, 13px, 15px}, the dialog region's {12px, 13px, 16px}, the markdown renderer's {12px, 13px, 16px}, the fold row box at 30px or less, the group gap at 12px or less, the fold pitch at 44px or less, one filled background per badge rule, no literal colour on a changed line, and one keyframe pair shared by the panel and the dialog legs. `tests/task-detail-panel.spec.tsx` asserts the reading structure: five runs until expanded, a closed fold whose summary echoes exactly the switches that are on, an acceptance report whose verdict badge precedes its detail, and the footer's three actions in order.
+`tests/responsive-css.spec.ts` parses the declarations and asserts each budget: the detail region's size set equals {12px, 13px, 15px}, the dialog region's {12px, 13px, 16px}, the markdown renderer's {12px, 13px, 16px}, the fold row box at 30px or less, the group gap at 12px or less, the fold pitch at 44px or less, one filled background per badge rule, no literal colour on a changed line, and one keyframe pair shared by the panel and the dialog legs. `tests/task-detail-panel.spec.tsx` asserts the reading structure: five runs until expanded, a closed fold whose summary echoes whether session reuse is on, and the footer's three actions in order.
 
 ## Alternatives considered
 
@@ -38,7 +38,7 @@ Folding the long explanations without shortening them was the first proposal, an
 
 Pure visual polish — spacing, colour and weight with no copy and no structure change — was rejected because the two loudest findings were structural: the repeated verification sentence lived in how the data was presented, and nine equal-weight buttons were an ordering defect rather than a spacing one.
 
-Folding the permission gate and the status badge into "Advanced" was rejected. A blocking confirmation and the card's current column are decisions a human acts on, and a disclosure in front of either turns a visible obligation into a hidden one.
+Folding the permission gate and the status badge into that switch row (historically titled "Advanced", renamed "Run Mode" in [2026-11-11](../simplification/2026-11-11-remove-task-board-goal-run-and-acceptance.md)) was rejected. A blocking confirmation and the card's current column are decisions a human acts on, and a disclosure in front of either turns a visible obligation into a hidden one.
 
 Re-recording the `test-standards` baseline instead of rewriting the assertions this rework introduced was rejected. The gate's `baseline -> current` counts showed ten tautological assertions, one title without a role, and six bodies without a stated precondition, all introduced by this work; re-recording would have frozen that debt and hidden it behind a green run.
 

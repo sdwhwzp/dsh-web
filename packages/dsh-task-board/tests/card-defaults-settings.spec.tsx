@@ -37,7 +37,7 @@ class StubEventSource {
 }
 
 /**
- * The model catalog the card reads through `api/task-board/verification`:
+ * The model catalog the card reads through `api/task-board/model-catalog`:
  * one provider whose model declares two levels, one model declaring a single
  * level, and one model declaring none at all.
  */
@@ -209,6 +209,37 @@ async function save(controller: TaskBoardSettingsCardController): Promise<void> 
 }
 
 describe('task-board settings: new-card defaults of the create dialog', () => {
+  it('operator gets model choices from a gateway that serves the legacy catalog route', async () => {
+    // Given a gateway with only the legacy catalog, when the card opens, then it offers that catalog's models.
+    const routes: string[] = []
+    globalWithFaces.fetch = async (route: string) => {
+      routes.push(route)
+      if (route === 'api/task-board/model-catalog') return { ok: false, status: 404 }
+      return { ok: true, json: async () => VERIFICATION }
+    }
+
+    const { container } = await renderCard()
+    openDefaultsTopic(container)
+
+    expect(routes).toEqual(['api/task-board/model-catalog', 'api/task-board/verification'])
+    expect(optionValues(container, MODEL_FIELD)).toContain('alpha/fast')
+  })
+
+  it('operator denied access to the model catalog makes no legacy request', async () => {
+    // Given a denied catalog request, when the card opens, then it shows no models and makes no fallback request.
+    const routes: string[] = []
+    globalWithFaces.fetch = async (route: string) => {
+      routes.push(route)
+      return { ok: false, status: 403 }
+    }
+
+    const { container } = await renderCard()
+    openDefaultsTopic(container)
+
+    expect(routes).toEqual(['api/task-board/model-catalog'])
+    expect(optionValues(container, MODEL_FIELD)).not.toContain('alpha/fast')
+  })
+
   it('operator saving the four prefills sees them committed in one batch', async () => {
     // Given a board that configures no new-card default at all
     const { container, ops, controller } = await renderCard({ presets: ROSTER })

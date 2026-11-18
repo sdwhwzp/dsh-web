@@ -4,7 +4,7 @@ Status: implemented
 
 Extended by [family settings cards carry an identity mark and one-line copy](./2026-10-01-family-settings-cards-identity-marks-and-copy.md): the two topic descriptions and the card's copy line are shortened, and the power-status lines become quiet small print; the disclosure layout itself is unchanged.
 
-Extended by [new-card defaults](./2026-10-14-task-board-new-card-defaults.md): the board's own options are three topic cards, the third carrying the four new-card default keys; the disclosure layout itself is unchanged.
+Extended by [new-card defaults](./2026-10-14-task-board-new-card-defaults.md) and narrowed by [Remove task-board /goal runs and goal acceptance](../simplification/2026-11-11-remove-task-board-goal-run-and-acceptance.md): after the Runtime behavior and Task acceptance topic cards were removed, the board's own options are two nested topic cards (Basics and New-card defaults) ahead of the provider seat; the disclosure layout itself is unchanged.
 
 ## Problem
 
@@ -25,16 +25,13 @@ The settings card is a list of collapsed topic cards, the layout the task form
 already uses ([task form regions](./2026-09-27-task-board-create-dialog-regions.md))
 applied to the settings surface.
 
-- The card's own options are three nested `PluginSettingsCard` disclosures — the
-  board and its runtime behavior (master switch, agent announcement, idle-sleep
-  protection, subtask depth), task acceptance (switch, judge model, reasoning
-  level, resolved preview) and the new-card defaults the third card of that list
-  carries ([new-card defaults](./2026-10-14-task-board-new-card-defaults.md)) —
+- The card's own options are two nested `PluginSettingsCard` disclosures —
+  Basics (master switch, agent announcement, idle-sleep
+  protection, forwarded-proxy trust, poll cadence, subtask depth, launch width, spend cap) and new-card defaults ([new-card defaults](./2026-10-14-task-board-new-card-defaults.md); the historical task-acceptance card was removed in [2026-11-11](../simplification/2026-11-11-remove-task-board-goal-run-and-acceptance.md)) —
   rendered into the same list (`board-settings.module.css` `.nestedCards`) that
-  already hosts the provider seat. The acceptance block's heading and divider are
-  gone: the card's own header names the topic.
-- Every one of the four starts collapsed (`defaultOpen={false}`), on the board
-  card's three topics and on the GitHub Issues section alike, so the settings page
+  already hosts the provider seat.
+- Every nested card starts collapsed (`defaultOpen={false}`), on the board
+  card's built-in topics and on the GitHub Issues section alike, so the settings page
   opens as a short topic list.
 - The nested cards carry `hideFooter`: they stage into the board card's one form
   and are written by its single save row, which stays the only save affordance.
@@ -46,8 +43,8 @@ applied to the settings surface.
 
 ### Copy
 
-`settings.enabledCardHint` and `settings.goalVerificationCardHint` are the two
-topic descriptions (zh and en in the package, ru mirrored in `packages/dsh-i18n`).
+`settings.enabledCardHint` and `settings.cardDefaultsCardBrief` are the built-in
+topic descriptions (zh and en in the package, ru mirrored in `packages/dsh-i18n`; the historical `settings.goalVerificationCardHint` key was removed with task acceptance).
 The long field hints stay on the fields they explain, so a collapsed header is
 one line of description.
 
@@ -73,22 +70,28 @@ from it.
 
 ## Consequences
 
-- The board card opens as four topic rows plus the power-status lines; each topic
+- The board card opens as its built-in topic rows plus provider seats and the power-status lines; each topic
   is one click away and keeps its own fields and hints.
 - The GitHub Issues section starts collapsed, so its repository and credential
   summary needs one click to read; it keeps its own save row for its own namespace.
   Inside that section the repository list is a second disclosure of its own
   (`setupDisclosure` in the extension stylesheet, collapsed on arrival): a
   deployment syncing several repositories showed every row at once and pushed the
-  credential form and the connection test off the column. A row is two lines - the
-  repository name with its take-unassigned and remove buttons beside it, and the
-  inclusion-label, assignee and unassigned chips wrapping on the line below -
-  because one line let the chips be ellipsised to `d...`/`@...` by the actions
-  sharing it (`setupRepositoryHead` / `setupRepositoryTags`). The toggle carries
-  `aria-expanded`/`aria-controls` and names the repository count in its accessible
-  label, and the rows leave the DOM while it is closed.
+  credential form and the connection test off the column. A row is one line - the
+  repository name (truncating with a title tooltip) followed by the inclusion-label
+  and assignee chips, a chip-shaped take-unassigned toggle (`aria-pressed`) and an
+  icon-only remove action; the chips never shrink, so a long label cannot squeeze
+  them into an ellipsis, and on a narrow column they wrap below the name as a group
+  (`setupRepositoryRow` / `setupRepositoryTags` / `setupUnassignedToggle`). The
+  take-unassigned toggle replaces the earlier separate button plus status chip that
+  stated the same fact twice. The disclosure carries `aria-expanded`/`aria-controls`
+  and names the repository count in its accessible label, and the rows leave the DOM
+  while it is closed.
 - The disclosure changed no stored value, wire field or ledger schema and added no
-  settings key of its own: only presentation and copy keys.
+  settings key of its own: only presentation and copy keys. The block's hint copy is
+  trimmed to one short line each (credential, proxy, token, repository rules); the two
+  switches keep their full explanation as the hint's title tooltip, so the detail stays
+  one hover away.
 - Coverage: `packages/dsh-task-board/tests/settings-card-disclosure.spec.tsx` drives
   the whole disclosure in jsdom (one header while collapsed, four collapsed
   topics after expanding, each topic's controls and the provider seat inside one
@@ -100,3 +103,6 @@ from it.
   (`tb-settings-topics-collapsed.png`, `tb-settings-board-topic-open.png`,
   `tb-settings-acceptance-topic-open.png`, plus the transcript). The user's own
   host was never restarted or re-bound; a page refresh picks the rebuilt bundle up.
+  The later single-line row / copy-trim simplification was captured before and after in
+  the user's own host (`packages/dsh-task-board-github/docs/e2e/gh-settings-before-top.png`,
+  `gh-settings-before-repos.png`, `gh-settings-after-top.png`, `gh-settings-after-repos.png`).

@@ -169,9 +169,13 @@ describe('the mounted plugin', () => {
   it('operator receives mutable Host answer arrays without changing the delegated answer snapshot', async () => {
     // Given an immutable delegated answer, When the Host edits its returned arrays, Then the bridge snapshot retains the original answer.
     const host = mountPlugin()
-    const original: QuestionAnswer = Object.freeze({ answers: Object.freeze([
-      Object.freeze({ id: 'q-1', selected: Object.freeze(['Alpha']), custom: 'detail' }),
-    ]) })
+    const original: QuestionAnswer = { answers: [{ id: 'q-1', selected: ['Alpha'], custom: 'detail' }] }
+    for (const item of original.answers) {
+      Object.freeze(item.selected)
+      Object.freeze(item)
+    }
+    Object.freeze(original.answers)
+    Object.freeze(original)
     const listener = host.listeners.get('user-questions/request') as (
       request: UserQuestionRequestLike,
       next: () => Promise<QuestionAnswer>,
@@ -194,7 +198,7 @@ describe('the mounted plugin', () => {
     await settle()
     // Then the answer came back out of the socket, as an unpaired connection
     expect(serverFrames(pair.serverBytes())).toEqual([
-      { t: 'res', id: 1, ok: true, r: { proto: 1, minor: 21, server: 'dsh-remote-bridge', capabilities: ['session.snapshot.trim.v1', 'session.snapshot.page.v1', 'questions.v1', 'questions.list.v1', 'subagent.thread.v1', 'jobs.v1', 'agents.v1', 'delta.v1', 'session.list.omit-archived.v1', 'session.deep-history.v1', 'frame.deflate.v1', 'session.list.compact.v1', 'session.snapshot.since.v1', 'session.fork.v1', 'commands.v1', 'workspace.v1', 'session.admin.v1', 'squads.v1', 'push.v1', 'usage.v1', 'usage.stats.v1', 'ui.v1', 'ui.list.v1'], resume: 'snapshot', auth: 'unpaired' } },
+      { t: 'res', id: 1, ok: true, r: { proto: 1, minor: 22, server: 'dsh-remote-bridge', capabilities: ['session.snapshot.trim.v1', 'session.snapshot.page.v1', 'questions.v1', 'questions.list.v1', 'subagent.thread.v1', 'jobs.v1', 'agents.v1', 'delta.v1', 'session.list.omit-archived.v1', 'session.deep-history.v1', 'frame.deflate.v1', 'session.list.compact.v1', 'session.snapshot.since.v1', 'session.fork.v1', 'commands.v1', 'workspace.v1', 'session.admin.v1', 'squads.v1', 'push.v1', 'usage.v1', 'usage.stats.v1', 'ui.v1', 'ui.list.v1', 'session.attachment.path.v1'], resume: 'snapshot', auth: 'unpaired' } },
     ])
   })
 
@@ -275,5 +279,18 @@ describe('the mounted plugin', () => {
     // Then nothing is left registered on the host web server
     expect(host.routes).toEqual([])
     expect(host.upgrades).toEqual([])
+  })
+
+  it('operator registers anonymous auth policy on self-fenced pairing HTTP and WebSocket routes', () => {
+    // Given a newly mounted remote-bridge host on a webServer that defaults routes to required auth
+    const host = mountPlugin()
+
+    // When inspecting the registered HTTP and WebSocket upgrade route descriptors
+    const routeAuth = host.routes.map((route) => (route as { readonly auth?: string }).auth)
+    const upgradeAuth = host.upgrades.map((route) => (route as { readonly auth?: string }).auth)
+
+    // Then both routes explicitly opt into anonymous access for the plugin's own fence
+    expect(routeAuth).toEqual(['anonymous'])
+    expect(upgradeAuth).toEqual(['anonymous'])
   })
 })

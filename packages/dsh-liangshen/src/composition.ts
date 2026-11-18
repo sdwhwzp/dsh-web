@@ -319,7 +319,15 @@ function parseMap(cursor: Cursor, indent: number): Record<string, unknown> {
       throw new CompositionError(`line ${String(cursor.index + 1)}: duplicate key "${entry.key}"`)
     }
     cursor.index += 1
-    map[entry.key] = parseValue(cursor, indent, entry.rest)
+    // Defined rather than assigned: a '__proto__' key is ordinary data here,
+    // and a plain assignment would rewrite the map's prototype instead of
+    // carrying the entry, letting a parsed document reach the prototype chain.
+    Object.defineProperty(map, entry.key, {
+      value: parseValue(cursor, indent, entry.rest),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    })
   }
   return map
 }
@@ -498,6 +506,32 @@ export interface PresetOverrides {
   presentation?: string
   /** The `minimal-prompt` row's `dispatcher` switch. */
   dispatcher?: boolean
+  /**
+   * Comma-separated on-demand tool families; written as an array to every row
+   * that pages from it (tool-catalog, tool-activate, working-context), skipped
+   * when blank or malformed.
+   */
+  pagedToolPatterns?: string
+  /**
+   * Deferred idle-reclaim threshold in steps; written to every row that pages
+   * from the list (tool-catalog, tool-activate, working-context), skipped when
+   * absent.
+   */
+  idleReclaimSteps?: number
+}
+
+/**
+ * Parse the on-demand tool family text: comma separated, each entry a prefix
+ * ending in exactly one trailing `*`.
+ * @param text - the settings text.
+ * @returns the pattern list, or undefined when the text is blank or any entry is malformed.
+ */
+export function parsePagedToolPatterns(text: string | undefined): string[] | undefined {
+  if (text === undefined) return undefined
+  const entries = text.split(',').map(entry => entry.trim()).filter(entry => entry !== '')
+  if (entries.length === 0) return undefined
+  const wellFormed = entries.every(entry => /^[^*]+\*$/.test(entry))
+  return wellFormed ? entries : undefined
 }
 
 /** One settings overlay entry: the row it targets and the config keys it writes. */
@@ -511,8 +545,25 @@ type OverrideTarget = readonly [string, Readonly<Record<string, unknown>>]
  * the assembled native roster remains the only surface.
  */
 function overrideTargets(overrides: PresetOverrides): OverrideTarget[] {
+  const paged = parsePagedToolPatterns(overrides.pagedToolPatterns)
+  // One pattern list reaches every row that pages from it. The three rows
+  // replay the same session log with the same patterns — the catalog installs
+  // the registry restriction, the activation tool answers against it, and
+  // working-context renders it — so a row left on its own default would
+  // disagree about what is active and could strand a withheld namespace.
+  const pagedPatch = () => (paged === undefined ? {} : { pagedToolPatterns: [...paged] })
+  // The reclaim threshold is the same kind of three-row fact: all three rows
+  // replay the log with it, so a row left on its own default would disagree
+  // about which namespaces are still active.
+  const idlePatch = () => (overrides.idleReclaimSteps === undefined ? {} : { idleReclaimSteps: overrides.idleReclaimSteps })
   return [
-    ['tool-catalog', { ...overrides.presentation === undefined ? {} : { presentation: overrides.presentation } }],
+    ['tool-catalog', {
+      ...overrides.presentation === undefined ? {} : { presentation: overrides.presentation },
+      ...pagedPatch(),
+      ...idlePatch(),
+    }],
+    ['tool-activate', { ...pagedPatch(), ...idlePatch() }],
+    ['working-context', { ...pagedPatch(), ...idlePatch() }],
     ['minimal-prompt', { ...overrides.dispatcher === undefined ? {} : { dispatcher: overrides.dispatcher } }],
   ]
 }

@@ -5,7 +5,7 @@ English | [中文](README.zh.md)
 <p align="center">
   <img src="https://img.shields.io/npm/v/@linxin666/dsh-i18n?style=flat-square" alt="Version">
   &nbsp;
-  <img src="https://img.shields.io/badge/DSH-%3E%3D0.2.2--rc.1-4c6ef5?style=flat-square&amp;labelColor=454a54" alt="DSH">
+  <img src="https://img.shields.io/badge/DSH-%3E%3D0.2.2--rc.3-4c6ef5?style=flat-square&amp;labelColor=454a54" alt="DSH">
   &nbsp;
   <img src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" alt="License">
 </p>
@@ -41,13 +41,12 @@ The plugin is a pure browser bundle (the host half intentionally has no behavior
 | `dsh-ssh` | dsh-ssh |
 | `task-board` | dsh-task-board |
 | `task-board-github` | dsh-task-board-github |
-| `update` | dsh-update |
 | `dsh-web-ui-usage` | dsh-usage |
 | `web-ui-plugins` | dsh-web-settings |
 
 ## Install
 
-Requires DSH 0.2.2-rc.1 or later: the plugin is developed against the 0.2.2-rc.1 DSH cohort and its `@deepseek-ai/*` runtime services are provided by the host itself.
+Requires DSH 0.2.2-rc.3 or later: the plugin is developed against the 0.2.2-rc.3 DSH cohort and its `@deepseek-ai/*` runtime services are provided by the host itself.
 
 In your profile (e.g. `~/.dsh/profiles/web`):
 
